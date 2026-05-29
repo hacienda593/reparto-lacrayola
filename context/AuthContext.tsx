@@ -24,41 +24,73 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [rol,     setRol]     = useState<Rol | null>(null)
   const [loading, setLoading] = useState(true)
 
-  async function cargarRol(userId: string) {
-    const { data } = await supabase
+  async function cargarRol(u: User) {
+    // 1. Buscar rol por user_id
+    const { data: rolData } = await supabase
       .from('rep_roles')
       .select('rol')
-      .eq('user_id', userId)
+      .eq('user_id', u.id)
       .single()
-    setRol((data?.rol as Rol) ?? null)
+
+    if (rolData) {
+      setRol(rolData.rol as Rol)
+      return
+    }
+
+    // 2. Si no tiene rol, buscar si su email está en rep_repartidores
+    const email = u.email ?? ''
+    const { data: rep } = await supabase
+      .from('rep_repartidores')
+      .select('id, email')
+      .eq('email', email)
+      .eq('activo', true)
+      .single()
+
+    if (rep) {
+      // El admin ya lo registró → crear rol automáticamente y vincular user_id
+      await supabase.from('rep_roles').insert({ user_id: u.id, rol: 'repartidor' })
+      await supabase.from('rep_repartidores').update({ user_id: u.id }).eq('id', rep.id)
+      setRol('repartidor')
+      return
+    }
+
+    // 3. No está autorizado
+    setRol(null)
   }
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session)
       setUser(data.session?.user ?? null)
-      if (data.session?.user) cargarRol(data.session.user.id)
-      setLoading(false)
+      if (data.session?.user) cargarRol(data.session.user)
+      else setLoading(false)
     })
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_e, session) => {
       setSession(session)
       setUser(session?.user ?? null)
-      if (session?.user) cargarRol(session.user.id)
-      else setRol(null)
+      if (session?.user) {
+        await cargarRol(session.user)
+      } else {
+        setRol(null)
+      }
+      setLoading(false)
     })
     return () => subscription.unsubscribe()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   async function loginGoogle() {
+    const redirectTo = `${process.env.NEXT_PUBLIC_SITE_URL ?? window.location.origin}/auth/callback`
     await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: `${window.location.origin}/auth/callback` },
+      options:  { redirectTo },
     })
   }
 
   async function logout() {
     await supabase.auth.signOut()
+    setRol(null)
   }
 
   return (
