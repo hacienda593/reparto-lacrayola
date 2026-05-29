@@ -13,5 +13,7 @@ export async function GET(req: NextRequest) {
     await supabase.auth.exchangeCodeForSession(code)
   }
 
-  return NextResponse.redirect(`${origin}/`)
+  // Siempre redirige al inicio del sistema de reparto
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || origin
+  return NextResponse.redirect(`${siteUrl}/`)
 }
