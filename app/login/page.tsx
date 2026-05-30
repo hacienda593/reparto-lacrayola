@@ -1,6 +1,5 @@
 'use client'
 import { useState } from 'react'
-import { supabase } from '@/lib/supabase'
 import { Loader2, Mail, Lock, Eye, EyeOff, AlertCircle } from 'lucide-react'
 import Link from 'next/link'
 
@@ -46,11 +45,17 @@ export default function LoginPage() {
       return
     }
 
-    // Establecer sesión en el cliente principal y recargar
-    await supabase.auth.setSession({
+    // Guardar sesión directo en localStorage sin pasar por GoTrueClient
+    const projectRef = process.env.NEXT_PUBLIC_SUPABASE_URL!
+      .replace('https://', '').split('.')[0]
+    localStorage.setItem(`sb-${projectRef}-auth-token`, JSON.stringify({
       access_token:  data.access_token,
       refresh_token: data.refresh_token,
-    })
+      expires_in:    data.expires_in,
+      expires_at:    Math.floor(Date.now() / 1000) + data.expires_in,
+      token_type:    data.token_type,
+      user:          data.user,
+    }))
     window.location.href = '/'
   }
 
