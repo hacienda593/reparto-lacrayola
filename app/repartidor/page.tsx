@@ -31,7 +31,7 @@ const EST_COLOR: Record<string, string> = {
 }
 
 export default function RepartidorPage() {
-  const { user, loading: authLoading } = useAuth()
+  const { user, estado: authEstado } = useAuth()
   const router = useRouter()
   const [pedidos,    setPedidos]    = useState<PedidoAsignado[]>([])
   const [cargando,   setCargando]   = useState(true)
@@ -76,10 +76,10 @@ export default function RepartidorPage() {
   }
 
   useEffect(() => {
-    if (authLoading) return
+    if (authEstado === 'cargando') return
     if (!user) { router.replace('/login'); return }
     cargar(user.id)
-  }, [user, authLoading])
+  }, [user, authEstado === 'cargando'])
 
   async function enRuta(asignacionId: string, pedidoId: string) {
     setProcesando(asignacionId)
@@ -151,7 +151,7 @@ export default function RepartidorPage() {
     setProcesando(null)
   }
 
-  if (authLoading || cargando) return (
+  if (authEstado === 'cargando' || cargando) return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50">
       <Loader2 size={28} className="animate-spin text-green-600" />
     </div>
@@ -178,7 +178,6 @@ export default function RepartidorPage() {
               className="w-9 h-9 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center transition">
               <UserCircle size={20} />
             </a>
-          </div>
           </div>
         </div>
         <div className="flex gap-3 pt-1">
