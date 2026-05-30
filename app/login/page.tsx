@@ -1,6 +1,6 @@
 'use client'
 import { useState } from 'react'
-import { supabase } from '@/lib/supabase'
+import { createClient } from '@supabase/supabase-js'
 import { Loader2, Mail, Lock, Eye, EyeOff, AlertCircle } from 'lucide-react'
 import Link from 'next/link'
 
@@ -18,16 +18,26 @@ export default function LoginPage() {
     setCargando(true)
     setError('')
 
-    // Limpiar sesión anterior del localStorage antes de intentar login
-    try {
-      const keys = Object.keys(localStorage).filter(k => k.startsWith('sb-'))
-      keys.forEach(k => localStorage.removeItem(k))
-    } catch {}
+    // Cliente nuevo sin estado previo — evita el lock del auto-refresh de sesiones anteriores
+    const loginClient = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { auth: { autoRefreshToken: false, detectSessionInUrl: false, storageKey: 'sb-login-temp' } }
+    )
 
-    const { error: err } = await supabase.auth.signInWithPassword({
+    const { data, error: err } = await loginClient.auth.signInWithPassword({
       email:    email.trim(),
       password: password,
     })
+
+    if (!err && data.session) {
+      // Guardar la sesión en el storage principal para que la app la encuentre al recargar
+      localStorage.setItem(
+        `sb-${process.env.NEXT_PUBLIC_SUPABASE_URL!.split('//')[1].split('.')[0]}-auth-token`,
+        JSON.stringify(data.session)
+      )
+      localStorage.removeItem('sb-login-temp')
+    }
 
     if (err) {
       setError(
