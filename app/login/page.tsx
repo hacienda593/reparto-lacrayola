@@ -40,8 +40,10 @@ export default function LoginPage() {
             : err
       )
       setCargando(false)
+      return
     }
-    // Si no hay error, el onAuthStateChange del AuthContext maneja la redirección
+    // Login exitoso: navegar directo sin esperar useEffect
+    router.replace(rol === 'repartidor' ? '/repartidor' : '/')
   }
 
   if (estado === 'cargando') return (
