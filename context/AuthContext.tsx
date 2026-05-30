@@ -1,5 +1,5 @@
 'use client'
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { User, Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import { Rol } from '@/lib/types'
@@ -34,6 +34,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [rol,          setRol]          = useState<Rol | null>(null)
   const [estado,       setEstado]       = useState<EstadoAcceso>('cargando')
   const [repartidorId, setRepartidorId] = useState<string | null>(null)
+  const loginActivo = useRef(false)
 
   async function cargarAcceso(u: User): Promise<{ estado: EstadoAcceso; rol: Rol | null }> {
     try {
@@ -101,18 +102,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_e, session) => {
       setSession(session)
       setUser(session?.user ?? null)
-      if (session?.user) await cargarAcceso(session.user)
-      else { setRol(null); setRepartidorId(null); setEstado('sin_sesion') }
+      if (session?.user) {
+        // Si login() ya está manejando cargarAcceso, no duplicar la llamada
+        if (!loginActivo.current) await cargarAcceso(session.user)
+      } else {
+        setRol(null); setRepartidorId(null); setEstado('sin_sesion')
+      }
     })
     return () => { subscription.unsubscribe(); clearTimeout(timeout) }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   async function login(email: string, password: string): Promise<{ error: string | null; estado: EstadoAcceso; rol: Rol | null }> {
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) return { error: error.message, estado: 'sin_sesion', rol: null }
-    const result = await cargarAcceso(data.user)
-    return { error: null, ...result }
+    loginActivo.current = true
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+      if (error) return { error: error.message, estado: 'sin_sesion', rol: null }
+      setSession(data.session)
+      setUser(data.user)
+      const result = await cargarAcceso(data.user)
+      return { error: null, ...result }
+    } finally {
+      loginActivo.current = false
+    }
   }
 
   async function logout() {

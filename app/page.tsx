@@ -97,7 +97,7 @@ export default function Home() {
     </div>
   )
 
-  if (!user || rol === 'repartidor') return null
+  if (estado !== 'autorizado' || !user || rol === 'repartidor') return null
 
   return (
     <div className="flex min-h-screen">
