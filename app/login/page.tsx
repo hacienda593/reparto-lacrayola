@@ -1,56 +1,125 @@
 'use client'
-import { useAuth } from '@/context/AuthContext'
-import { useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Loader2 } from 'lucide-react'
+import { useAuth } from '@/context/AuthContext'
+import { Loader2, Mail, Lock, Eye, EyeOff, AlertCircle } from 'lucide-react'
+import Link from 'next/link'
 
 export default function LoginPage() {
-  const { user, rol, loading, loginGoogle } = useAuth()
-  const router = useRouter()
+  const { estado, rol, login } = useAuth()
+  const router  = useRouter()
+
+  const [email,    setEmail]    = useState('')
+  const [password, setPassword] = useState('')
+  const [verPass,  setVerPass]  = useState(false)
+  const [cargando, setCargando] = useState(false)
+  const [error,    setError]    = useState('')
 
   useEffect(() => {
-    if (!loading && user && rol) router.replace('/')
-  }, [user, rol, loading, router])
+    if (estado === 'cargando') return
+    if (estado === 'autorizado') {
+      router.replace(rol === 'repartidor' ? '/repartidor' : '/')
+    }
+  }, [estado, rol, router])
 
-  if (loading) return (
-    <div className="min-h-screen flex items-center justify-center">
-      <Loader2 size={28} className="animate-spin text-green-600" />
+  async function ingresar(e: React.FormEvent) {
+    e.preventDefault()
+    if (!email.trim() || !password.trim()) { setError('Ingresa tu email y contraseña'); return }
+    setCargando(true); setError('')
+    const err = await login(email.trim(), password)
+    if (err) {
+      setError(
+        err.includes('Invalid login') || err.includes('invalid')
+          ? 'Email o contraseña incorrectos'
+          : err.includes('Email not confirmed')
+            ? 'Confirma tu email antes de ingresar'
+            : err
+      )
+      setCargando(false)
+    }
+    // Si no hay error, el onAuthStateChange del AuthContext maneja la redirección
+  }
+
+  if (estado === 'cargando') return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-900">
+      <Loader2 size={28} className="animate-spin text-green-500" />
     </div>
   )
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-800 to-slate-900 flex items-center justify-center px-4">
-      <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-sm space-y-6 text-center">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
 
-        <div className="space-y-2">
-          <div className="w-16 h-16 bg-green-600 rounded-2xl flex items-center justify-center text-3xl mx-auto shadow-lg">
+        {/* Header */}
+        <div className="bg-green-700 px-6 py-6 text-white text-center space-y-2">
+          <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center text-3xl mx-auto">
             🚚
           </div>
-          <h1 className="text-xl font-extrabold text-slate-800">Sistema de Reparto</h1>
-          <p className="text-sm text-slate-400">La Crayola · Librería & Papelería</p>
+          <h1 className="font-extrabold text-xl">Sistema de Reparto</h1>
+          <p className="text-green-200 text-xs">La Crayola · Librería & Papelería</p>
         </div>
 
-        <div className="bg-slate-50 rounded-xl p-4 space-y-1 text-left text-xs text-slate-500">
-          <p className="font-semibold text-slate-700">Acceso exclusivo para:</p>
-          <p>👑 Administradores</p>
-          <p>📋 Supervisores</p>
-          <p>🛵 Repartidores</p>
-        </div>
+        {/* Formulario */}
+        <form onSubmit={ingresar} className="p-6 space-y-4">
+          <div className="bg-slate-50 rounded-xl p-3 text-xs text-slate-500 space-y-1">
+            <p className="font-semibold text-slate-700">Acceso exclusivo para:</p>
+            <p>👑 Administradores &nbsp;·&nbsp; 📋 Supervisores &nbsp;·&nbsp; 🛵 Repartidores</p>
+          </div>
 
-        <button onClick={loginGoogle}
-          className="w-full flex items-center justify-center gap-3 border border-slate-200 hover:bg-slate-50 rounded-xl py-3 font-semibold text-slate-700 transition text-sm">
-          <svg className="w-5 h-5" viewBox="0 0 24 24">
-            <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-            <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-            <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/>
-            <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-          </svg>
-          Ingresar con Google
-        </button>
+          <div>
+            <label className="text-xs font-semibold text-slate-600 block mb-1">Email</label>
+            <div className="relative">
+              <Mail size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="email" value={email}
+                onChange={e => setEmail(e.target.value)}
+                placeholder="tu@email.com"
+                autoComplete="email"
+                className="w-full border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-sm focus:outline-none focus:border-green-500" />
+            </div>
+          </div>
 
-        <p className="text-[10px] text-slate-400">
+          <div>
+            <label className="text-xs font-semibold text-slate-600 block mb-1">Contraseña</label>
+            <div className="relative">
+              <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type={verPass ? 'text' : 'password'}
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder="••••••••"
+                autoComplete="current-password"
+                className="w-full border border-slate-200 rounded-xl pl-9 pr-10 py-2.5 text-sm focus:outline-none focus:border-green-500" />
+              <button type="button" onClick={() => setVerPass(v => !v)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                {verPass ? <EyeOff size={15} /> : <Eye size={15} />}
+              </button>
+            </div>
+          </div>
+
+          {error && (
+            <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5 text-xs text-red-600">
+              <AlertCircle size={13} className="shrink-0" /> {error}
+            </div>
+          )}
+
+          <button type="submit" disabled={cargando}
+            className="w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white font-bold py-3 rounded-xl transition text-sm">
+            {cargando ? <Loader2 size={16} className="animate-spin" /> : '🔑'}
+            {cargando ? 'Ingresando...' : 'Ingresar'}
+          </button>
+
+          <div className="text-center">
+            <Link href="/registrar"
+              className="text-xs text-green-600 hover:underline font-medium">
+              ¿Quieres ser repartidor? Regístrate aquí →
+            </Link>
+          </div>
+        </form>
+
+        <div className="px-6 pb-5 text-center text-[10px] text-slate-400">
           Solo cuentas autorizadas por el administrador pueden acceder.
-        </p>
+        </div>
       </div>
     </div>
   )

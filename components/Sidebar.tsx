@@ -4,7 +4,7 @@ import { usePathname } from 'next/navigation'
 import { useAuth } from '@/context/AuthContext'
 import {
   LayoutDashboard, Package, Users, Wallet,
-  ClipboardList, Settings, LogOut, Truck, Menu, X,
+  ClipboardList, Settings, LogOut, Truck, Menu, X, ShieldCheck,
 } from 'lucide-react'
 import { useState } from 'react'
 
@@ -15,6 +15,7 @@ const NAV = [
   { href: '/asignaciones',  label: 'Asignaciones',   icon: Truck,           roles: ['superadmin','admin','supervisor'] },
   { href: '/liquidaciones', label: 'Liquidaciones',  icon: Wallet,          roles: ['superadmin','admin','supervisor'] },
   { href: '/reportes',      label: 'Reportes',       icon: ClipboardList,   roles: ['superadmin','admin'] },
+  { href: '/usuarios',      label: 'Usuarios',       icon: ShieldCheck,     roles: ['superadmin'] },
   { href: '/configuracion', label: 'Configuración',  icon: Settings,        roles: ['superadmin'] },
 ]
 
