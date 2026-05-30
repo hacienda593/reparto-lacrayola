@@ -20,6 +20,10 @@ export default function LoginPage() {
     if (estado === 'autorizado') {
       router.replace(rol === 'repartidor' ? '/repartidor' : '/')
     }
+    // Si login tuvo éxito pero el usuario no tiene acceso, desbloquear el botón
+    if (estado === 'sin_rol' || estado === 'pendiente' || estado === 'rechazado') {
+      setCargando(false)
+    }
   }, [estado, rol, router])
 
   async function ingresar(e: React.FormEvent) {
