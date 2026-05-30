@@ -198,8 +198,8 @@ export default function RepartidoresPage() {
                       </div>
                       <div className="flex items-center gap-1.5">
                         {r.user_id
-                          ? <ShieldCheck size={14} className="text-green-500" title="Acceso vinculado" />
-                          : <ShieldCheck size={14} className="text-slate-300" title="Aún no ha ingresado" />
+                          ? <span title="Acceso vinculado"><ShieldCheck size={14} className="text-green-500" /></span>
+                          : <span title="Aún no ha ingresado"><ShieldCheck size={14} className="text-slate-300" /></span>
                         }
                         <button onClick={() => abrirEditar(r)}
                           className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-700 transition">
