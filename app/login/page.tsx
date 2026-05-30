@@ -1,5 +1,6 @@
 'use client'
 import { useState } from 'react'
+import { supabase } from '@/lib/supabase'
 import { Loader2, Mail, Lock, Eye, EyeOff, AlertCircle } from 'lucide-react'
 import Link from 'next/link'
 
@@ -17,21 +18,13 @@ export default function LoginPage() {
     setCargando(true)
     setError('')
 
-    // Llamada directa al API de Supabase — bypasea el GoTrueClient y sus locks internos
-    const res = await fetch(
-      `${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/token?grant_type=password`,
-      {
-        method:  'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        },
-        body: JSON.stringify({ email: email.trim(), password }),
-      }
-    )
-    const data = await res.json()
+    // Limpiar sesión local sin llamada a red — libera locks internos del GoTrueClient
+    await supabase.auth.signOut({ scope: 'local' })
 
-    const err = !res.ok ? { message: data.error_description || data.msg || 'Email o contraseña incorrectos' } : null
+    const { error: err } = await supabase.auth.signInWithPassword({
+      email:    email.trim(),
+      password: password,
+    })
 
     if (err) {
       setError(
@@ -45,17 +38,6 @@ export default function LoginPage() {
       return
     }
 
-    // Guardar sesión directo en localStorage sin pasar por GoTrueClient
-    const projectRef = process.env.NEXT_PUBLIC_SUPABASE_URL!
-      .replace('https://', '').split('.')[0]
-    localStorage.setItem(`sb-${projectRef}-auth-token`, JSON.stringify({
-      access_token:  data.access_token,
-      refresh_token: data.refresh_token,
-      expires_in:    data.expires_in,
-      expires_at:    Math.floor(Date.now() / 1000) + data.expires_in,
-      token_type:    data.token_type,
-      user:          data.user,
-    }))
     window.location.href = '/'
   }
 
