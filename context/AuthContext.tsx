@@ -75,6 +75,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [repartidorId, setRepartidorId] = useState<string | null>(null)
 
   useEffect(() => {
+    // En login y registrar no hacer nada — evita que el auto-refresh tome el lock
+    // e impida que signInWithPassword funcione
+    const path = window.location.pathname
+    if (path === '/login' || path === '/registrar') {
+      setEstado('sin_sesion')
+      return
+    }
+
     let montado = true
 
     supabase.auth.getSession().then(async ({ data }) => {
@@ -94,7 +102,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const u = session?.user ?? null
       setUser(u)
       if (!u) { setRol(null); setRepartidorId(null); setEstado('sin_sesion'); return }
-      // Solo re-evaluar en eventos reales, no en el INITIAL_SESSION (ya lo maneja getSession)
       if (event === 'INITIAL_SESSION') return
       const res = await resolverAcceso(u)
       if (!montado) return
