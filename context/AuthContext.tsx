@@ -36,48 +36,52 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [repartidorId, setRepartidorId] = useState<string | null>(null)
 
   async function cargarAcceso(u: User) {
-    // 1. Buscar rol por user_id
-    const { data: rolData } = await supabase
-      .from('rep_roles')
-      .select('rol, activo')
-      .eq('user_id', u.id)
-      .single()
+    try {
+      // 1. Buscar rol por user_id
+      const { data: rolData } = await supabase
+        .from('rep_roles')
+        .select('rol, activo')
+        .eq('user_id', u.id)
+        .single()
 
-    if (rolData?.activo) {
-      setRol(rolData.rol as Rol)
-      setEstado('autorizado')
-      if (rolData.rol === 'repartidor') {
-        const { data: rep } = await supabase
-          .from('rep_repartidores')
-          .select('id')
-          .eq('user_id', u.id)
-          .single()
-        setRepartidorId(rep?.id ?? null)
+      if (rolData?.activo) {
+        setRol(rolData.rol as Rol)
+        setEstado('autorizado')
+        if (rolData.rol === 'repartidor') {
+          const { data: rep } = await supabase
+            .from('rep_repartidores')
+            .select('id')
+            .eq('user_id', u.id)
+            .single()
+          setRepartidorId(rep?.id ?? null)
+        }
+        return
       }
-      return
+
+      // 2. Buscar por email en rep_repartidores
+      const { data: rep } = await supabase
+        .from('rep_repartidores')
+        .select('id, estado_registro, activo')
+        .eq('email', u.email ?? '')
+        .single()
+
+      if (!rep)                                    { setEstado('sin_rol');   return }
+      if (rep.estado_registro === 'rechazado')     { setEstado('rechazado'); return }
+      if (rep.estado_registro === 'pendiente')     { setEstado('pendiente'); return }
+
+      if (rep.estado_registro === 'aprobado' && rep.activo) {
+        await supabase.from('rep_roles').upsert({ user_id: u.id, rol: 'repartidor', activo: true })
+        await supabase.from('rep_repartidores').update({ user_id: u.id }).eq('id', rep.id)
+        setRol('repartidor')
+        setRepartidorId(rep.id)
+        setEstado('autorizado')
+        return
+      }
+
+      setEstado('sin_rol')
+    } catch {
+      setEstado('sin_rol')
     }
-
-    // 2. Buscar por email en rep_repartidores
-    const { data: rep } = await supabase
-      .from('rep_repartidores')
-      .select('id, estado_registro, activo')
-      .eq('email', u.email ?? '')
-      .single()
-
-    if (!rep)                                    { setEstado('sin_rol');   return }
-    if (rep.estado_registro === 'rechazado')     { setEstado('rechazado'); return }
-    if (rep.estado_registro === 'pendiente')     { setEstado('pendiente'); return }
-
-    if (rep.estado_registro === 'aprobado' && rep.activo) {
-      await supabase.from('rep_roles').upsert({ user_id: u.id, rol: 'repartidor', activo: true })
-      await supabase.from('rep_repartidores').update({ user_id: u.id }).eq('id', rep.id)
-      setRol('repartidor')
-      setRepartidorId(rep.id)
-      setEstado('autorizado')
-      return
-    }
-
-    setEstado('sin_rol')
   }
 
   useEffect(() => {
