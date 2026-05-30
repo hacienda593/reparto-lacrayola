@@ -1,6 +1,6 @@
 'use client'
 import { useState } from 'react'
-import { createClient } from '@supabase/supabase-js'
+import { supabase } from '@/lib/supabase'
 import { Loader2, Mail, Lock, Eye, EyeOff, AlertCircle } from 'lucide-react'
 import Link from 'next/link'
 
@@ -18,26 +18,21 @@ export default function LoginPage() {
     setCargando(true)
     setError('')
 
-    // Cliente nuevo sin estado previo — evita el lock del auto-refresh de sesiones anteriores
-    const loginClient = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      { auth: { autoRefreshToken: false, detectSessionInUrl: false, storageKey: 'sb-login-temp' } }
+    // Llamada directa al API de Supabase — bypasea el GoTrueClient y sus locks internos
+    const res = await fetch(
+      `${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/token?grant_type=password`,
+      {
+        method:  'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        },
+        body: JSON.stringify({ email: email.trim(), password }),
+      }
     )
+    const data = await res.json()
 
-    const { data, error: err } = await loginClient.auth.signInWithPassword({
-      email:    email.trim(),
-      password: password,
-    })
-
-    if (!err && data.session) {
-      // Guardar la sesión en el storage principal para que la app la encuentre al recargar
-      localStorage.setItem(
-        `sb-${process.env.NEXT_PUBLIC_SUPABASE_URL!.split('//')[1].split('.')[0]}-auth-token`,
-        JSON.stringify(data.session)
-      )
-      localStorage.removeItem('sb-login-temp')
-    }
+    const err = !res.ok ? { message: data.error_description || data.msg || 'Email o contraseña incorrectos' } : null
 
     if (err) {
       setError(
@@ -51,7 +46,11 @@ export default function LoginPage() {
       return
     }
 
-    // Login exitoso — full reload para cargar sesión limpia
+    // Establecer sesión en el cliente principal y recargar
+    await supabase.auth.setSession({
+      access_token:  data.access_token,
+      refresh_token: data.refresh_token,
+    })
     window.location.href = '/'
   }
 
