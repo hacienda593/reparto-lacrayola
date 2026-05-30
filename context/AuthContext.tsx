@@ -87,10 +87,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   useEffect(() => {
-    // Timeout de seguridad: si en 8s no se resuelve el estado, forzar sin_sesion
+    // Timeout de seguridad: si en 3s no se resuelve el estado, forzar sin_sesion
     const timeout = setTimeout(() => {
       setEstado(e => e === 'cargando' ? 'sin_sesion' : e)
-    }, 8000)
+    }, 3000)
 
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session)
@@ -114,9 +114,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   async function login(email: string, password: string): Promise<string | null> {
+    // Limpiar sesión anterior para evitar conflictos en localStorage
+    await supabase.auth.signOut()
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) return error.message
-    // Full reload: elimina todo estado en memoria, carga limpio con la nueva sesión
     window.location.href = '/'
     return null
   }
