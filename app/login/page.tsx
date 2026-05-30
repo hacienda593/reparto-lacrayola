@@ -18,6 +18,12 @@ export default function LoginPage() {
     setCargando(true)
     setError('')
 
+    // Limpiar sesión anterior del localStorage antes de intentar login
+    try {
+      const keys = Object.keys(localStorage).filter(k => k.startsWith('sb-'))
+      keys.forEach(k => localStorage.removeItem(k))
+    } catch {}
+
     const { error: err } = await supabase.auth.signInWithPassword({
       email:    email.trim(),
       password: password,
