@@ -48,46 +48,54 @@ export default function RegistrarPage() {
 
   async function registrar() {
     setGuardando(true); setError('')
+    try {
+      // 1. Verificar que el email no esté ya registrado
+      const { data: existente } = await supabase
+        .from('rep_repartidores')
+        .select('id, estado_registro')
+        .eq('email', form.email.trim())
+        .single()
 
-    // 1. Verificar que el email no esté ya registrado
-    const { data: existente } = await supabase
-      .from('rep_repartidores')
-      .select('id, estado_registro')
-      .eq('email', form.email.trim())
-      .single()
+      if (existente) {
+        if (existente.estado_registro === 'pendiente') { setEnviado(true); return }
+        if (existente.estado_registro === 'aprobado')  { setError('Este email ya tiene una cuenta activa'); return }
+      }
 
-    if (existente) {
-      if (existente.estado_registro === 'pendiente') { setEnviado(true); setGuardando(false); return }
-      if (existente.estado_registro === 'aprobado')  { setError('Este email ya tiene una cuenta activa'); setGuardando(false); return }
+      // 2. Crear cuenta en Supabase Auth
+      const { data: authData, error: authErr } = await supabase.auth.signUp({
+        email:    form.email.trim(),
+        password: form.password,
+        options:  { emailRedirectTo: undefined },
+      })
+
+      if (authErr) { setError(authErr.message); return }
+
+      // 3. Registrar en rep_repartidores como pendiente
+      const { error: repErr } = await supabase.from('rep_repartidores').insert({
+        user_id:         authData.user?.id ?? null,
+        nombre:          form.nombre.trim(),
+        cedula:          form.cedula.trim(),
+        telefono:        form.telefono.trim(),
+        email:           form.email.trim(),
+        vehiculo:        form.vehiculo,
+        placa:           form.placa.trim() || null,
+        zona_principal:  form.zona_principal.trim() || null,
+        observaciones:   form.observaciones.trim() || null,
+        activo:          false,
+        estado_registro: 'pendiente',
+      })
+
+      if (repErr) { setError(repErr.message); return }
+
+      // 4. Cerrar la sesión recién creada — no debe quedar logueado tras registrarse
+      await supabase.auth.signOut()
+
+      setEnviado(true)
+    } catch (e: any) {
+      setError(e?.message ?? 'Error inesperado, intenta de nuevo')
+    } finally {
+      setGuardando(false)
     }
-
-    // 2. Crear cuenta en Supabase Auth con email + contraseña
-    const { data: authData, error: authErr } = await supabase.auth.signUp({
-      email:    form.email.trim(),
-      password: form.password,
-    })
-
-    if (authErr) { setError(authErr.message); setGuardando(false); return }
-
-    // 3. Registrar en rep_repartidores como pendiente
-    const { error: repErr } = await supabase.from('rep_repartidores').insert({
-      user_id:         authData.user?.id ?? null,
-      nombre:          form.nombre.trim(),
-      cedula:          form.cedula.trim(),
-      telefono:        form.telefono.trim(),
-      email:           form.email.trim(),
-      vehiculo:        form.vehiculo,
-      placa:           form.placa.trim() || null,
-      zona_principal:  form.zona_principal.trim() || null,
-      observaciones:   form.observaciones.trim() || null,
-      activo:          false,
-      estado_registro: 'pendiente',
-    })
-
-    if (repErr) { setError(repErr.message); setGuardando(false); return }
-
-    setEnviado(true)
-    setGuardando(false)
   }
 
   // ── Pantalla de éxito ──
