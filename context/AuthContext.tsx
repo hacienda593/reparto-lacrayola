@@ -4,77 +4,118 @@ import { User, Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import { Rol } from '@/lib/types'
 
+export type EstadoAcceso =
+  | 'cargando'
+  | 'sin_sesion'
+  | 'sin_rol'           // logueado pero no está en ninguna tabla
+  | 'pendiente'         // se registró como repartidor, esperando aprobación
+  | 'rechazado'         // admin rechazó su solicitud
+  | 'autorizado'        // tiene rol y está aprobado
+
 interface AuthCtx {
-  user:    User | null
-  session: Session | null
-  rol:     Rol | null
-  loading: boolean
-  loginGoogle: () => Promise<void>
-  logout:      () => Promise<void>
+  user:         User | null
+  session:      Session | null
+  rol:          Rol | null
+  estado:       EstadoAcceso
+  repartidorId: string | null   // id en rep_repartidores si aplica
+  loginGoogle:  () => Promise<void>
+  logout:       () => Promise<void>
 }
 
 const Ctx = createContext<AuthCtx>({
-  user: null, session: null, rol: null, loading: true,
+  user: null, session: null, rol: null,
+  estado: 'cargando', repartidorId: null,
   loginGoogle: async () => {}, logout: async () => {},
 })
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user,    setUser]    = useState<User | null>(null)
-  const [session, setSession] = useState<Session | null>(null)
-  const [rol,     setRol]     = useState<Rol | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [user,         setUser]         = useState<User | null>(null)
+  const [session,      setSession]      = useState<Session | null>(null)
+  const [rol,          setRol]          = useState<Rol | null>(null)
+  const [estado,       setEstado]       = useState<EstadoAcceso>('cargando')
+  const [repartidorId, setRepartidorId] = useState<string | null>(null)
 
-  async function cargarRol(u: User) {
+  async function cargarAcceso(u: User) {
     // 1. Buscar rol por user_id
     const { data: rolData } = await supabase
       .from('rep_roles')
-      .select('rol')
+      .select('rol, activo')
       .eq('user_id', u.id)
       .single()
 
-    if (rolData) {
+    if (rolData?.activo) {
       setRol(rolData.rol as Rol)
+      setEstado('autorizado')
+
+      // Si es repartidor, cargar su rep_repartidores.id
+      if (rolData.rol === 'repartidor') {
+        const { data: rep } = await supabase
+          .from('rep_repartidores')
+          .select('id')
+          .eq('user_id', u.id)
+          .single()
+        setRepartidorId(rep?.id ?? null)
+      }
       return
     }
 
-    // 2. Si no tiene rol, buscar si su email está en rep_repartidores
-    const email = u.email ?? ''
+    // 2. Buscar por email en rep_repartidores
     const { data: rep } = await supabase
       .from('rep_repartidores')
-      .select('id, email')
-      .eq('email', email)
-      .eq('activo', true)
+      .select('id, estado_registro, activo')
+      .eq('email', u.email ?? '')
       .single()
 
-    if (rep) {
-      // El admin ya lo registró → crear rol automáticamente y vincular user_id
-      await supabase.from('rep_roles').insert({ user_id: u.id, rol: 'repartidor' })
-      await supabase.from('rep_repartidores').update({ user_id: u.id }).eq('id', rep.id)
-      setRol('repartidor')
+    if (!rep) {
+      // No está en ninguna tabla → sin rol
+      setEstado('sin_rol')
       return
     }
 
-    // 3. No está autorizado
-    setRol(null)
+    if (rep.estado_registro === 'rechazado') {
+      setEstado('rechazado')
+      return
+    }
+
+    if (rep.estado_registro === 'pendiente') {
+      setEstado('pendiente')
+      return
+    }
+
+    if (rep.estado_registro === 'aprobado' && rep.activo) {
+      // Aprobado pero aún no tiene rep_roles → crear ahora
+      await supabase.from('rep_roles').upsert({ user_id: u.id, rol: 'repartidor', activo: true })
+      await supabase.from('rep_repartidores').update({ user_id: u.id }).eq('id', rep.id)
+      setRol('repartidor')
+      setRepartidorId(rep.id)
+      setEstado('autorizado')
+      return
+    }
+
+    setEstado('sin_rol')
   }
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session)
       setUser(data.session?.user ?? null)
-      if (data.session?.user) cargarRol(data.session.user)
-      else setLoading(false)
+      if (data.session?.user) {
+        cargarAcceso(data.session.user)
+      } else {
+        setEstado('sin_sesion')
+      }
     })
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_e, session) => {
       setSession(session)
       setUser(session?.user ?? null)
       if (session?.user) {
-        await cargarRol(session.user)
+        await cargarAcceso(session.user)
       } else {
         setRol(null)
+        setRepartidorId(null)
+        setEstado('sin_sesion')
       }
-      setLoading(false)
     })
     return () => subscription.unsubscribe()
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -82,19 +123,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   async function loginGoogle() {
     const redirectTo = `${process.env.NEXT_PUBLIC_SITE_URL ?? window.location.origin}/auth/callback`
-    await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options:  { redirectTo },
-    })
+    await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo } })
   }
 
   async function logout() {
     await supabase.auth.signOut()
     setRol(null)
+    setRepartidorId(null)
+    setEstado('sin_sesion')
   }
 
   return (
-    <Ctx.Provider value={{ user, session, rol, loading, loginGoogle, logout }}>
+    <Ctx.Provider value={{ user, session, rol, estado, repartidorId, loginGoogle, logout }}>
       {children}
     </Ctx.Provider>
   )

@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '@/context/AuthContext'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
-import { Loader2, MapPin, CheckCircle, Package, Phone, Navigation, Camera, DollarSign } from 'lucide-react'
+import { Loader2, MapPin, CheckCircle, Package, Phone, Navigation, DollarSign, UserCircle } from 'lucide-react'
 
 function fmt(n: number) { return '$' + (n ?? 0).toFixed(2) }
 
@@ -169,9 +169,16 @@ export default function RepartidorPage() {
             <p className="text-green-200 text-xs">Hola,</p>
             <h1 className="text-xl font-extrabold">{repartidor?.nombre ?? 'Repartidor'}</h1>
           </div>
-          <div className="text-right">
-            <div className="text-xs text-green-200">A cobrar hoy</div>
-            <div className="text-lg font-extrabold">{fmt(totalACobrar)}</div>
+          <div className="flex items-center gap-3">
+            <div className="text-right">
+              <div className="text-xs text-green-200">A cobrar hoy</div>
+              <div className="text-lg font-extrabold">{fmt(totalACobrar)}</div>
+            </div>
+            <a href="/repartidor/perfil"
+              className="w-9 h-9 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center transition">
+              <UserCircle size={20} />
+            </a>
+          </div>
           </div>
         </div>
         <div className="flex gap-3 pt-1">
@@ -237,6 +244,12 @@ export default function RepartidorPage() {
                     📝 {p.notas}
                   </div>
                 )}
+
+                {/* Botón lista de compras */}
+                <a href={`/repartidor/picking/${p.pedido_id}`}
+                  className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold px-3 py-2 rounded-xl text-xs transition">
+                  🛒 Ver lista de compras por tienda
+                </a>
 
                 {p.geo_lat && p.geo_lng && (
                   <a
