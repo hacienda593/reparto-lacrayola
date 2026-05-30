@@ -85,11 +85,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   useEffect(() => {
+    // Timeout de seguridad: si en 8s no se resuelve el estado, forzar sin_sesion
+    const timeout = setTimeout(() => {
+      setEstado(e => e === 'cargando' ? 'sin_sesion' : e)
+    }, 8000)
+
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session)
       setUser(data.session?.user ?? null)
-      if (data.session?.user) cargarAcceso(data.session.user)
-      else setEstado('sin_sesion')
+      if (data.session?.user) cargarAcceso(data.session.user).finally(() => clearTimeout(timeout))
+      else { setEstado('sin_sesion'); clearTimeout(timeout) }
     })
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_e, session) => {
@@ -98,7 +103,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (session?.user) await cargarAcceso(session.user)
       else { setRol(null); setRepartidorId(null); setEstado('sin_sesion') }
     })
-    return () => subscription.unsubscribe()
+    return () => { subscription.unsubscribe(); clearTimeout(timeout) }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
