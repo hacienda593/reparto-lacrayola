@@ -1,69 +1,54 @@
 'use client'
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
-import { useAuth } from '@/context/AuthContext'
+import { useState } from 'react'
+import { supabase } from '@/lib/supabase'
 import { Loader2, Mail, Lock, Eye, EyeOff, AlertCircle } from 'lucide-react'
 import Link from 'next/link'
 
 export default function LoginPage() {
-  const { estado, rol, login } = useAuth()
-  const router  = useRouter()
-
   const [email,    setEmail]    = useState('')
   const [password, setPassword] = useState('')
   const [verPass,  setVerPass]  = useState(false)
   const [cargando, setCargando] = useState(false)
   const [error,    setError]    = useState('')
 
-  useEffect(() => {
-    if (estado === 'cargando') return
-    if (estado === 'autorizado') {
-      router.replace(rol === 'repartidor' ? '/repartidor' : '/')
-    }
-    // Si login tuvo éxito pero el usuario no tiene acceso, desbloquear el botón
-    if (estado === 'sin_rol' || estado === 'pendiente' || estado === 'rechazado') {
-      setCargando(false)
-    }
-  }, [estado, rol, router])
-
   async function ingresar(e: React.FormEvent) {
     e.preventDefault()
     if (!email.trim() || !password.trim()) { setError('Ingresa tu email y contraseña'); return }
-    setCargando(true); setError('')
-    const err = await login(email.trim(), password)
+
+    setCargando(true)
+    setError('')
+
+    const { error: err } = await supabase.auth.signInWithPassword({
+      email:    email.trim(),
+      password: password,
+    })
+
     if (err) {
       setError(
-        err.includes('Invalid login') || err.includes('invalid')
+        err.message.includes('Invalid login') || err.message.includes('invalid')
           ? 'Email o contraseña incorrectos'
-          : err.includes('Email not confirmed')
+          : err.message.includes('Email not confirmed')
             ? 'Confirma tu email antes de ingresar'
-            : err
+            : err.message
       )
       setCargando(false)
+      return
     }
-    // Si no hay error, login() hace window.location.href='/' y recarga la página
-  }
 
-  if (estado === 'cargando') return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-900">
-      <Loader2 size={28} className="animate-spin text-green-500" />
-    </div>
-  )
+    // Login exitoso — full reload para cargar sesión limpia
+    window.location.href = '/'
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-800 to-slate-900 flex items-center justify-center px-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
 
-        {/* Header */}
         <div className="bg-green-700 px-6 py-6 text-white text-center space-y-2">
-          <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center text-3xl mx-auto">
-            🚚
-          </div>
+          <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center text-3xl mx-auto">🚚</div>
           <h1 className="font-extrabold text-xl">Sistema de Reparto</h1>
           <p className="text-green-200 text-xs">La Crayola · Librería & Papelería</p>
         </div>
 
-        {/* Formulario */}
         <form onSubmit={ingresar} className="p-6 space-y-4">
           <div className="bg-slate-50 rounded-xl p-3 text-xs text-slate-500 space-y-1">
             <p className="font-semibold text-slate-700">Acceso exclusivo para:</p>
@@ -114,8 +99,7 @@ export default function LoginPage() {
           </button>
 
           <div className="text-center">
-            <Link href="/registrar"
-              className="text-xs text-green-600 hover:underline font-medium">
+            <Link href="/registrar" className="text-xs text-green-600 hover:underline font-medium">
               ¿Quieres ser repartidor? Regístrate aquí →
             </Link>
           </div>

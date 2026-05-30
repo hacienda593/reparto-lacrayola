@@ -1,6 +1,6 @@
 'use client'
-import { createContext, useContext, useEffect, useRef, useState } from 'react'
-import { User, Session } from '@supabase/supabase-js'
+import { createContext, useContext, useEffect, useState } from 'react'
+import { User } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import { Rol } from '@/lib/types'
 
@@ -14,121 +14,105 @@ export type EstadoAcceso =
 
 interface AuthCtx {
   user:         User | null
-  session:      Session | null
   rol:          Rol | null
   estado:       EstadoAcceso
   repartidorId: string | null
-  login:        (email: string, password: string) => Promise<string | null>
   logout:       () => Promise<void>
 }
 
 const Ctx = createContext<AuthCtx>({
-  user: null, session: null, rol: null,
-  estado: 'cargando', repartidorId: null,
-  login: async () => null, logout: async () => {},
+  user: null, rol: null, estado: 'cargando', repartidorId: null,
+  logout: async () => {},
 })
+
+async function resolverAcceso(u: User): Promise<{
+  estado: EstadoAcceso; rol: Rol | null; repartidorId: string | null
+}> {
+  try {
+    const { data: rolData } = await supabase
+      .from('rep_roles')
+      .select('rol, activo')
+      .eq('user_id', u.id)
+      .single()
+
+    if (rolData?.activo) {
+      const r = rolData.rol as Rol
+      let repartidorId: string | null = null
+      if (r === 'repartidor') {
+        const { data: rep } = await supabase
+          .from('rep_repartidores').select('id').eq('user_id', u.id).single()
+        repartidorId = rep?.id ?? null
+      }
+      return { estado: 'autorizado', rol: r, repartidorId }
+    }
+
+    const { data: rep } = await supabase
+      .from('rep_repartidores')
+      .select('id, estado_registro, activo')
+      .eq('email', u.email ?? '')
+      .single()
+
+    if (!rep)                                { return { estado: 'sin_rol',   rol: null, repartidorId: null } }
+    if (rep.estado_registro === 'rechazado') { return { estado: 'rechazado', rol: null, repartidorId: null } }
+    if (rep.estado_registro === 'pendiente') { return { estado: 'pendiente', rol: null, repartidorId: null } }
+
+    if (rep.estado_registro === 'aprobado' && rep.activo) {
+      await supabase.from('rep_roles').upsert({ user_id: u.id, rol: 'repartidor', activo: true })
+      await supabase.from('rep_repartidores').update({ user_id: u.id }).eq('id', rep.id)
+      return { estado: 'autorizado', rol: 'repartidor', repartidorId: rep.id }
+    }
+
+    return { estado: 'sin_rol', rol: null, repartidorId: null }
+  } catch {
+    return { estado: 'sin_rol', rol: null, repartidorId: null }
+  }
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user,         setUser]         = useState<User | null>(null)
-  const [session,      setSession]      = useState<Session | null>(null)
   const [rol,          setRol]          = useState<Rol | null>(null)
   const [estado,       setEstado]       = useState<EstadoAcceso>('cargando')
   const [repartidorId, setRepartidorId] = useState<string | null>(null)
-  const loginActivo = useRef(false)
-
-  async function cargarAcceso(u: User): Promise<{ estado: EstadoAcceso; rol: Rol | null }> {
-    try {
-      const { data: rolData } = await supabase
-        .from('rep_roles')
-        .select('rol, activo')
-        .eq('user_id', u.id)
-        .single()
-
-      if (rolData?.activo) {
-        const r = rolData.rol as Rol
-        setRol(r)
-        setEstado('autorizado')
-        if (r === 'repartidor') {
-          const { data: rep } = await supabase
-            .from('rep_repartidores')
-            .select('id')
-            .eq('user_id', u.id)
-            .single()
-          setRepartidorId(rep?.id ?? null)
-        }
-        return { estado: 'autorizado', rol: r }
-      }
-
-      const { data: rep } = await supabase
-        .from('rep_repartidores')
-        .select('id, estado_registro, activo')
-        .eq('email', u.email ?? '')
-        .single()
-
-      if (!rep)                                { setEstado('sin_rol');   return { estado: 'sin_rol',   rol: null } }
-      if (rep.estado_registro === 'rechazado') { setEstado('rechazado'); return { estado: 'rechazado', rol: null } }
-      if (rep.estado_registro === 'pendiente') { setEstado('pendiente'); return { estado: 'pendiente', rol: null } }
-
-      if (rep.estado_registro === 'aprobado' && rep.activo) {
-        await supabase.from('rep_roles').upsert({ user_id: u.id, rol: 'repartidor', activo: true })
-        await supabase.from('rep_repartidores').update({ user_id: u.id }).eq('id', rep.id)
-        setRol('repartidor')
-        setRepartidorId(rep.id)
-        setEstado('autorizado')
-        return { estado: 'autorizado', rol: 'repartidor' }
-      }
-
-      setEstado('sin_rol')
-      return { estado: 'sin_rol', rol: null }
-    } catch {
-      setEstado('sin_rol')
-      return { estado: 'sin_rol', rol: null }
-    }
-  }
 
   useEffect(() => {
-    // Timeout de seguridad: si en 3s no se resuelve el estado, forzar sin_sesion
-    const timeout = setTimeout(() => {
-      setEstado(e => e === 'cargando' ? 'sin_sesion' : e)
-    }, 3000)
+    let montado = true
 
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session)
-      setUser(data.session?.user ?? null)
-      if (data.session?.user) cargarAcceso(data.session.user).finally(() => clearTimeout(timeout))
-      else { setEstado('sin_sesion'); clearTimeout(timeout) }
+    supabase.auth.getSession().then(async ({ data }) => {
+      if (!montado) return
+      const u = data.session?.user ?? null
+      setUser(u)
+      if (!u) { setEstado('sin_sesion'); return }
+      const res = await resolverAcceso(u)
+      if (!montado) return
+      setRol(res.rol)
+      setRepartidorId(res.repartidorId)
+      setEstado(res.estado)
     })
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_e, session) => {
-      setSession(session)
-      setUser(session?.user ?? null)
-      if (session?.user) {
-        // Si login() ya está manejando cargarAcceso, no duplicar la llamada
-        if (!loginActivo.current) await cargarAcceso(session.user)
-      } else {
-        setRol(null); setRepartidorId(null); setEstado('sin_sesion')
-      }
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (!montado) return
+      const u = session?.user ?? null
+      setUser(u)
+      if (!u) { setRol(null); setRepartidorId(null); setEstado('sin_sesion'); return }
+      // Solo re-evaluar en eventos reales, no en el INITIAL_SESSION (ya lo maneja getSession)
+      if (event === 'INITIAL_SESSION') return
+      const res = await resolverAcceso(u)
+      if (!montado) return
+      setRol(res.rol)
+      setRepartidorId(res.repartidorId)
+      setEstado(res.estado)
     })
-    return () => { subscription.unsubscribe(); clearTimeout(timeout) }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+
+    return () => { montado = false; subscription.unsubscribe() }
   }, [])
-
-  async function login(email: string, password: string): Promise<string | null> {
-    // Limpiar sesión anterior para evitar conflictos en localStorage
-    await supabase.auth.signOut()
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) return error.message
-    window.location.href = '/'
-    return null
-  }
 
   async function logout() {
     await supabase.auth.signOut()
-    setRol(null); setRepartidorId(null); setEstado('sin_sesion')
+    setUser(null); setRol(null); setRepartidorId(null); setEstado('sin_sesion')
   }
 
   return (
-    <Ctx.Provider value={{ user, session, rol, estado, repartidorId, login, logout }}>
+    <Ctx.Provider value={{ user, rol, estado, repartidorId, logout }}>
       {children}
     </Ctx.Provider>
   )
