@@ -18,14 +18,14 @@ interface AuthCtx {
   rol:          Rol | null
   estado:       EstadoAcceso
   repartidorId: string | null
-  login:        (email: string, password: string) => Promise<string | null>
+  login:        (email: string, password: string) => Promise<{ error: string | null; estado: EstadoAcceso; rol: Rol | null }>
   logout:       () => Promise<void>
 }
 
 const Ctx = createContext<AuthCtx>({
   user: null, session: null, rol: null,
   estado: 'cargando', repartidorId: null,
-  login: async () => null, logout: async () => {},
+  login: async () => ({ error: null, estado: 'cargando', rol: null }), logout: async () => {},
 })
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -35,9 +35,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [estado,       setEstado]       = useState<EstadoAcceso>('cargando')
   const [repartidorId, setRepartidorId] = useState<string | null>(null)
 
-  async function cargarAcceso(u: User) {
+  async function cargarAcceso(u: User): Promise<{ estado: EstadoAcceso; rol: Rol | null }> {
     try {
-      // 1. Buscar rol por user_id
       const { data: rolData } = await supabase
         .from('rep_roles')
         .select('rol, activo')
@@ -45,9 +44,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .single()
 
       if (rolData?.activo) {
-        setRol(rolData.rol as Rol)
+        const r = rolData.rol as Rol
+        setRol(r)
         setEstado('autorizado')
-        if (rolData.rol === 'repartidor') {
+        if (r === 'repartidor') {
           const { data: rep } = await supabase
             .from('rep_repartidores')
             .select('id')
@@ -55,19 +55,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             .single()
           setRepartidorId(rep?.id ?? null)
         }
-        return
+        return { estado: 'autorizado', rol: r }
       }
 
-      // 2. Buscar por email en rep_repartidores
       const { data: rep } = await supabase
         .from('rep_repartidores')
         .select('id, estado_registro, activo')
         .eq('email', u.email ?? '')
         .single()
 
-      if (!rep)                                    { setEstado('sin_rol');   return }
-      if (rep.estado_registro === 'rechazado')     { setEstado('rechazado'); return }
-      if (rep.estado_registro === 'pendiente')     { setEstado('pendiente'); return }
+      if (!rep)                                { setEstado('sin_rol');   return { estado: 'sin_rol',   rol: null } }
+      if (rep.estado_registro === 'rechazado') { setEstado('rechazado'); return { estado: 'rechazado', rol: null } }
+      if (rep.estado_registro === 'pendiente') { setEstado('pendiente'); return { estado: 'pendiente', rol: null } }
 
       if (rep.estado_registro === 'aprobado' && rep.activo) {
         await supabase.from('rep_roles').upsert({ user_id: u.id, rol: 'repartidor', activo: true })
@@ -75,12 +74,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setRol('repartidor')
         setRepartidorId(rep.id)
         setEstado('autorizado')
-        return
+        return { estado: 'autorizado', rol: 'repartidor' }
       }
 
       setEstado('sin_rol')
+      return { estado: 'sin_rol', rol: null }
     } catch {
       setEstado('sin_rol')
+      return { estado: 'sin_rol', rol: null }
     }
   }
 
@@ -107,11 +108,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Login con email + contraseña — sin redirects, sin OAuth
-  async function login(email: string, password: string): Promise<string | null> {
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) return error.message
-    return null
+  async function login(email: string, password: string): Promise<{ error: string | null; estado: EstadoAcceso; rol: Rol | null }> {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) return { error: error.message, estado: 'sin_sesion', rol: null }
+    const result = await cargarAcceso(data.user)
+    return { error: null, ...result }
   }
 
   async function logout() {
