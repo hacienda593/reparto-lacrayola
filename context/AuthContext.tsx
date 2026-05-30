@@ -18,14 +18,14 @@ interface AuthCtx {
   rol:          Rol | null
   estado:       EstadoAcceso
   repartidorId: string | null
-  login:        (email: string, password: string) => Promise<{ error: string | null; estado: EstadoAcceso; rol: Rol | null }>
+  login:        (email: string, password: string) => Promise<string | null>
   logout:       () => Promise<void>
 }
 
 const Ctx = createContext<AuthCtx>({
   user: null, session: null, rol: null,
   estado: 'cargando', repartidorId: null,
-  login: async () => ({ error: null, estado: 'cargando', rol: null }), logout: async () => {},
+  login: async () => null, logout: async () => {},
 })
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -113,18 +113,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  async function login(email: string, password: string): Promise<{ error: string | null; estado: EstadoAcceso; rol: Rol | null }> {
-    loginActivo.current = true
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password })
-      if (error) return { error: error.message, estado: 'sin_sesion', rol: null }
-      setSession(data.session)
-      setUser(data.user)
-      const result = await cargarAcceso(data.user)
-      return { error: null, ...result }
-    } finally {
-      loginActivo.current = false
-    }
+  async function login(email: string, password: string): Promise<string | null> {
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) return error.message
+    // Full reload: elimina todo estado en memoria, carga limpio con la nueva sesión
+    window.location.href = '/'
+    return null
   }
 
   async function logout() {

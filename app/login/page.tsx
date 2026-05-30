@@ -30,23 +30,18 @@ export default function LoginPage() {
     e.preventDefault()
     if (!email.trim() || !password.trim()) { setError('Ingresa tu email y contraseña'); return }
     setCargando(true); setError('')
-    const { error, estado: nuevoEstado, rol: nuevoRol } = await login(email.trim(), password)
-    if (error) {
+    const err = await login(email.trim(), password)
+    if (err) {
       setError(
-        error.includes('Invalid login') || error.includes('invalid')
+        err.includes('Invalid login') || err.includes('invalid')
           ? 'Email o contraseña incorrectos'
-          : error.includes('Email not confirmed')
+          : err.includes('Email not confirmed')
             ? 'Confirma tu email antes de ingresar'
-            : error
+            : err
       )
       setCargando(false)
-      return
     }
-    if (nuevoEstado === 'autorizado') {
-      router.replace(nuevoRol === 'repartidor' ? '/repartidor' : '/')
-    } else {
-      setCargando(false)
-    }
+    // Si no hay error, login() hace window.location.href='/' y recarga la página
   }
 
   if (estado === 'cargando') return (
