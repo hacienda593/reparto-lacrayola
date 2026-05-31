@@ -56,9 +56,9 @@ export default function PickingPage() {
     const { data: items } = await supabase.from('ol_pedido_items').select('*').eq('pedido_id', asig.pedido_id)
     setProductos((items ?? []).map((it: any) => ({
       id: it.id,
-      nombre:    it.nombre_producto ?? it.nombre ?? 'Producto',
+      nombre:    it.descripcion ?? it.nombre_producto ?? it.nombre ?? 'Producto',
       cantidad:  it.cantidad ?? 1,
-      seccion:   it.seccion ?? null,
+      seccion:   it.categoria ?? it.seccion ?? null,
       completado: it.picking_completado ?? false,
       agotado:    it.picking_agotado    ?? false,
       reemplazo:  it.picking_reemplazo  ?? null,
