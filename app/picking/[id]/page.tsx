@@ -412,10 +412,9 @@ export default function PickingPage() {
             </div>
 
             {listo && (
-              <button onClick={iniciarRuta} disabled={guardando}
-                className="w-full mt-4 bg-[#ff9f1c] disabled:opacity-60 text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-2 text-base">
-                {guardando ? <Loader2 size={18} className="animate-spin" /> : '🚚'}
-                {guardando ? 'Preparando ruta...' : 'Ir a Entregar →'}
+              <button onClick={() => router.push(`/caja/${id}`)}
+                className="w-full mt-4 bg-[#ff9f1c] text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-2 text-base shadow-lg shadow-[#ff9f1c]/30 active:scale-95 transition">
+                🛒 Ir a Cajas / Facturar SRI →
               </button>
             )}
           </div>
@@ -482,10 +481,9 @@ export default function PickingPage() {
               )}
             </div>
             {listo && (
-              <button onClick={iniciarRuta} disabled={guardando}
-                className="w-full bg-[#ff9f1c] disabled:opacity-60 text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-2">
-                {guardando ? <Loader2 size={18} className="animate-spin" /> : <Navigation size={18} />}
-                {guardando ? 'Iniciando...' : '🚚 Salir a entregar'}
+              <button onClick={() => router.push(`/caja/${id}`)}
+                className="w-full bg-[#ff9f1c] text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-2 text-base shadow-lg shadow-[#ff9f1c]/30 active:scale-95 transition">
+                🛒 Ir a Cajas / Facturar SRI →
               </button>
             )}
           </div>
