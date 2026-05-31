@@ -1,22 +1,19 @@
 import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
-import { AuthProvider } from '@/context/AuthContext'
 
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'Reparto — La Crayola',
-  description: 'Sistema de gestión de reparto y entregas',
+  title: 'Reparto La Crayola',
+  description: 'Sistema de entregas para repartidores',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="es" className={inter.className}>
-      <body className="min-h-screen bg-slate-100 antialiased">
-        <AuthProvider>
-          {children}
-        </AuthProvider>
+      <body className="bg-[#0c0f12] antialiased">
+        {children}
       </body>
     </html>
   )

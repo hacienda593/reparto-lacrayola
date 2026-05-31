@@ -1,205 +1,103 @@
-'use client'
-import { useEffect, useState, Suspense } from 'react'
-import { useSearchParams, useRouter } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
-import { OlPedido, RepRepartidor, RepAsignacion } from '@/lib/types'
-import Sidebar from '@/components/Sidebar'
-import {
-  Package, Search, X, ChevronRight, Truck,
-  AlertCircle, CheckCircle, Clock, Loader2,
-} from 'lucide-react'
+import { createClient } from '@/lib/supabase/server'
+import { logout } from '@/actions/auth'
+import Link from 'next/link'
 
-function fmt(n: number) { return '$' + (n ?? 0).toFixed(2) }
+export default async function PedidosPage() {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
 
-const ESTADOS_PEDIDO = ['pendiente','confirmado','preparando','enviado','entregado','cancelado']
-const ESTADOS_ASIG   = ['asignado','en_ruta','entregado','devuelto','cancelado']
+  const { data: repartidor } = await supabase
+    .from('rep_repartidores').select('id, nombre').eq('user_id', user!.id).single()
 
-const EST_CFG: Record<string, { label: string; color: string; bg: string }> = {
-  pendiente:  { label: 'Pendiente',  color: 'text-yellow-700', bg: 'bg-yellow-100' },
-  confirmado: { label: 'Confirmado', color: 'text-blue-700',   bg: 'bg-blue-100' },
-  preparando: { label: 'Preparando', color: 'text-purple-700', bg: 'bg-purple-100' },
-  asignado:   { label: 'Asignado',   color: 'text-indigo-700', bg: 'bg-indigo-100' },
-  en_ruta:    { label: 'En ruta',    color: 'text-orange-700', bg: 'bg-orange-100' },
-  enviado:    { label: 'Enviado',    color: 'text-orange-700', bg: 'bg-orange-100' },
-  entregado:  { label: 'Entregado',  color: 'text-green-700',  bg: 'bg-green-100' },
-  devuelto:   { label: 'Devuelto',   color: 'text-red-700',    bg: 'bg-red-100' },
-  cancelado:  { label: 'Cancelado',  color: 'text-red-700',    bg: 'bg-red-100' },
-}
+  const { data: asignaciones } = await supabase
+    .from('rep_asignaciones').select('id, estado, prioridad, pedido_id')
+    .eq('repartidor_id', repartidor?.id ?? '').in('estado', ['asignado', 'en_ruta'])
+    .order('prioridad', { ascending: true })
 
-function PedidosContent() {
-  const params = useSearchParams()
-  const router = useRouter()
-
-  const [pedidos,      setPedidos]      = useState<OlPedido[]>([])
-  const [asigMap,      setAsigMap]      = useState<Map<string, RepAsignacion>>(new Map())
-  const [repartidores, setRepartidores] = useState<RepRepartidor[]>([])
-  const [cargando,     setCargando]     = useState(true)
-  const [q,            setQ]            = useState('')
-  const [filtroEstado, setFiltroEstado] = useState(params.get('filtro') === 'sin_asignar' ? 'sin_asignar' : '')
-  const [asignando,    setAsignando]    = useState<string | null>(null) // pedido_id en proceso
-
-  async function cargar() {
-    const [{ data: ps }, { data: as }, { data: rs }] = await Promise.all([
-      supabase.from('ol_pedidos').select('*').order('created_at', { ascending: false }).limit(200),
-      supabase.from('rep_asignaciones').select('*, rep_repartidores(nombre,telefono)'),
-      supabase.from('rep_repartidores').select('*').eq('activo', true).order('nombre'),
-    ])
-    setPedidos((ps ?? []) as OlPedido[])
-    setAsigMap(new Map((as ?? []).map(a => [a.pedido_id, a as RepAsignacion])))
-    setRepartidores((rs ?? []) as RepRepartidor[])
-    setCargando(false)
-  }
-
-  useEffect(() => { cargar() }, [])
-
-  async function asignar(pedidoId: string, repartidorId: string) {
-    setAsignando(pedidoId)
-    const existente = asigMap.get(pedidoId)
-    if (existente) {
-      await supabase.from('rep_asignaciones').update({ repartidor_id: repartidorId, estado: 'asignado', updated_at: new Date().toISOString() }).eq('id', existente.id)
-    } else {
-      await supabase.from('rep_asignaciones').insert({ pedido_id: pedidoId, repartidor_id: repartidorId })
-    }
-    await supabase.from('ol_pedidos').update({ estado: 'confirmado' }).eq('id', pedidoId)
-    await cargar()
-    setAsignando(null)
-  }
-
-  async function cambiarEstado(pedidoId: string, nuevoEstado: string) {
-    await supabase.from('ol_pedidos').update({ estado: nuevoEstado }).eq('id', pedidoId)
-    const asig = asigMap.get(pedidoId)
-    if (asig && ESTADOS_ASIG.includes(nuevoEstado)) {
-      await supabase.from('rep_asignaciones').update({ estado: nuevoEstado, updated_at: new Date().toISOString() }).eq('id', asig.id)
-    }
-    await cargar()
-  }
-
-  const filtrados = pedidos.filter(p => {
-    if (q && !p.nombre_cliente.toLowerCase().includes(q.toLowerCase()) &&
-        !String(p.numero).includes(q) && !p.telefono.includes(q)) return false
-    if (filtroEstado === 'sin_asignar') return !asigMap.has(p.id) && ['pendiente','confirmado','preparando'].includes(p.estado)
-    if (filtroEstado && p.estado !== filtroEstado) return false
-    return true
-  })
+  const ids = asignaciones?.map((a: any) => a.pedido_id) ?? []
+  const { data: pedidos } = ids.length > 0
+    ? await supabase.from('ol_pedidos').select('*').in('id', ids) : { data: [] }
+  const pm = Object.fromEntries((pedidos ?? []).map((p: any) => [p.id, p]))
+  const ini = repartidor?.nombre?.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase() ?? '?'
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-extrabold text-slate-800">Pedidos</h1>
-          <p className="text-sm text-slate-400">{filtrados.length} pedidos</p>
-        </div>
-      </div>
-
-      {/* Filtros */}
-      <div className="flex gap-2 flex-wrap">
-        <div className="relative">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input value={q} onChange={e => setQ(e.target.value)}
-            placeholder="Buscar cliente, número, teléfono..."
-            className="bg-white border border-slate-200 rounded-xl pl-9 pr-4 py-2 text-sm focus:outline-none focus:border-green-500 w-64" />
-        </div>
-        {['', 'sin_asignar', 'pendiente', 'confirmado', 'preparando', 'en_ruta', 'entregado'].map(e => (
-          <button key={e} onClick={() => setFiltroEstado(e)}
-            className={`text-xs font-semibold px-3 py-2 rounded-xl border transition ${
-              filtroEstado === e ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-            }`}>
-            {e === '' ? 'Todos' : e === 'sin_asignar' ? '⚠️ Sin asignar' : EST_CFG[e]?.label ?? e}
-          </button>
-        ))}
-      </div>
-
-      {/* Tabla */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-        {cargando ? (
-          <div className="flex justify-center py-16"><Loader2 size={24} className="animate-spin text-green-500" /></div>
-        ) : filtrados.length === 0 ? (
-          <div className="text-center py-16 text-slate-400">
-            <Package size={40} className="mx-auto mb-2 text-slate-200" />
-            <p>Sin pedidos con ese filtro</p>
+    <div className="min-h-screen bg-[#0c0f12] pb-24">
+      <div className="bg-[#181d24] border-b border-[#2d3748] px-4 pt-10 pb-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-[#00b074] rounded-2xl flex items-center justify-center text-white font-bold text-sm">{ini}</div>
+            <div>
+              <p className="text-white font-bold text-sm">{repartidor?.nombre ?? 'Repartidor'}</p>
+              <div className="flex items-center gap-1.5">
+                <div className="w-2 h-2 bg-[#00b074] rounded-full animate-pulse" />
+                <span className="text-[#00b074] text-xs font-semibold">Turno activo</span>
+              </div>
+            </div>
           </div>
-        ) : (
-          <div className="divide-y divide-slate-50">
-            {filtrados.map(p => {
-              const asig  = asigMap.get(p.id) as any
-              const est   = EST_CFG[p.estado] ?? { label: p.estado, color: 'text-slate-600', bg: 'bg-slate-100' }
-              const sinA  = !asig && ['pendiente','confirmado','preparando'].includes(p.estado)
-              return (
-                <div key={p.id} className="px-4 py-3.5 hover:bg-slate-50 transition">
-                  <div className="flex items-center gap-3 flex-wrap">
-                    {/* Número + cliente */}
-                    <div className="flex-1 min-w-0 cursor-pointer" onClick={() => router.push(`/pedidos/${p.id}`)}>
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-slate-800 text-sm">#{String(p.numero).padStart(4,'0')}</span>
-                        {sinA && <AlertCircle size={13} className="text-red-500" />}
-                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${est.bg} ${est.color}`}>{est.label}</span>
-                      </div>
-                      <div className="text-sm text-slate-600 truncate">{p.nombre_cliente} · {p.telefono}</div>
-                      {p.direccion && <div className="text-xs text-slate-400 truncate">📍 {p.direccion}, {p.ciudad}</div>}
-                    </div>
+          <form action={logout}>
+            <button className="text-gray-500 text-xs border border-[#2d3748] px-3 py-1.5 rounded-xl">Salir</button>
+          </form>
+        </div>
+      </div>
 
-                    {/* Total */}
-                    <div className="text-right shrink-0">
-                      <div className="font-bold text-slate-800">{fmt(p.total)}</div>
-                      <div className="text-[10px] text-slate-400">{new Date(p.created_at).toLocaleDateString('es')}</div>
-                    </div>
+      <div className="px-4 pt-5">
+        <h2 className="text-white font-bold text-lg mb-4">
+          Pedidos asignados
+          <span className="ml-2 text-xs font-normal text-gray-500 bg-[#181d24] px-2 py-0.5 rounded-full border border-[#2d3748]">
+            {asignaciones?.length ?? 0}
+          </span>
+        </h2>
 
-                    {/* Asignar repartidor */}
-                    <div className="shrink-0 min-w-[160px]">
-                      {asignando === p.id
-                        ? <Loader2 size={16} className="animate-spin text-green-500 mx-auto" />
-                        : (
-                          <select
-                            value={asig?.repartidor_id ?? ''}
-                            onChange={e => e.target.value && asignar(p.id, e.target.value)}
-                            className={`w-full text-xs border rounded-lg px-2 py-1.5 focus:outline-none focus:border-green-500 transition ${
-                              sinA ? 'border-red-300 bg-red-50' : 'border-slate-200 bg-white'
-                            }`}>
-                            <option value="">{sinA ? '⚠️ Sin repartidor' : asig?.rep_repartidores?.nombre ?? '— Reasignar —'}</option>
-                            {repartidores.map(r => (
-                              <option key={r.id} value={r.id}>{r.nombre}</option>
-                            ))}
-                          </select>
-                        )
-                      }
-                    </div>
-
-                    {/* Cambiar estado */}
-                    <div className="shrink-0 min-w-[120px]">
-                      <select
-                        value={p.estado}
-                        onChange={e => cambiarEstado(p.id, e.target.value)}
-                        className="w-full text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-green-500">
-                        {ESTADOS_PEDIDO.map(e => (
-                          <option key={e} value={e}>{EST_CFG[e]?.label ?? e}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <button onClick={() => router.push(`/pedidos/${p.id}`)}
-                      className="text-slate-400 hover:text-slate-600 transition shrink-0">
-                      <ChevronRight size={18} />
-                    </button>
-                  </div>
-                </div>
-              )
-            })}
+        {(!asignaciones || asignaciones.length === 0) && (
+          <div className="text-center py-24 space-y-3">
+            <div className="text-6xl">📭</div>
+            <p className="text-gray-400 font-semibold">Sin pedidos asignados</p>
+            <p className="text-gray-600 text-sm">El admin te asignará pedidos pronto</p>
           </div>
         )}
-      </div>
-    </div>
-  )
-}
 
-export default function PedidosPage() {
-  return (
-    <div className="flex min-h-screen">
-      <Sidebar />
-      <main className="flex-1 md:ml-56 pt-14 md:pt-0 p-4 md:p-6">
-        <Suspense fallback={<div className="flex justify-center py-16"><Loader2 size={24} className="animate-spin text-green-500" /></div>}>
-          <PedidosContent />
-        </Suspense>
-      </main>
+        <div className="space-y-3">
+          {asignaciones?.map((a: any) => {
+            const p = pm[a.pedido_id]
+            const enRuta = a.estado === 'en_ruta'
+            return (
+              <Link key={a.id} href={`/picking/${a.id}`}>
+                <div className={`bg-[#181d24] border rounded-3xl p-4 space-y-3 active:scale-[0.98] transition
+                  ${enRuta ? 'border-[#ff9f1c]/40' : 'border-[#2d3748]'}`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-white font-bold">#{String(p?.numero ?? 0).padStart(4,'0')}</span>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${enRuta ? 'bg-[#ff9f1c]/20 text-[#ff9f1c]' : 'bg-[#00b074]/20 text-[#00b074]'}`}>
+                        {enRuta ? '🚚 En ruta' : '📋 Pendiente'}
+                      </span>
+                    </div>
+                    <span className="text-[#00b074] font-bold">${(p?.total ?? 0).toFixed(2)}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 bg-[#2d3748] rounded-xl flex items-center justify-center text-white font-bold text-sm shrink-0">
+                      {p?.nombre_cliente?.[0] ?? '?'}
+                    </div>
+                    <div>
+                      <p className="text-white text-sm font-semibold">{p?.nombre_cliente ?? '—'}</p>
+                      <p className="text-gray-500 text-xs">{p?.telefono ?? '—'}</p>
+                    </div>
+                  </div>
+                  {p?.direccion && (
+                    <div className="flex items-start gap-2 bg-[#0c0f12] rounded-2xl px-3 py-2">
+                      <span className="text-[#00b074] mt-0.5">📍</span>
+                      <p className="text-gray-300 text-xs">{p.direccion}, {p.ciudad}</p>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between pt-1 border-t border-[#2d3748]">
+                    <span className="text-gray-500 text-xs">📦 {p?.total_items ?? '?'} productos</span>
+                    <span className="text-[#00b074] text-xs font-semibold">{enRuta ? 'Ver progreso →' : 'Iniciar →'}</span>
+                  </div>
+                </div>
+              </Link>
+            )
+          })}
+        </div>
+      </div>
     </div>
   )
 }
