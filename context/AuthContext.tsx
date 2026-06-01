@@ -28,44 +28,53 @@ const Ctx = createContext<AuthCtx>({
 async function resolverAcceso(u: User): Promise<{
   estado: EstadoAcceso; rol: Rol | null; repartidorId: string | null
 }> {
-  try {
-    const { data: rolData } = await supabase
-      .from('rep_roles')
-      .select('rol, activo')
-      .eq('user_id', u.id)
-      .single()
+  return Promise.race([
+    (async () => {
+      try {
+        const { data: rolData } = await supabase
+          .from('rep_roles')
+          .select('rol, activo')
+          .eq('user_id', u.id)
+          .single()
 
-    if (rolData?.activo) {
-      const r = rolData.rol as Rol
-      let repartidorId: string | null = null
-      if (r === 'repartidor') {
+        if (rolData?.activo) {
+          const r = rolData.rol as Rol
+          let repartidorId: string | null = null
+          if (r === 'repartidor') {
+            const { data: rep } = await supabase
+              .from('rep_repartidores').select('id').eq('user_id', u.id).single()
+            repartidorId = rep?.id ?? null
+          }
+          return { estado: 'autorizado' as EstadoAcceso, rol: r, repartidorId }
+        }
+
         const { data: rep } = await supabase
-          .from('rep_repartidores').select('id').eq('user_id', u.id).single()
-        repartidorId = rep?.id ?? null
+          .from('rep_repartidores')
+          .select('id, estado_registro, activo')
+          .eq('email', u.email ?? '')
+          .single()
+
+        if (!rep)                                { return { estado: 'sin_rol' as EstadoAcceso,   rol: null, repartidorId: null } }
+        if (rep.estado_registro === 'rechazado') { return { estado: 'rechazado' as EstadoAcceso, rol: null, repartidorId: null } }
+        if (rep.estado_registro === 'pendiente') { return { estado: 'pendiente' as EstadoAcceso, rol: null, repartidorId: null } }
+
+        if (rep.estado_registro === 'aprobado' && rep.activo) {
+          try {
+            await supabase.from('rep_roles').upsert({ user_id: u.id, rol: 'repartidor', activo: true })
+            await supabase.from('rep_repartidores').update({ user_id: u.id }).eq('id', rep.id)
+          } catch {}
+          return { estado: 'autorizado' as EstadoAcceso, rol: 'repartidor' as Rol, repartidorId: rep.id }
+        }
+
+        return { estado: 'sin_rol' as EstadoAcceso, rol: null, repartidorId: null }
+      } catch {
+        return { estado: 'sin_rol' as EstadoAcceso, rol: null, repartidorId: null }
       }
-      return { estado: 'autorizado', rol: r, repartidorId }
-    }
-
-    const { data: rep } = await supabase
-      .from('rep_repartidores')
-      .select('id, estado_registro, activo')
-      .eq('email', u.email ?? '')
-      .single()
-
-    if (!rep)                                { return { estado: 'sin_rol',   rol: null, repartidorId: null } }
-    if (rep.estado_registro === 'rechazado') { return { estado: 'rechazado', rol: null, repartidorId: null } }
-    if (rep.estado_registro === 'pendiente') { return { estado: 'pendiente', rol: null, repartidorId: null } }
-
-    if (rep.estado_registro === 'aprobado' && rep.activo) {
-      await supabase.from('rep_roles').upsert({ user_id: u.id, rol: 'repartidor', activo: true })
-      await supabase.from('rep_repartidores').update({ user_id: u.id }).eq('id', rep.id)
-      return { estado: 'autorizado', rol: 'repartidor', repartidorId: rep.id }
-    }
-
-    return { estado: 'sin_rol', rol: null, repartidorId: null }
-  } catch {
-    return { estado: 'sin_rol', rol: null, repartidorId: null }
-  }
+    })(),
+    new Promise<{ estado: EstadoAcceso; rol: Rol | null; repartidorId: string | null }>(res => 
+      setTimeout(() => res({ estado: 'sin_rol' as EstadoAcceso, rol: null, repartidorId: null }), 6000)
+    )
+  ])
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
