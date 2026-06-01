@@ -44,50 +44,55 @@ export default function RepartidorPage() {
   const [modo, setModo] = useState<'repartidor' | 'comprador'>('repartidor')
 
   async function cargar(userId: string) {
-    const { data: rep } = await supabase
-      .from('rep_repartidores')
-      .select('id,nombre,comision_valor,efectivo_en_mano,estado')
-      .eq('user_id', userId)
-      .single()
+    try {
+      const { data: rep } = await supabase
+        .from('rep_repartidores')
+        .select('id,nombre,comision_valor,efectivo_en_mano,estado')
+        .eq('user_id', userId)
+        .single()
 
-    if (!rep) { setCargando(false); return }
-    setRepartidor(rep as any)
+      if (!rep) { setCargando(false); return }
+      setRepartidor(rep as any)
 
-    const hoy = new Date().toISOString().split('T')[0]
-    
-    // 1. Cargar asignaciones vigentes del repartidor (incluyendo recolectado)
-    const { data: asigs } = await supabase
-      .from('rep_asignaciones')
-      .select('id,estado,pedido_id,ol_pedidos(numero,nombre_cliente,telefono,direccion,ciudad,referencias,total,geo_lat,geo_lng,notas)')
-      .eq('repartidor_id', rep.id)
-      .in('estado', ['asignado','recolectado','en_ruta'])
-      .gte('asignado_at', hoy)
+      const hoy = new Date().toISOString().split('T')[0]
+      
+      // 1. Cargar asignaciones vigentes del repartidor (incluyendo recolectado)
+      const { data: asigs } = await supabase
+        .from('rep_asignaciones')
+        .select('id,estado,pedido_id,ol_pedidos(numero,nombre_cliente,telefono,direccion,ciudad,referencias,total,geo_lat,geo_lng,notas)')
+        .eq('repartidor_id', rep.id)
+        .in('estado', ['asignado','recolectado','en_ruta'])
+        .gte('asignado_at', hoy)
 
-    setPedidos((asigs ?? []).map((a: any) => ({
-      asignacion_id:  a.id,
-      estado:         a.estado,
-      pedido_id:      a.pedido_id,
-      numero:         a.ol_pedidos?.numero,
-      nombre_cliente: a.ol_pedidos?.nombre_cliente,
-      telefono:       a.ol_pedidos?.telefono,
-      direccion:      a.ol_pedidos?.direccion,
-      ciudad:         a.ol_pedidos?.ciudad,
-      referencias:    a.ol_pedidos?.referencias,
-      total:          a.ol_pedidos?.total,
-      geo_lat:        a.ol_pedidos?.geo_lat,
-      geo_lng:        a.ol_pedidos?.geo_lng,
-      notas:          a.ol_pedidos?.notas,
-    })))
+      setPedidos((asigs ?? []).map((a: any) => ({
+        asignacion_id:  a.id,
+        estado:         a.estado,
+        pedido_id:      a.pedido_id,
+        numero:         a.ol_pedidos?.numero,
+        nombre_cliente: a.ol_pedidos?.nombre_cliente,
+        telefono:       a.ol_pedidos?.telefono,
+        direccion:      a.ol_pedidos?.direccion,
+        ciudad:         a.ol_pedidos?.ciudad,
+        referencias:    a.ol_pedidos?.referencias,
+        total:          a.ol_pedidos?.total,
+        geo_lat:        a.ol_pedidos?.geo_lat,
+        geo_lng:        a.ol_pedidos?.geo_lng,
+        notas:          a.ol_pedidos?.notas,
+      })))
 
-    // 2. Cargar pedidos libres en cola (estado 'pendiente')
-    const { data: pends } = await supabase
-      .from('ol_pedidos')
-      .select('id, numero, nombre_cliente, telefono, direccion, ciudad, referencias, total, geo_lat, geo_lng, notas')
-      .eq('estado', 'pendiente')
-      .order('numero', { ascending: false })
+      // 2. Cargar pedidos libres en cola (estado 'pendiente')
+      const { data: pends } = await supabase
+        .from('ol_pedidos')
+        .select('id, numero, nombre_cliente, telefono, direccion, ciudad, referencias, total, geo_lat, geo_lng, notas')
+        .eq('estado', 'pendiente')
+        .order('numero', { ascending: false })
 
-    setPedidosEspera(pends ?? [])
-    setCargando(false)
+      setPedidosEspera(pends ?? [])
+    } catch (err) {
+      console.error('Error loading driver data:', err)
+    } finally {
+      setCargando(false)
+    }
   }
 
   async function aceptarPedido(pedidoId: string, numero: number, nombreCliente: string, telefonoCliente: string) {
