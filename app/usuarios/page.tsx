@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabase'
 import Sidebar from '@/components/Sidebar'
 import { Plus, X, Check, Loader2, Shield, Eye, EyeOff, AlertCircle, Trash2 } from 'lucide-react'
 
-type Rol = 'superadmin' | 'admin' | 'supervisor'
+type Rol = 'superadmin' | 'admin' | 'supervisor' | 'contador'
 
 interface UsuarioInterno {
   user_id:   string
@@ -18,6 +18,7 @@ const ROLES: { key: Rol; label: string; desc: string; color: string }[] = [
   { key: 'superadmin', label: 'Super Admin',  desc: 'Acceso total, puede crear usuarios', color: 'text-purple-700 bg-purple-100' },
   { key: 'admin',      label: 'Administrador', desc: 'Gestiona pedidos, repartidores y liquidaciones', color: 'text-blue-700 bg-blue-100' },
   { key: 'supervisor', label: 'Supervisor',    desc: 'Asigna pedidos y monitorea entregas', color: 'text-green-700 bg-green-100' },
+  { key: 'contador',   label: 'Contador',      desc: 'Vigila caja, arqueos y reportes financieros', color: 'text-amber-700 bg-amber-100' },
 ]
 
 export default function UsuariosPage() {
@@ -34,7 +35,7 @@ export default function UsuariosPage() {
     const { data } = await supabase
       .from('rep_roles')
       .select('user_id, rol, activo, created_at')
-      .in('rol', ['superadmin','admin','supervisor'])
+      .in('rol', ['superadmin','admin','supervisor','contador'])
       .order('created_at')
     setLista((data ?? []) as UsuarioInterno[])
     setCargando(false)

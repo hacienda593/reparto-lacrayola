@@ -34,6 +34,7 @@ export default function RepartidorPage() {
   const { user, estado: authEstado } = useAuth()
   const router = useRouter()
   const [pedidos,    setPedidos]    = useState<PedidoAsignado[]>([])
+  const [pedidosEspera, setPedidosEspera] = useState<any[]>([])
   const [cargando,   setCargando]   = useState(true)
   const [repartidor, setRepartidor] = useState<{ id: string; nombre: string; comision_valor: number; efectivo_en_mano: number; estado: string } | null>(null)
   const [procesando, setProcesando] = useState<string | null>(null)
@@ -53,11 +54,13 @@ export default function RepartidorPage() {
     setRepartidor(rep as any)
 
     const hoy = new Date().toISOString().split('T')[0]
+    
+    // 1. Cargar asignaciones vigentes del repartidor (incluyendo recolectado)
     const { data: asigs } = await supabase
       .from('rep_asignaciones')
       .select('id,estado,pedido_id,ol_pedidos(numero,nombre_cliente,telefono,direccion,ciudad,referencias,total,geo_lat,geo_lng,notas)')
       .eq('repartidor_id', rep.id)
-      .in('estado', ['asignado','en_ruta'])
+      .in('estado', ['asignado','recolectado','en_ruta'])
       .gte('asignado_at', hoy)
 
     setPedidos((asigs ?? []).map((a: any) => ({
@@ -75,7 +78,83 @@ export default function RepartidorPage() {
       geo_lng:        a.ol_pedidos?.geo_lng,
       notas:          a.ol_pedidos?.notas,
     })))
+
+    // 2. Cargar pedidos libres en cola (estado 'pendiente')
+    const { data: pends } = await supabase
+      .from('ol_pedidos')
+      .select('id, numero, nombre_cliente, telefono, direccion, ciudad, referencias, total, geo_lat, geo_lng, notas')
+      .eq('estado', 'pendiente')
+      .order('numero', { ascending: false })
+
+    setPedidosEspera(pends ?? [])
     setCargando(false)
+  }
+
+  async function aceptarPedido(pedidoId: string, numero: number, nombreCliente: string, telefonoCliente: string) {
+    if (!repartidor) return
+    setProcesando(pedidoId)
+    
+    // 1. Crear la asignación en rep_asignaciones
+    const { data: asig, error: errAsig } = await supabase
+      .from('rep_asignaciones')
+      .insert({
+        pedido_id:     pedidoId,
+        repartidor_id: repartidor.id,
+        estado:        'asignado',
+        notas:         'Auto-asignado por el Comprador desde el celular',
+        prioridad:     1,
+      })
+      .select('id')
+      .single()
+
+    if (errAsig) {
+      alert('Error al auto-asignar el pedido: ' + errAsig.message)
+      setProcesando(null)
+      return
+    }
+
+    // 2. Cambiar el estado de ol_pedidos a 'preparado'
+    await supabase.from('ol_pedidos').update({ estado: 'preparado' }).eq('id', pedidoId)
+
+    // 3. Recargar datos
+    await cargar(user!.id)
+    setProcesando(null)
+
+    // 4. Abrir WhatsApp para notificar al cliente automáticamente
+    const msg = `🛒 *La Crayola - Compras en curso* \n\n¡Hola *${nombreCliente}*! Soy *${repartidor.nombre}*, tu comprador asignado de La Crayola. He recibido tu pedido *#${String(numero).padStart(4,'0')}* y voy a iniciar tus compras ahora mismo en los supermercados asociados. Te mantendré al tanto de cualquier novedad por este medio. 🧺`
+    window.open(`https://wa.me/${telefonoCliente.replace(/\D/g,'')}?text=${encodeURIComponent(msg)}`, '_blank')
+  }
+
+  async function autotraspaso(asignacionId: string, pedidoId: string, numero: number, nombreCliente: string, telefonoCliente: string) {
+    if (!repartidor) return
+    setProcesando(asignacionId)
+    
+    // 1. Cambiar estado de asignación a en_ruta
+    await supabase.from('rep_asignaciones').update({
+      estado: 'en_ruta',
+      updated_at: new Date().toISOString()
+    }).eq('id', asignacionId)
+
+    // 2. Cambiar estado del pedido a enviado
+    await supabase.from('ol_pedidos').update({ estado: 'enviado' }).eq('id', pedidoId)
+
+    // 3. Crear registro en rep_entregas (salida en ruta)
+    await supabase.from('rep_entregas').insert({
+      asignacion_id: asignacionId,
+      repartidor_id: repartidor.id,
+      pedido_id:     pedidoId,
+      salida_at:     new Date().toISOString(),
+      exitosa:       true,
+    })
+
+    // 4. Cambiar modo de la vista a 'repartidor' (Modo Entregas) para que lo entregue él mismo
+    setModo('repartidor')
+    await cargar(user!.id)
+    setProcesando(null)
+
+    // 5. Abrir WhatsApp para avisar al cliente
+    const msg = `🛵 *La Crayola - ¡Tu pedido va en camino!* \n\nHola *${nombreCliente}*, tu pedido *#${String(numero).padStart(4,'0')}* ya fue comprado y va en camino a cargo de *${repartidor.nombre}*. 📍 Puedes seguir mi trayecto y contactarme directamente. ¡Llegaré en unos minutos!`
+    window.open(`https://wa.me/${telefonoCliente.replace(/\D/g,'')}?text=${encodeURIComponent(msg)}`, '_blank')
   }
 
   useEffect(() => {
@@ -238,6 +317,12 @@ export default function RepartidorPage() {
           <div className="bg-white/20 rounded-xl px-3 py-1.5 text-[11px] font-semibold shrink-0">
             📦 {pedidos.length} asignados
           </div>
+          {modo === 'repartidor' && (
+            <a href="/repartidor/escanear"
+              className="bg-yellow-500 hover:bg-yellow-600 text-slate-900 rounded-xl px-3 py-1.5 text-[11px] font-bold shrink-0 flex items-center gap-1 shadow-sm transition-all">
+              📷 Recibir Traspaso
+            </a>
+          )}
           <div className="bg-white/20 rounded-xl px-3 py-1.5 text-[11px] font-semibold shrink-0">
             💵 Comisión: ${repartidor?.comision_valor ?? 1}/v
           </div>
@@ -301,8 +386,29 @@ export default function RepartidorPage() {
                   </div>
                 )}
 
-                {/* Vista Compras (Picking) */}
-                {modo === 'comprador' && (
+                {/* Vista Compras - Traspaso o Híbrido (si ya está recolectado) */}
+                {modo === 'comprador' && p.estado === 'recolectado' && (
+                  <div className="pt-3 border-t border-slate-100 mt-2 space-y-2">
+                    <div className="bg-green-50 border border-green-200 rounded-xl p-3 text-center text-xs text-green-800 font-semibold mb-2">
+                      🎉 ¡Compras completadas! Realiza el traspaso al motorizado.
+                    </div>
+                    <div className="flex gap-2">
+                      <a href={`/repartidor/traspaso/${p.asignacion_id}`}
+                        className="flex-1 flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition text-xs shadow-xs text-center">
+                        📲 Traspasar por QR
+                      </a>
+                      <button
+                        onClick={() => autotraspaso(p.asignacion_id, p.pedido_id, p.numero, p.nombre_cliente, p.telefono)}
+                        disabled={procesando !== null}
+                        className="flex-1 flex items-center justify-center gap-1.5 bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-xl transition text-xs shadow-xs">
+                        🛵 Entregar yo mismo
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Vista Compras (Picking - solo si está en estado asignado) */}
+                {modo === 'comprador' && p.estado === 'asignado' && (
                   <div className="pt-2">
                     <a href={`/repartidor/picking/${p.pedido_id}`}
                       className="w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white font-bold py-3.5 rounded-xl transition text-sm shadow-xs">
@@ -385,6 +491,48 @@ export default function RepartidorPage() {
           ))
         )}
       </div>
+
+      {/* Bandeja de Pedidos Libres (Auto-Asignación) */}
+      {modo === 'comprador' && (
+        <div className="mt-6 border-t border-slate-200 pt-4 px-4 pb-20">
+          <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-2">
+            🛒 Pedidos Libres en Espera ({pedidosEspera.length})
+          </h2>
+          {pedidosEspera.length === 0 ? (
+            <div className="bg-white border border-slate-100 rounded-2xl p-6 text-center text-slate-400 text-xs">
+              No hay pedidos en espera de compras en este momento.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {pedidosEspera.map(p => (
+                <div key={p.id} className="bg-white rounded-2xl shadow-xs border border-slate-100 p-4 space-y-3">
+                  <div className="flex justify-between items-center">
+                    <span className="font-extrabold text-xs text-slate-800">Pedido #{String(p.numero).padStart(4,'0')}</span>
+                    <span className="font-extrabold text-sm text-green-700">{fmt(p.total)}</span>
+                  </div>
+                  <div className="text-xs text-slate-600 font-semibold">{p.nombre_cliente}</div>
+                  {p.direccion && (
+                    <div className="text-[10px] text-slate-400">
+                      📍 {p.direccion}, {p.ciudad}
+                    </div>
+                  )}
+                  {p.notas && (
+                    <div className="text-[10px] text-yellow-700 bg-yellow-50 px-2 py-1 rounded-md">
+                      📝 {p.notas}
+                    </div>
+                  )}
+                  <button
+                    onClick={() => aceptarPedido(p.id, p.numero, p.nombre_cliente, p.telefono)}
+                    disabled={procesando !== null}
+                    className="w-full bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white font-bold py-2.5 rounded-xl text-xs transition-all flex items-center justify-center gap-1 shadow-sm">
+                    {procesando === p.id ? <Loader2 size={12} className="animate-spin" /> : 'Aceptar Pedido y Empezar'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

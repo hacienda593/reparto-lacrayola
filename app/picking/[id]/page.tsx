@@ -286,6 +286,19 @@ export default function PickingPage() {
                 </div>
                 <span className="text-gray-400">→</span>
               </button>
+              <button onClick={() => {
+                const prodNombre = productos.find(p => p.id === agotadoOpen)?.nombre || 'Producto'
+                const msg = `⚠️ *La Crayola - Novedad de Stock* \n\nHola *${pedido?.nombre_cliente}*, en tu pedido *#${String(pedido?.numero ?? 0).padStart(4,'0')}*, te comento que no hay stock disponible de *"${prodNombre}"*. ¿Deseas sustituirlo por otra marca/tamaño similar, o prefieres omitirlo de la lista? 🛒`
+                window.open(`https://wa.me/${pedido?.telefono?.replace(/\D/g,'')}?text=${encodeURIComponent(msg)}`, '_blank')
+                confirmarAgotado(agotadoOpen)
+              }}
+                className="w-full bg-green-700/25 border border-green-500/40 hover:bg-green-700/40 text-green-400 text-left px-4 py-3.5 rounded-2xl flex items-center justify-between transition-all">
+                <div>
+                  <p className="font-semibold text-sm">📲 Notificar por WhatsApp</p>
+                  <p className="text-green-500 text-xs mt-0.5">Enviar plantilla de falta de stock</p>
+                </div>
+                <span className="text-green-400">→</span>
+              </button>
               <button onClick={() => confirmarAgotado(agotadoOpen)}
                 className="w-full text-gray-500 py-3 text-sm">Omitir producto</button>
             </div>

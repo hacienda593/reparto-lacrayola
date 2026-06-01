@@ -119,18 +119,18 @@ export default function CajaPage() {
       const notaSRI = `[SRI-BILLING] Factura: ${factura} | RUC: ${ruc} | Clave: ${claveAcceso} | Pago: ${metodoPago} | Total Facturado: $${parseFloat(montoFacturado).toFixed(2)}`
       const notasActuales = pedido.notas ? `${pedido.notas} \n${notaSRI}` : notaSRI
 
-      // 2. Actualizar el pedido en Supabase a estado 'enviado' y adjuntar la nota
+      // 2. Actualizar el pedido en Supabase a estado 'preparado' (picking finalizado, listo para entrega)
       await supabase.from('ol_pedidos')
-        .update({ estado: 'enviado', notas: notasActuales })
+        .update({ estado: 'preparado', notas: notasActuales })
         .eq('id', pedido.id)
 
-      // 3. Actualizar la asignación a estado 'en_ruta'
+      // 3. Actualizar la asignación a estado 'recolectado'
       await supabase.from('rep_asignaciones')
-        .update({ estado: 'en_ruta', updated_at: new Date().toISOString() })
+        .update({ estado: 'recolectado', updated_at: new Date().toISOString() })
         .eq('id', id)
 
-      // 4. Redireccionar al mapa de entrega
-      router.push(`/entrega/${id}`)
+      // 4. Redireccionar al dashboard para proceder con el traspaso o la entrega
+      router.push('/repartidor')
     } catch (e) {
       setError('Ocurrió un error al guardar en la base de datos de Supabase.')
       setGuardando(false)
@@ -176,6 +176,59 @@ export default function CajaPage() {
             <span className="text-white text-xs mt-0.5">{itemsCompletados} productos recolectados</span>
           </div>
           <span className="text-[#ff9f1c] font-extrabold text-xl">${pedido?.total?.toFixed(2)}</span>
+        </div>
+
+        {/* Datos de Facturación del Cliente */}
+        <div className="bg-[#181d24] border border-[#2d3748] rounded-3xl p-5 space-y-3">
+          <div className="flex justify-between items-center border-b border-gray-800 pb-2.5">
+            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">
+              👤 Datos de Facturación del Cliente
+            </h3>
+            <span className="text-[10px] text-green-400 font-bold bg-green-500/10 px-2 py-0.5 rounded-full">
+              Autorizado
+            </span>
+          </div>
+          <div className="space-y-1 text-xs">
+            <div className="flex justify-between">
+              <span className="text-gray-500">Nombre / Razón Social:</span>
+              <span className="text-white font-bold">{pedido?.nombre_cliente}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-500">Identificación (Teléfono/WhatsApp):</span>
+              <span className="text-white font-mono font-semibold">{pedido?.telefono}</span>
+            </div>
+            {pedido?.email_cliente && (
+              <div className="flex justify-between">
+                <span className="text-gray-500">Email:</span>
+                <span className="text-white font-semibold">{pedido?.email_cliente}</span>
+              </div>
+            )}
+            {pedido?.direccion && (
+              <div className="pt-1.5 border-t border-gray-800/50 mt-1.5 text-[11px] text-gray-400">
+                📍 <strong>Dirección de entrega:</strong> {pedido.direccion}, {pedido.ciudad}
+              </div>
+            )}
+          </div>
+          <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-xl p-3 text-[10px] text-yellow-500 leading-normal">
+            💡 <strong>Instrucción para el Shopper:</strong> Dicta los datos del cliente al cajero del Tuti/Tía para que la factura se emita a su nombre. Si no los solicita, emite como <strong>Consumidor Final</strong>.
+          </div>
+        </div>
+
+        {/* Notificación rápida de Caja */}
+        <div className="bg-[#181d24] border border-[#2d3748] rounded-3xl p-4 flex items-center justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <p className="text-white text-xs font-bold">💵 Notificar Total en WhatsApp</p>
+            <p className="text-gray-500 text-[10px] truncate">Envia la confirmación de la compra al cliente</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              const msg = `¡Hola *${pedido?.nombre_cliente}*! Ya me encuentro en la caja facturando tu compra de La Crayola. El total final consolidado facturado es de *$${parseFloat(montoFacturado || '0').toFixed(2)}*. 🧾 ¡Pronto iniciaremos la ruta de entrega!`
+              window.open(`https://wa.me/${pedido?.telefono?.replace(/\D/g,'')}?text=${encodeURIComponent(msg)}`, '_blank')
+            }}
+            className="bg-green-600 hover:bg-green-700 text-white font-bold px-4 py-2.5 rounded-xl text-xs transition-all shrink-0">
+            📲 Notificar Real
+          </button>
         </div>
 
         {/* Formulario */}

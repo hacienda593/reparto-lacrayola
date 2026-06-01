@@ -9,12 +9,12 @@ import {
 import { useState } from 'react'
 
 const NAV = [
-  { href: '/',              label: 'Dashboard',     icon: LayoutDashboard, roles: ['superadmin','admin','supervisor'] },
-  { href: '/pedidos',       label: 'Pedidos',        icon: Package,         roles: ['superadmin','admin','supervisor'] },
-  { href: '/repartidores',  label: 'Repartidores',   icon: Users,           roles: ['superadmin','admin','supervisor'] },
+  { href: '/',              label: 'Dashboard',     icon: LayoutDashboard, roles: ['superadmin','admin','supervisor','contador'] },
+  { href: '/pedidos',       label: 'Pedidos',        icon: Package,         roles: ['superadmin','admin','supervisor','contador'] },
+  { href: '/repartidores',  label: 'Repartidores',   icon: Users,           roles: ['superadmin','admin','supervisor','contador'] },
   { href: '/asignaciones',  label: 'Asignaciones',   icon: Truck,           roles: ['superadmin','admin','supervisor'] },
-  { href: '/liquidaciones', label: 'Liquidaciones',  icon: Wallet,          roles: ['superadmin','admin','supervisor'] },
-  { href: '/reportes',      label: 'Reportes',       icon: ClipboardList,   roles: ['superadmin','admin'] },
+  { href: '/liquidaciones', label: 'Liquidaciones',  icon: Wallet,          roles: ['superadmin','admin','supervisor','contador'] },
+  { href: '/reportes',      label: 'Reportes',       icon: ClipboardList,   roles: ['superadmin','admin','contador'] },
   { href: '/usuarios',      label: 'Usuarios',       icon: ShieldCheck,     roles: ['superadmin'] },
   { href: '/configuracion', label: 'Configuración',  icon: Settings,        roles: ['superadmin'] },
 ]

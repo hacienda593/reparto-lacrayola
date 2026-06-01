@@ -1,4 +1,4 @@
-export type Rol = 'superadmin' | 'admin' | 'supervisor' | 'repartidor'
+export type Rol = 'superadmin' | 'admin' | 'supervisor' | 'repartidor' | 'contador'
 
 export interface RepRepartidor {
   id:             string
@@ -44,7 +44,7 @@ export interface RepAsignacion {
   repartidor_id:  string
   asignado_por:   string | null
   asignado_at:    string
-  estado:         'asignado' | 'en_ruta' | 'entregado' | 'devuelto' | 'cancelado'
+  estado:         'asignado' | 'recolectado' | 'en_ruta' | 'entregado' | 'devuelto' | 'cancelado'
   prioridad:      number
   notas:          string | null
   updated_at:     string
