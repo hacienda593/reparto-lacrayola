@@ -387,11 +387,4 @@ export default function RepartidorPage() {
       </div>
     </div>
   )
-}     </div>
-            </div>
-          ))
-        )}
-      </div>
-    </div>
-  )
 }
