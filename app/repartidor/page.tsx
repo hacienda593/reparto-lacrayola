@@ -158,7 +158,7 @@ export default function RepartidorPage() {
   }
 
   useEffect(() => {
-    if (authEstado === 'cargando' || cargando) return
+    if (authEstado === 'cargando') return
     if (!user) { router.replace('/login'); return }
     cargar(user.id)
   }, [user, authEstado])
