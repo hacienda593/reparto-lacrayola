@@ -3,7 +3,8 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
-import { ArrowLeft, Loader2, CheckCircle2, ShieldAlert, Copy, RefreshCw } from 'lucide-react'
+import { ArrowLeft, Loader2, CheckCircle2, ShieldAlert, RefreshCw } from 'lucide-react'
+import QrCode from '@/components/QrCode'
 
 export default function TraspasoPage() {
   const { id: asignacionId } = useParams<{ id: string }>()
@@ -119,7 +120,6 @@ export default function TraspasoPage() {
   )
 
   const numPedido = String(asig.ol_pedidos?.numero).padStart(4, '0')
-  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${asignacionId}`
 
   return (
     <div className="min-h-screen bg-[#0c0f12] text-white flex flex-col pb-10">
@@ -171,7 +171,7 @@ export default function TraspasoPage() {
 
             {/* Código QR Premium */}
             <div className="bg-white p-4 rounded-3xl shadow-xl shadow-black/40 border border-slate-200/10 flex items-center justify-center">
-              <img src={qrUrl} alt="QR Traspaso" className="w-48 h-48" />
+              <QrCode data={asignacionId} size={192} />
             </div>
 
             {/* OTP PIN */}

@@ -6,7 +6,10 @@
       "Bash(git commit *)",
       "Bash(git push *)",
       "Read(//c/Users/hacienda/Documents/GitHub/tienda-lacrayola/**)",
-      "Read(//c/Comprobantes SRI a Excel/tipti_shopper_mockup/**)"
+      "Read(//c/Comprobantes SRI a Excel/tipti_shopper_mockup/**)",
+      "Read(//c/Users/hacienda/Downloads/**)",
+      "Bash(Get-ChildItem -Depth 0 -Directory)",
+      "Bash(Select-Object -ExpandProperty Name)"
     ]
   }
 }
