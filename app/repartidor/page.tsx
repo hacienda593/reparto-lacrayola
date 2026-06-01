@@ -35,19 +35,19 @@ export default function RepartidorPage() {
   const router = useRouter()
   const [pedidos,    setPedidos]    = useState<PedidoAsignado[]>([])
   const [cargando,   setCargando]   = useState(true)
-  const [repartidor, setRepartidor] = useState<{ id: string; nombre: string; comision_valor: number } | null>(null)
+  const [repartidor, setRepartidor] = useState<{ id: string; nombre: string; comision_valor: number; efectivo_en_mano: number; estado: string } | null>(null)
   const [procesando, setProcesando] = useState<string | null>(null)
   const [cobro,      setCobro]      = useState<Record<string, string>>({})
 
   async function cargar(userId: string) {
     const { data: rep } = await supabase
       .from('rep_repartidores')
-      .select('id,nombre,comision_valor')
+      .select('id,nombre,comision_valor,efectivo_en_mano,estado')
       .eq('user_id', userId)
       .single()
 
     if (!rep) { setCargando(false); return }
-    setRepartidor(rep)
+    setRepartidor(rep as any)
 
     const hoy = new Date().toISOString().split('T')[0]
     const { data: asigs } = await supabase
@@ -76,10 +76,10 @@ export default function RepartidorPage() {
   }
 
   useEffect(() => {
-    if (authEstado === 'cargando') return
+    if (authEstado === 'cargando' || cargando) return
     if (!user) { router.replace('/login'); return }
     cargar(user.id)
-  }, [user, authEstado === 'cargando'])
+  }, [user, authEstado])
 
   async function enRuta(asignacionId: string, pedidoId: string) {
     setProcesando(asignacionId)
@@ -157,6 +157,29 @@ export default function RepartidorPage() {
     </div>
   )
 
+  if (repartidor && repartidor.estado === 'BLOQUEADO') {
+    return (
+      <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-6 text-center">
+        <div className="w-16 h-16 bg-red-500/10 border border-red-500/20 rounded-full flex items-center justify-center mb-6 animate-pulse text-red-500">
+          <Loader2 size={28} className="animate-spin" />
+        </div>
+        <h1 className="text-xl font-black text-red-500 mb-2">CUENTA BLOQUEADA</h1>
+        <p className="text-slate-400 text-xs max-w-xs mb-6 leading-relaxed">
+          Has superado el límite permitido de efectivo en mano (**$40.00**). Por favor, acércate a la oficina central de La Crayola o realiza un depósito para liquidar tu billetera y continuar recibiendo pedidos.
+        </p>
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 w-full max-w-xs mb-6">
+          <div className="text-[10px] text-slate-400 mb-1 uppercase tracking-wider font-semibold">Efectivo en mano actual</div>
+          <div className="text-3xl font-black text-white">{fmt(repartidor.efectivo_en_mano)}</div>
+        </div>
+        <button
+          onClick={() => cargar(user!.id)}
+          className="bg-red-600 hover:bg-red-700 active:scale-95 text-white font-bold px-6 py-3 rounded-xl transition text-xs flex items-center gap-2">
+          Verificar liquidación
+        </button>
+      </div>
+    )
+  }
+
   const totalACobrar = pedidos.filter(p => p.estado === 'asignado' || p.estado === 'en_ruta')
     .reduce((s, p) => s + p.total, 0)
 
@@ -180,12 +203,15 @@ export default function RepartidorPage() {
             </a>
           </div>
         </div>
-        <div className="flex gap-3 pt-1">
-          <div className="bg-white/20 rounded-xl px-3 py-1.5 text-xs font-semibold">
-            📦 {pedidos.length} pedidos asignados
+        <div className="flex gap-2.5 pt-1 overflow-x-auto no-scrollbar">
+          <div className="bg-white/20 rounded-xl px-3 py-1.5 text-[11px] font-semibold shrink-0">
+            📦 {pedidos.length} asignados
           </div>
-          <div className="bg-white/20 rounded-xl px-3 py-1.5 text-xs font-semibold">
-            💵 Comisión: ${repartidor?.comision_valor ?? 1}/entrega
+          <div className="bg-white/20 rounded-xl px-3 py-1.5 text-[11px] font-semibold shrink-0">
+            💵 Comisión: ${repartidor?.comision_valor ?? 1}/v
+          </div>
+          <div className="bg-white/20 rounded-xl px-3 py-1.5 text-[11px] font-semibold shrink-0 text-yellow-300 border border-yellow-400/25 flex items-center gap-1">
+            💰 Caja: {fmt(repartidor?.efectivo_en_mano ?? 0)}
           </div>
         </div>
       </div>
