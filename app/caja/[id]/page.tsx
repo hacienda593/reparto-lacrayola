@@ -223,8 +223,11 @@ export default function CajaPage() {
           <button
             type="button"
             onClick={() => {
-              const msg = `¡Hola *${pedido?.nombre_cliente}*! Ya me encuentro en la caja facturando tu compra de La Crayola. El total final consolidado facturado es de *$${parseFloat(montoFacturado || '0').toFixed(2)}*. 🧾 ¡Pronto iniciaremos la ruta de entrega!`
-              window.open(`https://wa.me/${pedido?.telefono?.replace(/\D/g,'')}?text=${encodeURIComponent(msg)}`, '_blank')
+              const paddingNum = String(pedido?.numero ?? 0).padStart(4, '0')
+              const msg = `¡Hola *${pedido?.nombre_cliente}*! Tu pedido #*${paddingNum}* de Tienda La Crayola ha sido facturado en caja por un total de *$${parseFloat(montoFacturado || '0').toFixed(2)}* y entregado al repartidor. 📦 ¡Pronto iniciaremos la ruta de entrega!`
+              const cleanPhone = pedido?.telefono?.replace(/\D/g, '') || ''
+              const formattedPhone = cleanPhone.startsWith('0') ? '593' + cleanPhone.slice(1) : cleanPhone
+              window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(msg)}`, '_blank')
             }}
             className="bg-green-600 hover:bg-green-700 text-white font-bold px-4 py-2.5 rounded-xl text-xs transition-all shrink-0">
             📲 Notificar Real

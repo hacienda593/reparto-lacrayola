@@ -180,6 +180,41 @@ export default function EntregaPage() {
           </div>
         </div>
 
+        {/* Notificaciones rápidas de WhatsApp (Repartidor) */}
+        <div className="bg-[#181d24] border border-[#2d3748] rounded-2xl p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <span className="text-[#00b074]">📲</span>
+            <p className="text-gray-400 text-xs font-semibold uppercase tracking-wider">Notificaciones al Cliente</p>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                const paddingNum = String(pedido?.numero ?? 0).padStart(4, '0')
+                const msg = `Hola *${pedido?.nombre_cliente}*, soy tu repartidor de Tienda La Crayola. *Voy en camino* con tu pedido #*${paddingNum}* hacia tu ubicación. Por favor, confírmame si estás en casa. A continuación te compartiré mi ubicación en tiempo real en la siguiente burbuja para que puedas seguirme:`
+                const cleanPhone = pedido?.telefono?.replace(/\D/g, '') || ''
+                const formattedPhone = cleanPhone.startsWith('0') ? '593' + cleanPhone.slice(1) : cleanPhone
+                window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(msg)}`, '_blank')
+              }}
+              className="flex-1 bg-blue-600/20 border border-blue-500/30 hover:bg-blue-600/35 text-blue-400 py-2.5 rounded-xl text-xs font-bold transition text-center cursor-pointer"
+            >
+              🏍️ En Camino
+            </button>
+            <button
+              onClick={() => {
+                const trackingUrl = `https://tienda-lacrayola.vercel.app/pedido/${pedido?.id}`
+                const paddingNum = String(pedido?.numero ?? 0).padStart(4, '0')
+                const msg = `Hola *${pedido?.nombre_cliente}*, tu pedido #*${paddingNum}* de Tienda La Crayola ha sido *entregado con éxito*. ¡Muchas gracias por tu confianza! Si te gustó nuestro servicio, califícanos aquí: ${trackingUrl}`
+                const cleanPhone = pedido?.telefono?.replace(/\D/g, '') || ''
+                const formattedPhone = cleanPhone.startsWith('0') ? '593' + cleanPhone.slice(1) : cleanPhone
+                window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(msg)}`, '_blank')
+              }}
+              className="flex-1 bg-green-600/20 border border-green-500/30 hover:bg-green-600/35 text-green-400 py-2.5 rounded-xl text-xs font-bold transition text-center cursor-pointer"
+            >
+              ✅ Entregado
+            </button>
+          </div>
+        </div>
+
         {/* Cobro */}
         <div className="bg-[#181d24] border border-[#2d3748] rounded-2xl p-4 space-y-3">
           <div className="flex items-center gap-2">

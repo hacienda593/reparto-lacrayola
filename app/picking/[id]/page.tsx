@@ -345,6 +345,31 @@ export default function PickingPage() {
             <div className="h-full bg-[#00b074] rounded-full transition-all duration-500" style={{ width: `${progreso}%` }} />
           </div>
         </div>
+
+        {/* Notificaciones rápidas de WhatsApp (Shopper) */}
+        <div className="flex gap-2 pt-3 border-t border-[#2d3748] mt-3">
+          <button
+            onClick={() => {
+              const trackingUrl = `https://tienda-lacrayola.vercel.app/pedido/${pedido?.id}`
+              const paddingNum = String(pedido?.numero ?? 0).padStart(4, '0')
+              const msg = `Hola *${pedido?.nombre_cliente}*, soy el encargado de compras de Tienda La Crayola. He *aceptado* tu pedido #*${paddingNum}* de Tuti/Tía y ya me preparo para realizarlo. Puedes seguir el estado en tiempo real en: ${trackingUrl}`
+              window.open(`https://wa.me/${pedido?.telefono?.replace(/\D/g,'')}?text=${encodeURIComponent(msg)}`, '_blank')
+            }}
+            className="flex-1 bg-indigo-600/20 border border-indigo-500/30 hover:bg-indigo-600/35 text-indigo-400 py-2 rounded-xl text-[11px] font-bold transition text-center cursor-pointer"
+          >
+            🤝 Avisar Aceptado
+          </button>
+          <button
+            onClick={() => {
+              const paddingNum = String(pedido?.numero ?? 0).padStart(4, '0')
+              const msg = `Hola *${pedido?.nombre_cliente}*, ya me encuentro en el supermercado *realizando tus compras* para el pedido #*${paddingNum}*. Si un artículo no está disponible, te consultaré por esta vía.`
+              window.open(`https://wa.me/${pedido?.telefono?.replace(/\D/g,'')}?text=${encodeURIComponent(msg)}`, '_blank')
+            }}
+            className="flex-1 bg-purple-600/20 border border-purple-500/30 hover:bg-purple-600/35 text-purple-400 py-2 rounded-xl text-[11px] font-bold transition text-center cursor-pointer"
+          >
+            🛒 Avisar Comprando
+          </button>
+        </div>
       </div>
 
       {/* ── Contenido ── */}
