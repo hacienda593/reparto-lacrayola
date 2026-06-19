@@ -45,22 +45,39 @@ export default function PedidosClient({ repartidor, asignaciones, pedidoMap }: {
               </div>
             </div>
           </div>
-          <form action={logout}>
-            <button className="text-gray-500 text-xs border border-[#2d3748] px-3 py-1.5 rounded-xl">Salir</button>
-          </form>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => router.push('/repartidor')}
+              className="text-[#00b074] text-xs border border-[#00b074]/30 bg-[#00b074]/10 px-3 py-1.5 rounded-xl font-bold active:scale-95 transition-all cursor-pointer"
+            >
+              🧺 Auto-Asignación
+            </button>
+            <form action={logout}>
+              <button className="text-gray-500 text-xs border border-[#2d3748] px-3 py-1.5 rounded-xl cursor-pointer">Salir</button>
+            </form>
+          </div>
         </div>
       </div>
 
       <div className="px-4 pt-5">
         <p className="text-gray-500 text-xs font-bold uppercase tracking-wider mb-4">
-          Pedidos disponibles ({asignaciones.length})
+          Pedidos asignados ({asignaciones.length})
         </p>
 
         {asignaciones.length === 0 && (
-          <div className="text-center py-24 space-y-3">
+          <div className="text-center py-16 space-y-4">
             <div className="text-6xl">📭</div>
-            <p className="text-gray-400 font-semibold">Sin pedidos asignados</p>
-            <p className="text-gray-600 text-sm">El admin te asignará pedidos pronto</p>
+            <div>
+              <p className="text-gray-400 font-bold text-sm">Sin pedidos asignados</p>
+              <p className="text-gray-600 text-xs mt-0.5">Puedes auto-asignarte pedidos libres en la cola general.</p>
+            </div>
+            <button
+              onClick={() => router.push('/repartidor')}
+              className="bg-[#00b074] hover:bg-[#008f5d] text-white font-bold px-6 py-3.5 rounded-2xl text-xs transition active:scale-95 shadow-md shadow-[#00b074]/20 cursor-pointer"
+            >
+              🧺 Ver Cola General (Auto-Asignación)
+            </button>
           </div>
         )}
 
