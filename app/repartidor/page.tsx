@@ -171,9 +171,14 @@ export default function RepartidorPage() {
   async function enRuta(asignacionId: string, pedidoId: string) {
     setProcesando(asignacionId)
     const geo = await new Promise<{ lat: number; lng: number } | null>(res => {
-      navigator.geolocation?.getCurrentPosition(
+      if (typeof window === 'undefined' || !navigator?.geolocation) {
+        res(null)
+        return
+      }
+      navigator.geolocation.getCurrentPosition(
         p => res({ lat: p.coords.latitude, lng: p.coords.longitude }),
-        () => res(null)
+        () => res(null),
+        { timeout: 5000 }
       )
     })
     await supabase.from('rep_asignaciones').update({
@@ -200,9 +205,14 @@ export default function RepartidorPage() {
     setProcesando(asignacionId)
 
     const geo = await new Promise<{ lat: number; lng: number } | null>(res => {
-      navigator.geolocation?.getCurrentPosition(
+      if (typeof window === 'undefined' || !navigator?.geolocation) {
+        res(null)
+        return
+      }
+      navigator.geolocation.getCurrentPosition(
         p => res({ lat: p.coords.latitude, lng: p.coords.longitude }),
-        () => res(null)
+        () => res(null),
+        { timeout: 5000 }
       )
     })
 

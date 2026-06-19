@@ -46,12 +46,17 @@ export default function EntregaPage() {
   async function confirmarEntrega() {
     if (!monto.trim() || isNaN(parseFloat(monto))) { setError('Ingresa el monto cobrado'); return }
     setGuardando(true); setError('')
-    const geo = await new Promise<{ lat: number; lng: number } | null>(res =>
-      navigator.geolocation?.getCurrentPosition(
+    const geo = await new Promise<{ lat: number; lng: number } | null>(res => {
+      if (typeof window === 'undefined' || !navigator?.geolocation) {
+        res(null)
+        return
+      }
+      navigator.geolocation.getCurrentPosition(
         p => res({ lat: p.coords.latitude, lng: p.coords.longitude }),
-        () => res(null), { timeout: 5000 }
+        () => res(null),
+        { timeout: 5000 }
       )
-    )
+    })
     await sb.from('rep_asignaciones').update({ estado: 'entregado', updated_at: new Date().toISOString() }).eq('id', id)
     await sb.from('ol_pedidos').update({ estado: 'entregado' }).eq('id', pedido.id)
     await sb.from('rep_entregas').insert({
