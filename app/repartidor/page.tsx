@@ -199,6 +199,32 @@ export default function RepartidorPage() {
     router.push(`/entrega/${asignacionId}`)
   }
 
+  async function confirmarRetiroCliente(asignacionId: string, pedidoId: string) {
+    setProcesando(asignacionId)
+    await supabase.from('rep_asignaciones').update({
+      estado: 'entregado', updated_at: new Date().toISOString()
+    }).eq('id', asignacionId)
+
+    await supabase.from('ol_pedidos').update({ estado: 'entregado' }).eq('id', pedidoId)
+
+    if (repartidor) {
+      await supabase.from('rep_entregas').insert({
+        asignacion_id: asignacionId,
+        repartidor_id: repartidor.id,
+        pedido_id:     pedidoId,
+        salida_at:     new Date().toISOString(),
+        entregado_at:  new Date().toISOString(),
+        monto_cobrado: pedidos.find(p => p.asignacion_id === asignacionId)?.total ?? 0,
+        metodo_pago:   'efectivo',
+        exitosa:       true,
+        notas:         'Retirado por el cliente en local principal',
+      })
+    }
+
+    await cargar(user!.id)
+    setProcesando(null)
+  }
+
   async function entregar(asignacionId: string, pedidoId: string) {
     const monto = parseFloat(cobro[asignacionId] || '0')
     if (!monto) { alert('Ingresa el monto cobrado'); return }
@@ -404,21 +430,37 @@ export default function RepartidorPage() {
                 {/* Vista Compras - Traspaso o Híbrido (si ya está recolectado) */}
                 {modo === 'comprador' && p.estado === 'recolectado' && (
                   <div className="pt-3 border-t border-slate-100 mt-2 space-y-2">
-                    <div className="bg-green-50 border border-green-200 rounded-xl p-3 text-center text-xs text-green-800 font-semibold mb-2">
-                      🎉 ¡Compras completadas! Realiza el traspaso al motorizado.
-                    </div>
-                    <div className="flex gap-2">
-                      <a href={`/repartidor/traspaso/${p.asignacion_id}`}
-                        className="flex-1 flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition text-xs shadow-xs text-center">
-                        📲 Traspasar por QR
-                      </a>
-                      <button
-                        onClick={() => autotraspaso(p.asignacion_id, p.pedido_id, p.numero, p.nombre_cliente, p.telefono)}
-                        disabled={procesando !== null}
-                        className="flex-1 flex items-center justify-center gap-1.5 bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-xl transition text-xs shadow-xs">
-                        🛵 Entregar yo mismo
-                      </button>
-                    </div>
+                    {p.direccion === 'RETIRO EN TIENDA' ? (
+                      <>
+                        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3 text-center text-xs text-yellow-800 font-semibold mb-2">
+                          🛍️ Pedido de Retiro en Tienda. Está listo para que el cliente lo retire.
+                        </div>
+                        <button
+                          onClick={() => confirmarRetiroCliente(p.asignacion_id, p.pedido_id)}
+                          disabled={procesando !== null}
+                          className="w-full flex items-center justify-center gap-1.5 bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-xl transition text-xs shadow-xs">
+                          🛍️ Entregar al Cliente (Confirmar Retiro)
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <div className="bg-green-50 border border-green-200 rounded-xl p-3 text-center text-xs text-green-800 font-semibold mb-2">
+                          🎉 ¡Compras completadas! Realiza el traspaso al motorizado.
+                        </div>
+                        <div className="flex gap-2">
+                          <a href={`/repartidor/traspaso/${p.asignacion_id}`}
+                            className="flex-1 flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition text-xs shadow-xs text-center">
+                            📲 Traspasar por QR
+                          </a>
+                          <button
+                            onClick={() => autotraspaso(p.asignacion_id, p.pedido_id, p.numero, p.nombre_cliente, p.telefono)}
+                            disabled={procesando !== null}
+                            className="flex-1 flex items-center justify-center gap-1.5 bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-xl transition text-xs shadow-xs">
+                            🛵 Entregar yo mismo
+                          </button>
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
 

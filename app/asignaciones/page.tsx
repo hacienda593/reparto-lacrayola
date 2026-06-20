@@ -243,7 +243,7 @@ export default function AsignacionesPage() {
                     className="w-full bg-[#0c0f12] border border-[#2d3748] rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-green-500">
                     <option value="">-- Seleccionar Pedido --</option>
                     {pedidos
-                      .filter(p => !asignaciones.some(a => a.pedido_id === p.id) && p.estado !== 'entregado')
+                      .filter(p => !asignaciones.some(a => a.pedido_id === p.id) && p.estado !== 'entregado' && p.direccion !== 'RETIRO EN TIENDA')
                       .map(p => (
                         <option key={p.id} value={p.id}>
                           #{String(p.numero).padStart(4,'0')} - {p.nombre_cliente} ({fmt(p.total)})

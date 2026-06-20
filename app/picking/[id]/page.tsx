@@ -58,14 +58,33 @@ export default function PickingPage() {
     const { data: ped } = await supabase.from('ol_pedidos').select('*').eq('id', asig.pedido_id).single()
     setPedido(ped)
     const { data: items } = await supabase.from('ol_pedido_items').select('*').eq('pedido_id', asig.pedido_id)
+
+    // Obtener imagen_url y codigo_barras de ol_productos
+    const codigos = (items ?? []).map((it: any) => it.codigo).filter(Boolean)
+    let prodMap: Record<string, { imagen_url: string | null; codigo_barras: string | null }> = {}
+    if (codigos.length > 0) {
+      const { data: prods } = await supabase
+        .from('ol_productos')
+        .select('codigo, imagen_url, codigo_barras')
+        .in('codigo', codigos)
+      if (prods) {
+        prods.forEach((p: any) => {
+          prodMap[p.codigo] = { imagen_url: p.imagen_url, codigo_barras: p.codigo_barras }
+        })
+      }
+    }
+
     setProductos((items ?? []).map((it: any) => ({
       id: it.id,
+      codigo:    it.codigo,
       nombre:    it.descripcion ?? it.nombre_producto ?? it.nombre ?? 'Producto',
       cantidad:  it.cantidad ?? 1,
       seccion:   it.categoria ?? it.seccion ?? null,
       completado: it.picking_completado ?? false,
       agotado:    it.picking_agotado    ?? false,
       reemplazo:  it.picking_reemplazo  ?? null,
+      imagen_url:    prodMap[it.codigo]?.imagen_url ?? null,
+      codigo_barras: prodMap[it.codigo]?.codigo_barras ?? null,
     })))
     setCargando(false)
   }
@@ -144,7 +163,18 @@ export default function PickingPage() {
   }
 
   async function confirmarEscaneo() {
-    if (scanResult) {
+    if (scanResult && prodActivoObj) {
+      // Si el producto no tenía código de barras registrado, guardarlo en el catálogo
+      if (!prodActivoObj.codigo_barras) {
+        await supabase
+          .from('ol_productos')
+          .update({ codigo_barras: scanResult.codigo })
+          .eq('codigo', prodActivoObj.codigo)
+        
+        // Actualizar en el estado local
+        setProductos(prev => prev.map(p => p.id === scanResult.prodId ? { ...p, codigo_barras: scanResult.codigo } : p))
+      }
+
       await marcarCompletado(scanResult.prodId, cantConfirm)
       pararCamara()
     }
@@ -223,12 +253,61 @@ export default function PickingPage() {
 
           {/* Resultado / Confirmación cantidad */}
           <div className="bg-[#181d24] px-4 pt-4 pb-8 space-y-3">
-            {scanResult && (
-              <div className="bg-[#00b074]/10 border border-[#00b074]/30 rounded-xl px-3 py-2 text-center">
-                <p className="text-[#00b074] text-xs font-semibold">✅ Código detectado</p>
-                <p className="text-gray-400 text-xs font-mono mt-0.5">{scanResult.codigo}</p>
-              </div>
-            )}
+            {scanResult && prodActivoObj && (() => {
+              const tieneCodigo = !!prodActivoObj.codigo_barras
+              const codigoCoincide = tieneCodigo && scanResult.codigo === prodActivoObj.codigo_barras
+              const esPrimerEscaneo = !tieneCodigo
+
+              return (
+                <div className="space-y-3">
+                  {codigoCoincide && (
+                    <div className="bg-[#00b074]/10 border border-[#00b074]/30 rounded-2xl p-4 text-center space-y-1">
+                      <p className="text-[#00b074] text-xs font-bold uppercase tracking-wider">✅ Código Correcto y Verificado</p>
+                      <p className="text-gray-300 font-mono text-xs">{scanResult.codigo}</p>
+                    </div>
+                  )}
+
+                  {tieneCodigo && !codigoCoincide && (
+                    <div className="bg-red-500/10 border border-red-500/30 rounded-2xl p-4 text-center space-y-2">
+                      <p className="text-red-400 text-xs font-bold uppercase tracking-wider">❌ El Código No Coincide</p>
+                      <div className="text-xs text-gray-400 space-y-0.5">
+                        <p>Escaneado: <span className="font-mono text-white">{scanResult.codigo}</span></p>
+                        <p>Esperado: <span className="font-mono text-[#00b074]">{prodActivoObj.codigo_barras}</span></p>
+                      </div>
+                      <p className="text-red-400/80 text-[10px] leading-relaxed">
+                        Este no es el producto correcto. Por favor, verifica la marca, presentación o sección.
+                      </p>
+                    </div>
+                  )}
+
+                  {esPrimerEscaneo && (
+                    <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-2xl p-4 space-y-3">
+                      <div className="text-center">
+                        <p className="text-yellow-500 text-xs font-bold uppercase tracking-wider">🛍️ Primer Escaneo de este Producto</p>
+                        <p className="text-gray-400 text-[10.5px] mt-0.5">Confirma si el artículo físico coincide con la foto:</p>
+                      </div>
+                      
+                      <div className="flex items-center gap-3 bg-[#0c0f12] p-2.5 rounded-xl border border-gray-800">
+                        {prodActivoObj.imagen_url ? (
+                          <img src={prodActivoObj.imagen_url} alt="" className="w-12 h-12 object-contain bg-white rounded-lg p-0.5 shrink-0" />
+                        ) : (
+                          <div className="w-12 h-12 bg-slate-800 rounded-lg flex items-center justify-center text-xl shrink-0">📦</div>
+                        )}
+                        <div className="flex-1 min-w-0 text-left">
+                          <p className="text-white text-xs font-bold truncate">{prodActivoObj.nombre}</p>
+                          <p className="text-gray-500 text-[10px] uppercase tracking-wider mt-0.5">{prodActivoObj.seccion ?? 'Sin sección'}</p>
+                        </div>
+                      </div>
+
+                      <div className="text-center">
+                        <p className="text-[10px] text-gray-500 font-semibold">Código a registrar:</p>
+                        <p className="text-white font-mono text-xs mt-0.5">{scanResult.codigo}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
 
             {/* Selector de cantidad */}
             <div className="flex items-center justify-between bg-[#0c0f12] rounded-xl px-4 py-3">
@@ -243,10 +322,31 @@ export default function PickingPage() {
             </div>
 
             {scanResult ? (
-              <button onClick={confirmarEscaneo}
-                className="w-full bg-[#00b074] text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-2">
-                <CheckCircle2 size={18} /> Añadir {cantConfirm} unidad{cantConfirm !== 1 ? 'es' : ''} a la canasta
-              </button>
+              (() => {
+                const tieneCodigo = !!prodActivoObj?.codigo_barras
+                const codigoCoincide = tieneCodigo && scanResult.codigo === prodActivoObj.codigo_barras
+                const esPrimerEscaneo = !tieneCodigo
+
+                if (codigoCoincide || esPrimerEscaneo) {
+                  return (
+                    <button onClick={confirmarEscaneo}
+                      className="w-full bg-[#00b074] hover:bg-[#008f5d] text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-2 transition-all active:scale-95">
+                      <CheckCircle2 size={18} />
+                      {esPrimerEscaneo 
+                        ? `Asociar Código y Añadir ${cantConfirm} ud.`
+                        : `Confirmar y Añadir ${cantConfirm} ud.`
+                      }
+                    </button>
+                  )
+                } else {
+                  return (
+                    <button onClick={pararCamara}
+                      className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-2 transition-all active:scale-95">
+                      Reintentar Escaneo (Cerrar)
+                    </button>
+                  )
+                }
+              })()
             ) : (
               <button onClick={confirmarManual}
                 className="w-full bg-[#2d3748] text-white font-semibold py-3.5 rounded-2xl flex items-center justify-center gap-2 text-sm">
@@ -390,9 +490,13 @@ export default function PickingPage() {
                   className={`bg-[#181d24] border rounded-2xl p-3.5 transition
                     ${prod.completado ? 'border-[#00b074]/30' : prod.agotado ? 'border-[#ff9f1c]/30' : 'border-[#2d3748]'}`}>
                   <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-xl shrink-0
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-xl shrink-0 overflow-hidden
                       ${prod.completado ? 'bg-[#00b074]/10' : prod.agotado ? 'bg-[#ff9f1c]/10' : 'bg-[#2d3748]'}`}>
-                      {emojiProd(prod.nombre)}
+                      {prod.imagen_url ? (
+                        <img src={prod.imagen_url} alt={prod.nombre} className="w-full h-full object-contain p-0.5" />
+                      ) : (
+                        emojiProd(prod.nombre)
+                      )}
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className={`text-sm font-semibold truncate ${prod.completado ? 'text-gray-500 line-through' : 'text-white'}`}>

@@ -224,13 +224,16 @@ export default function CajaPage() {
             type="button"
             onClick={() => {
               const paddingNum = String(pedido?.numero ?? 0).padStart(4, '0')
-              const msg = `¡Hola *${pedido?.nombre_cliente}*! Tu pedido #*${paddingNum}* de Tienda La Crayola ha sido facturado en caja por un total de *$${parseFloat(montoFacturado || '0').toFixed(2)}* y entregado al repartidor. 📦 ¡Pronto iniciaremos la ruta de entrega!`
+              const esRetiro = pedido?.direccion === 'RETIRO EN TIENDA'
+              const msg = esRetiro
+                ? `¡Hola *${pedido?.nombre_cliente}*! 🛍️ Tu pedido #*${paddingNum}* de Tienda La Crayola ya está facturado y *LISTO PARA RETIRAR* en nuestro local principal. Monto total a cancelar: *$${parseFloat(montoFacturado || '0').toFixed(2)}*. ¡Te esperamos!`
+                : `¡Hola *${pedido?.nombre_cliente}*! Tu pedido #*${paddingNum}* de Tienda La Crayola ha sido facturado en caja por un total de *$${parseFloat(montoFacturado || '0').toFixed(2)}* y entregado al repartidor. 📦 ¡Pronto iniciaremos la ruta de entrega!`
               const cleanPhone = pedido?.telefono?.replace(/\D/g, '') || ''
               const formattedPhone = cleanPhone.startsWith('0') ? '593' + cleanPhone.slice(1) : cleanPhone
               window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(msg)}`, '_blank')
             }}
             className="bg-green-600 hover:bg-green-700 text-white font-bold px-4 py-2.5 rounded-xl text-xs transition-all shrink-0">
-            📲 Notificar Real
+            {pedido?.direccion === 'RETIRO EN TIENDA' ? '📲 Notificar Retiro' : '📲 Notificar Real'}
           </button>
         </div>
 
