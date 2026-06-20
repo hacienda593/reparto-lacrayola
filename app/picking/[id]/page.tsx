@@ -90,25 +90,49 @@ export default function PickingPage() {
   }
 
   async function marcarCompletado(pid: string, qty?: number) {
+    const prevProds = productos;
     setProductos(prev => prev.map(p => p.id === pid ? { ...p, completado: true, agotado: false } : p))
-    await supabase.from('ol_pedido_items').update({
+    
+    const { data, error } = await supabase.from('ol_pedido_items').update({
       picking_completado: true, picking_agotado: false,
       ...(qty !== undefined ? { cantidad: qty } : {}),
-    }).eq('id', pid)
+    }).eq('id', pid).select()
+
+    if (error || !data || data.length === 0) {
+      alert("Error de base de datos: No se pudo completar el producto (posible restricción de seguridad RLS).")
+      setProductos(prevProds)
+    }
   }
 
   async function deshacerCompletado(pid: string) {
+    const prevProds = productos;
     setProductos(prev => prev.map(p => p.id === pid ? { ...p, completado: false, agotado: false } : p))
-    await supabase.from('ol_pedido_items').update({ picking_completado: false, picking_agotado: false }).eq('id', pid)
+    
+    const { data, error } = await supabase.from('ol_pedido_items').update({ 
+      picking_completado: false, 
+      picking_agotado: false 
+    }).eq('id', pid).select()
+
+    if (error || !data || data.length === 0) {
+      alert("Error de base de datos: No se pudo deshacer la recolección.")
+      setProductos(prevProds)
+    }
   }
 
   async function confirmarAgotado(pid: string, reemplazo?: string) {
+    const prevProds = productos;
     setProductos(prev => prev.map(p => p.id === pid ? { ...p, agotado: true, completado: false, reemplazo: reemplazo ?? null } : p))
-    await supabase.from('ol_pedido_items').update({
+    setAgotadoOpen(null)
+
+    const { data, error } = await supabase.from('ol_pedido_items').update({
       picking_agotado: true, picking_completado: false,
       picking_reemplazo: reemplazo ?? null,
-    }).eq('id', pid)
-    setAgotadoOpen(null)
+    }).eq('id', pid).select()
+
+    if (error || !data || data.length === 0) {
+      alert("Error de base de datos: No se pudo marcar el producto como agotado.")
+      setProductos(prevProds)
+    }
   }
 
   // ── Escáner con BarcodeDetector ────────────────────────────────────────
@@ -166,10 +190,17 @@ export default function PickingPage() {
     if (scanResult && prodActivoObj) {
       // Si el producto no tenía código de barras registrado, guardarlo en el catálogo
       if (!prodActivoObj.codigo_barras) {
-        await supabase
+        const { data, error } = await supabase
           .from('ol_productos')
           .update({ codigo_barras: scanResult.codigo })
           .eq('codigo', prodActivoObj.codigo)
+          .select()
+        
+        if (error || !data || data.length === 0) {
+          alert("Error: No tienes permisos para registrar el código de barras en el catálogo (posible RLS de Supabase).")
+          pararCamara()
+          return
+        }
         
         // Actualizar en el estado local
         setProductos(prev => prev.map(p => p.id === scanResult.prodId ? { ...p, codigo_barras: scanResult.codigo } : p))
