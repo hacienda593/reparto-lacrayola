@@ -197,7 +197,7 @@ export default function EntregaPage() {
                 const paddingNum = String(pedido?.numero ?? 0).padStart(4, '0')
                 const msg = `Hola *${pedido?.nombre_cliente}*, soy tu repartidor de Tienda La Crayola. *Voy en camino* con tu pedido #*${paddingNum}* hacia tu ubicación. Por favor, confírmame si estás en casa. A continuación te compartiré mi ubicación en tiempo real en la siguiente burbuja para que puedas seguirme:`
                 const cleanPhone = pedido?.telefono?.replace(/\D/g, '') || ''
-                const formattedPhone = cleanPhone.startsWith('0') ? '593' + cleanPhone.slice(1) : cleanPhone
+                const formattedPhone = cleanPhone.startsWith('0') ? '593' + cleanPhone.slice(1) : (cleanPhone.startsWith('9') && cleanPhone.length === 9 ? '593' + cleanPhone : cleanPhone)
                 window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(msg)}`, '_blank')
               }}
               className="flex-1 bg-blue-600/20 border border-blue-500/30 hover:bg-blue-600/35 text-blue-400 py-2.5 rounded-xl text-xs font-bold transition text-center cursor-pointer"
@@ -210,7 +210,7 @@ export default function EntregaPage() {
                 const paddingNum = String(pedido?.numero ?? 0).padStart(4, '0')
                 const msg = `Hola *${pedido?.nombre_cliente}*, tu pedido #*${paddingNum}* de Tienda La Crayola ha sido *entregado con éxito*. ¡Muchas gracias por tu confianza! Si te gustó nuestro servicio, califícanos aquí: ${trackingUrl}`
                 const cleanPhone = pedido?.telefono?.replace(/\D/g, '') || ''
-                const formattedPhone = cleanPhone.startsWith('0') ? '593' + cleanPhone.slice(1) : cleanPhone
+                const formattedPhone = cleanPhone.startsWith('0') ? '593' + cleanPhone.slice(1) : (cleanPhone.startsWith('9') && cleanPhone.length === 9 ? '593' + cleanPhone : cleanPhone)
                 window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(msg)}`, '_blank')
               }}
               className="flex-1 bg-green-600/20 border border-green-500/30 hover:bg-green-600/35 text-green-400 py-2.5 rounded-xl text-xs font-bold transition text-center cursor-pointer"

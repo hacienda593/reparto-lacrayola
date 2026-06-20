@@ -179,7 +179,9 @@ export default function EscanearPage() {
       setProcesando(false)
 
       const msg = `🛵 *La Crayola - ¡Tu pedido va en camino!* \n\nHola *${asigValida.ol_pedidos?.nombre_cliente}*, tu pedido *#${String(asigValida.ol_pedidos?.numero).padStart(4,'0')}* ya fue comprado y va en camino a cargo del motorizado *${repartidor.nombre}*. 📍 ¡Llegaré en unos minutos!`
-      window.open(`https://wa.me/${asigValida.ol_pedidos?.telefono?.replace(/\D/g,'')}?text=${encodeURIComponent(msg)}`, '_blank')
+      const cleanPhone = asigValida.ol_pedidos?.telefono?.replace(/\D/g,'') || ''
+      const formattedPhone = cleanPhone.startsWith('0') ? '593' + cleanPhone.slice(1) : (cleanPhone.startsWith('9') && cleanPhone.length === 9 ? '593' + cleanPhone : cleanPhone)
+      window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(msg)}`, '_blank')
 
     } catch {
       setError('Ocurrió un error inesperado al procesar el traspaso.')

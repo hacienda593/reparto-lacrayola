@@ -61,15 +61,15 @@ export default function PickingPage() {
 
     // Obtener imagen_url y codigo_barras de ol_productos
     const codigos = (items ?? []).map((it: any) => it.codigo).filter(Boolean)
-    let prodMap: Record<string, { imagen_url: string | null; codigo_barras: string | null }> = {}
+    let prodMap: Record<string, { descripcion: string | null; imagen_url: string | null; codigo_barras: string | null }> = {}
     if (codigos.length > 0) {
       const { data: prods } = await supabase
         .from('ol_productos')
-        .select('codigo, imagen_url, codigo_barras')
+        .select('codigo, descripcion, imagen_url, codigo_barras')
         .in('codigo', codigos)
       if (prods) {
         prods.forEach((p: any) => {
-          prodMap[p.codigo] = { imagen_url: p.imagen_url, codigo_barras: p.codigo_barras }
+          prodMap[p.codigo] = { descripcion: p.descripcion, imagen_url: p.imagen_url, codigo_barras: p.codigo_barras }
         })
       }
     }
@@ -77,7 +77,7 @@ export default function PickingPage() {
     setProductos((items ?? []).map((it: any) => ({
       id: it.id,
       codigo:    it.codigo,
-      nombre:    it.descripcion ?? it.nombre_producto ?? it.nombre ?? 'Producto',
+      nombre:    prodMap[it.codigo]?.descripcion ?? it.descripcion ?? it.nombre_producto ?? it.nombre ?? 'Producto',
       cantidad:  it.cantidad ?? 1,
       seccion:   it.categoria ?? it.seccion ?? null,
       completado: it.picking_completado ?? false,
@@ -237,7 +237,13 @@ export default function PickingPage() {
   const progreso      = total > 0 ? Math.round((soloCompletos / total) * 100) : 0
   const listo         = completados === total && total > 0
   const prodActivoObj = productos.find(p => p.id === prodActivo)
-  const waLink        = `https://wa.me/${pedido?.telefono?.replace(/\D/g,'')}`
+  const cleanPhone = pedido?.telefono?.replace(/\D/g, '') || ''
+  const formattedPhone = cleanPhone.startsWith('0')
+    ? '593' + cleanPhone.slice(1)
+    : cleanPhone.startsWith('9') && cleanPhone.length === 9
+      ? '593' + cleanPhone
+      : cleanPhone
+  const waLink        = `https://wa.me/${formattedPhone}`
 
   if (cargando) return (
     <div className="min-h-screen bg-[#0c0f12] flex items-center justify-center">
@@ -420,7 +426,7 @@ export default function PickingPage() {
               <button onClick={() => {
                 const prodNombre = productos.find(p => p.id === agotadoOpen)?.nombre || 'Producto'
                 const msg = `⚠️ *La Crayola - Novedad de Stock* \n\nHola *${pedido?.nombre_cliente}*, en tu pedido *#${String(pedido?.numero ?? 0).padStart(4,'0')}*, te comento que no hay stock disponible de *"${prodNombre}"*. ¿Deseas sustituirlo por otra marca/tamaño similar, o prefieres omitirlo de la lista? 🛒`
-                window.open(`https://wa.me/${pedido?.telefono?.replace(/\D/g,'')}?text=${encodeURIComponent(msg)}`, '_blank')
+                window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(msg)}`, '_blank')
                 confirmarAgotado(agotadoOpen)
               }}
                 className="w-full bg-green-700/25 border border-green-500/40 hover:bg-green-700/40 text-green-400 text-left px-4 py-3.5 rounded-2xl flex items-center justify-between transition-all">
@@ -484,7 +490,7 @@ export default function PickingPage() {
               const trackingUrl = `https://tienda-lacrayola.vercel.app/pedido/${pedido?.id}`
               const paddingNum = String(pedido?.numero ?? 0).padStart(4, '0')
               const msg = `Hola *${pedido?.nombre_cliente}*, soy el encargado de compras de Tienda La Crayola. He *aceptado* tu pedido #*${paddingNum}* de Tuti/Tía y ya me preparo para realizarlo. Puedes seguir el estado en tiempo real en: ${trackingUrl}`
-              window.open(`https://wa.me/${pedido?.telefono?.replace(/\D/g,'')}?text=${encodeURIComponent(msg)}`, '_blank')
+              window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(msg)}`, '_blank')
             }}
             className="flex-1 bg-indigo-600/20 border border-indigo-500/30 hover:bg-indigo-600/35 text-indigo-400 py-2 rounded-xl text-[11px] font-bold transition text-center cursor-pointer"
           >
@@ -494,7 +500,7 @@ export default function PickingPage() {
             onClick={() => {
               const paddingNum = String(pedido?.numero ?? 0).padStart(4, '0')
               const msg = `Hola *${pedido?.nombre_cliente}*, ya me encuentro en el supermercado *realizando tus compras* para el pedido #*${paddingNum}*. Si un artículo no está disponible, te consultaré por esta vía.`
-              window.open(`https://wa.me/${pedido?.telefono?.replace(/\D/g,'')}?text=${encodeURIComponent(msg)}`, '_blank')
+              window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(msg)}`, '_blank')
             }}
             className="flex-1 bg-purple-600/20 border border-purple-500/30 hover:bg-purple-600/35 text-purple-400 py-2 rounded-xl text-[11px] font-bold transition text-center cursor-pointer"
           >
