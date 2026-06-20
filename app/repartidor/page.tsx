@@ -152,10 +152,10 @@ export default function RepartidorPage() {
       exitosa:       true,
     })
 
-    // 4. Cambiar modo de la vista a 'repartidor' (Modo Entregas) para que lo entregue él mismo
+    // 4. Cambiar modo de la vista a 'repartidor' (Modo Entregas) y redirigir a entrega
     setModo('repartidor')
-    await cargar(user!.id)
     setProcesando(null)
+    router.push(`/entrega/${asignacionId}`)
 
     // 5. Abrir WhatsApp para avisar al cliente
     const msg = `🛵 *La Crayola - ¡Tu pedido va en camino!* \n\nHola *${nombreCliente}*, tu pedido *#${String(numero).padStart(4,'0')}* ya fue comprado y va en camino a cargo de *${repartidor.nombre}*. 📍 Puedes seguir mi trayecto y contactarme directamente. ¡Llegaré en unos minutos!`
@@ -195,8 +195,8 @@ export default function RepartidorPage() {
         exitosa:       true,
       })
     }
-    await cargar(user!.id)
     setProcesando(null)
+    router.push(`/entrega/${asignacionId}`)
   }
 
   async function entregar(asignacionId: string, pedidoId: string) {

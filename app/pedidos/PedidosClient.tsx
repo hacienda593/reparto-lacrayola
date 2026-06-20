@@ -146,7 +146,7 @@ export default function PedidosClient({ repartidor, asignaciones, pedidoMap }: {
                   )}
 
                   {/* Botón aceptar */}
-                  <button onClick={() => router.push(`/picking/${a.id}`)}
+                  <button onClick={() => router.push(enRuta ? `/entrega/${a.id}` : `/picking/${a.id}`)}
                     className={`w-full font-bold py-3.5 rounded-2xl flex items-center justify-center gap-2 text-sm active:scale-95 transition
                       ${enRuta ? 'bg-[#ff9f1c] text-white' : 'bg-[#00b074] hover:bg-[#008f5d] text-white'}`}>
                     {enRuta ? '🚚 Continuar en ruta' : '✅ Aceptar y empezar compra'}
