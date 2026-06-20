@@ -57,8 +57,35 @@ export default function EntregaPage() {
         { timeout: 5000 }
       )
     })
+    const nuevoLat = pedido.geo_lat || geo?.lat || null
+    const nuevoLng = pedido.geo_lng || geo?.lng || null
+
     await sb.from('rep_asignaciones').update({ estado: 'entregado', updated_at: new Date().toISOString() }).eq('id', id)
-    await sb.from('ol_pedidos').update({ estado: 'entregado' }).eq('id', pedido.id)
+    await sb.from('ol_pedidos').update({ 
+      estado: 'entregado',
+      geo_lat: nuevoLat,
+      geo_lng: nuevoLng
+    }).eq('id', pedido.id)
+
+    // Si el cliente tiene cuenta registrada y no tiene coordenadas guardadas para esta dirección, actualizarlas
+    if (pedido.user_id && geo && !pedido.geo_lat) {
+      try {
+        const { data: dirs } = await sb
+          .from('ol_direcciones_cliente')
+          .select('id, geo_lat')
+          .eq('user_id', pedido.user_id)
+          .eq('direccion_texto', pedido.direccion)
+
+        if (dirs && dirs.length > 0 && !dirs[0].geo_lat) {
+          await sb.from('ol_direcciones_cliente')
+            .update({ geo_lat: geo.lat, geo_lng: geo.lng })
+            .eq('id', dirs[0].id)
+        }
+      } catch (e) {
+        console.error("Error al actualizar ubicación del cliente:", e)
+      }
+    }
+
     await sb.from('rep_entregas').insert({
       asignacion_id: id, repartidor_id: pedido.repartidor_id, pedido_id: pedido.id,
       entregado_at: new Date().toISOString(), monto_cobrado: parseFloat(monto),
@@ -164,6 +191,17 @@ export default function EntregaPage() {
               Instrucciones: {pedido.referencias}
             </div>
           )}
+          <div className="pt-1">
+            {pedido?.geo_lat ? (
+              <span className="inline-flex items-center gap-1 bg-[#00b074]/15 border border-[#00b074]/30 rounded-full px-2.5 py-0.5 text-[10px] font-bold text-[#00b074] uppercase tracking-wider">
+                📍 GPS Confirmado
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 bg-red-500/15 border border-red-500/30 rounded-full px-2.5 py-0.5 text-[10px] font-bold text-red-400 uppercase tracking-wider">
+                ⚠️ Sin GPS (se guardará al entregar)
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Cliente */}
