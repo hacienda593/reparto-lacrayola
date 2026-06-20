@@ -47,11 +47,14 @@ export default function RepartidorPage() {
     try {
       const { data: rep } = await supabase
         .from('rep_repartidores')
-        .select('id,nombre,comision_valor,efectivo_en_mano,estado')
+        .select('id,nombre,comision_valor,efectivo_en_mano,estado,estado_registro,activo')
         .eq('user_id', userId)
         .single()
 
-      if (!rep) { setCargando(false); return }
+      if (!rep || rep.estado_registro !== 'aprobado' || !rep.activo) {
+        router.replace('/')
+        return
+      }
       setRepartidor(rep as any)
 
       const hoy = new Date().toISOString().split('T')[0]
@@ -217,7 +220,7 @@ export default function RepartidorPage() {
         monto_cobrado: pedidos.find(p => p.asignacion_id === asignacionId)?.total ?? 0,
         metodo_pago:   'efectivo',
         exitosa:       true,
-        notas:         'Retirado por el cliente en local principal',
+        observaciones: 'Retirado por el cliente en local principal',
       })
     }
 

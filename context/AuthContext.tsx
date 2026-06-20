@@ -60,7 +60,7 @@ async function resolverAcceso(u: User): Promise<{
 
         if (rep.estado_registro === 'aprobado' && rep.activo) {
           try {
-            await supabase.from('rep_roles').upsert({ user_id: u.id, rol: 'repartidor', activo: true })
+            await supabase.from('rep_roles').upsert({ user_id: u.id, rol: 'repartidor', activo: true }, { onConflict: 'user_id' })
             await supabase.from('rep_repartidores').update({ user_id: u.id }).eq('id', rep.id)
           } catch {}
           return { estado: 'autorizado' as EstadoAcceso, rol: 'repartidor' as Rol, repartidorId: rep.id }
@@ -125,6 +125,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   async function logout() {
     await supabase.auth.signOut()
     setUser(null); setRol(null); setRepartidorId(null); setEstado('sin_sesion')
+    window.location.href = '/login'
   }
 
   return (

@@ -13,7 +13,7 @@ const VEHICULOS = [
 ]
 
 export default function PerfilRepartidorPage() {
-  const { user, repartidorId } = useAuth()
+  const { user, estado: authEstado, repartidorId } = useAuth()
   const router = useRouter()
 
   const [form,      setForm]      = useState({ telefono: '', vehiculo: 'moto', placa: '', zona_principal: '' })
@@ -25,10 +25,16 @@ export default function PerfilRepartidorPage() {
   const [error,     setError]     = useState('')
 
   useEffect(() => {
-    if (!repartidorId) return
+    if (authEstado === 'cargando') return
+    if (!user) { router.replace('/login'); return }
+    if (!repartidorId) { router.replace('/'); return }
+
     supabase.from('rep_repartidores').select('*').eq('id', repartidorId).single()
       .then(({ data }) => {
-        if (!data) return
+        if (!data) {
+          router.replace('/')
+          return
+        }
         setNombre(data.nombre)
         setCedula(data.cedula ?? '')
         setForm({
@@ -39,7 +45,7 @@ export default function PerfilRepartidorPage() {
         })
         setCargando(false)
       })
-  }, [repartidorId])
+  }, [user, authEstado, repartidorId])
 
   function set(k: string, v: string) { setForm(f => ({ ...f, [k]: v })) }
 

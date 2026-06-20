@@ -27,8 +27,12 @@ export default async function PedidosPage() {
 
   const { data: repartidor } = await supabase
     .from('rep_repartidores')
-    .select('id, nombre, comision_tipo, comision_valor')
+    .select('id, nombre, comision_tipo, comision_valor, estado_registro, activo')
     .eq('user_id', user.id).single()
+
+  if (!repartidor || repartidor.estado_registro !== 'aprobado' || !repartidor.activo) {
+    redirect('/')
+  }
 
   const { data: asignaciones } = await supabase
     .from('rep_asignaciones').select('id, estado, prioridad, pedido_id')
