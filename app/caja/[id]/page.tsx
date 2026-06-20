@@ -4,6 +4,33 @@ import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Loader2, CheckCircle2, AlertTriangle, Shield, CreditCard, Camera, ArrowRight } from 'lucide-react'
 
+function parseDatosFactura(notas: string) {
+  if (!notas) return null
+  const match = notas.match(/\[FACTURA:\s*([^\]]+)\]/)
+  if (!match) return null
+  const content = match[1].trim()
+  if (content === 'Consumidor Final') {
+    return { consumidorFinal: true }
+  }
+  // Formato: RUC/Cédula: XXXXX | Razón Social: YYYYY | Correo: ZZZZZ
+  const parts = content.split('|')
+  const result: any = { consumidorFinal: false }
+  parts.forEach(part => {
+    const [key, ...valueParts] = part.split(':')
+    if (!key) return
+    const value = valueParts.join(':').trim()
+    const k = key.trim().toLowerCase()
+    if (k.includes('ruc') || k.includes('cédula') || k.includes('cedula') || k.includes('identificación') || k.includes('identificacion')) {
+      result.identificacion = value
+    } else if (k.includes('razón social') || k.includes('razon social') || k.includes('nombre')) {
+      result.razonSocial = value
+    } else if (k.includes('correo') || k.includes('email')) {
+      result.correo = value
+    }
+  })
+  return result
+}
+
 export default function CajaPage() {
   const { id }   = useParams<{ id: string }>()
   const router   = useRouter()
@@ -16,7 +43,7 @@ export default function CajaPage() {
   const [guardando,    setGuardando]    = useState(false)
   
   // Formulario SRI
-  const [ruc, setRuc]                       = useState('1792881512001') // RUC por defecto de La Crayola
+  const [ruc, setRuc]                       = useState(process.env.NEXT_PUBLIC_TIENDA_RUC || '1717067647001') // RUC por defecto de La Crayola
   const [factura, setFactura]               = useState('')
   const [claveAcceso, setClaveAcceso]       = useState('')
   const [montoFacturado, setMontoFacturado] = useState('')
@@ -144,6 +171,7 @@ export default function CajaPage() {
   )
 
   const itemsCompletados = items.filter(it => it.picking_completado).length
+  const datosFactura = parseDatosFactura(pedido?.notas)
 
   return (
     <div className="min-h-screen bg-[#0c0f12] flex flex-col pb-32">
@@ -184,33 +212,67 @@ export default function CajaPage() {
             <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">
               👤 Datos de Facturación del Cliente
             </h3>
-            <span className="text-[10px] text-green-400 font-bold bg-green-500/10 px-2 py-0.5 rounded-full">
-              Autorizado
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+              datosFactura?.consumidorFinal 
+                ? 'text-gray-400 bg-gray-500/10' 
+                : 'text-green-400 bg-green-500/10'
+            }`}>
+              {datosFactura?.consumidorFinal ? 'Consumidor Final' : 'Factura con Datos'}
             </span>
           </div>
+          
           <div className="space-y-1 text-xs">
-            <div className="flex justify-between">
-              <span className="text-gray-500">Nombre / Razón Social:</span>
-              <span className="text-white font-bold">{pedido?.nombre_cliente}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-500">Identificación (Teléfono/WhatsApp):</span>
-              <span className="text-white font-mono font-semibold">{pedido?.telefono}</span>
-            </div>
-            {pedido?.email_cliente && (
-              <div className="flex justify-between">
-                <span className="text-gray-500">Email:</span>
-                <span className="text-white font-semibold">{pedido?.email_cliente}</span>
-              </div>
+            {datosFactura && !datosFactura.consumidorFinal ? (
+              <>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Razón Social:</span>
+                  <span className="text-white font-bold">{datosFactura.razonSocial || pedido?.nombre_cliente}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">RUC / Cédula:</span>
+                  <span className="text-white font-mono font-bold text-green-400">{datosFactura.identificacion}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Correo Facturación:</span>
+                  <span className="text-white font-semibold">{datosFactura.correo || 'Sin correo'}</span>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Nombre / Razón Social:</span>
+                  <span className="text-white font-bold">{pedido?.nombre_cliente || 'Consumidor Final'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">RUC / Cédula:</span>
+                  <span className="text-white font-mono font-semibold">9999999999999</span>
+                </div>
+              </>
             )}
+            
+            <div className="flex justify-between pt-1 border-t border-gray-800 mt-1">
+              <span className="text-gray-500">Teléfono Contacto:</span>
+              <span className="text-white font-mono">{pedido?.telefono || 'Sin teléfono'}</span>
+            </div>
+            
             {pedido?.direccion && (
               <div className="pt-1.5 border-t border-gray-800/50 mt-1.5 text-[11px] text-gray-400">
                 📍 <strong>Dirección de entrega:</strong> {pedido.direccion}, {pedido.ciudad}
               </div>
             )}
           </div>
-          <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-xl p-3 text-[10px] text-yellow-500 leading-normal">
-            💡 <strong>Instrucción para el Shopper:</strong> Dicta los datos del cliente al cajero del Tuti/Tía para que la factura se emita a su nombre. Si no los solicita, emite como <strong>Consumidor Final</strong>.
+          
+          <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-3 text-[10.5px] text-blue-400 leading-normal space-y-1.5">
+            <p className="font-bold uppercase tracking-wider text-[10px]">
+              💡 Instrucción de Facturación (Modelo Compra-Venta)
+            </p>
+            <p>
+              En la caja de Tuti/Tía, **pide la factura a nombre de La Crayola** con el siguiente RUC para poder justificar los gastos de compra y depósitos ante el SRI:
+            </p>
+            <div className="flex items-center gap-2 mt-1">
+              <span className="text-[10px] text-gray-400">RUC Empresa:</span>
+              <span className="text-white font-mono font-bold bg-slate-800 px-1.5 py-0.5 rounded select-all">{ruc}</span>
+            </div>
           </div>
         </div>
 
@@ -251,7 +313,7 @@ export default function CajaPage() {
                 type="text"
                 value={ruc}
                 onChange={e => setRuc(e.target.value)}
-                placeholder="1792881512001"
+                placeholder="1717067647001"
                 className="flex-1 bg-[#0c0f12] border border-[#2d3748] text-white rounded-2xl px-4 py-3 text-sm focus:outline-none focus:border-[#00b074] transition"
               />
               <button 
