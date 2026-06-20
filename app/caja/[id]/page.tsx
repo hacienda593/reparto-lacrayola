@@ -170,7 +170,8 @@ export default function CajaPage() {
     </div>
   )
 
-  const itemsCompletados = items.filter(it => it.picking_completado).length
+  const totalItems = items.reduce((sum, it) => sum + (it.cantidad ?? 1), 0)
+  const itemsCompletados = items.filter(it => it.picking_completado).reduce((sum, it) => sum + (it.cantidad ?? 1), 0)
   const datosFactura = parseDatosFactura(pedido?.notas)
 
   return (
@@ -201,7 +202,9 @@ export default function CajaPage() {
         <div className="bg-[#181d24] border border-[#2d3748] rounded-2xl p-4 flex justify-between items-center">
           <div>
             <span className="text-gray-500 text-[10px] font-bold uppercase tracking-wider block">Total Esperado Compra</span>
-            <span className="text-white text-xs mt-0.5">{itemsCompletados} productos recolectados</span>
+            <span className="text-white text-xs mt-0.5">
+              {itemsCompletados > 0 ? `${itemsCompletados} de ${totalItems}` : `${totalItems}`} productos recolectados
+            </span>
           </div>
           <span className="text-[#ff9f1c] font-extrabold text-xl">${pedido?.total?.toFixed(2)}</span>
         </div>
@@ -262,16 +265,30 @@ export default function CajaPage() {
             )}
           </div>
           
-          <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-3 text-[10.5px] text-blue-400 leading-normal space-y-1.5">
-            <p className="font-bold uppercase tracking-wider text-[10px]">
-              💡 Instrucción de Facturación (Modelo Compra-Venta)
+          <div className="bg-blue-500/10 border border-blue-500/20 rounded-2xl p-4 text-[10.5px] text-blue-400 leading-relaxed space-y-2">
+            <p className="font-bold uppercase tracking-wider text-[10px] text-blue-300 flex items-center gap-1.5">
+              💡 Datos para Factura del Local (supermercado)
             </p>
             <p>
-              En la caja de Tuti/Tía, **pide la factura a nombre de La Crayola** con el siguiente RUC para poder justificar los gastos de compra y depósitos ante el SRI:
+              En la caja de Tuti/Tía/Proveedor, **pide la factura con los datos de la empresa** para justificar egresos ante el SRI:
             </p>
-            <div className="flex items-center gap-2 mt-1">
-              <span className="text-[10px] text-gray-400">RUC Empresa:</span>
-              <span className="text-white font-mono font-bold bg-slate-800 px-1.5 py-0.5 rounded select-all">{ruc}</span>
+            <div className="bg-slate-950/60 rounded-xl p-3 border border-blue-900/30 text-xs text-slate-300 space-y-1.5">
+              <div className="flex justify-between">
+                <span className="text-gray-500">Razón Social:</span>
+                <span className="text-white font-bold">Lilliana Maribel Gonzalez Vallejo</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">RUC Empresa:</span>
+                <span className="text-white font-mono font-bold select-all">{ruc}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Correo Electrónico:</span>
+                <span className="text-white font-mono select-all">librerialacrayola.ec@gmail.com</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Teléfono Contacto:</span>
+                <span className="text-white font-mono select-all">0994568477</span>
+              </div>
             </div>
           </div>
         </div>
