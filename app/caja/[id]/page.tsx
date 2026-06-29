@@ -135,13 +135,14 @@ export default function CajaPage() {
       try {
         const { data: tiendaData } = await supabase
           .from('ol_tiendas')
-          .select('ruc, codigo_numerico')
+          .select('ruc, codigo_numerico, establecimiento')
           .eq('id', tId)
           .single()
         
         if (tiendaData) {
           if (tiendaData.ruc) setProvRuc(tiendaData.ruc)
           if (tiendaData.codigo_numerico) setProvCodigoNumerico(tiendaData.codigo_numerico)
+          if (tiendaData.establecimiento) setProvEstablecimiento(tiendaData.establecimiento)
         }
       } catch (e) {
         console.error("Error al cargar datos de tienda en ol_tiendas:", e)

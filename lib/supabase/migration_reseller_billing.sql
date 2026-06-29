@@ -14,10 +14,11 @@ CREATE TABLE IF NOT EXISTS ol_pedidos_comprobantes_proveedor (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 2. Agregar columnas a ol_tiendas para datos del proveedor (RUC y Código Numérico)
+-- 2. Agregar columnas a ol_tiendas para datos del proveedor (RUC, Código Numérico y Establecimiento)
 ALTER TABLE ol_tiendas
 ADD COLUMN IF NOT EXISTS ruc VARCHAR(13) NULL,
-ADD COLUMN IF NOT EXISTS codigo_numerico VARCHAR(8) NULL;
+ADD COLUMN IF NOT EXISTS codigo_numerico VARCHAR(8) NULL,
+ADD COLUMN IF NOT EXISTS establecimiento VARCHAR(3) NULL;
 
 -- 3. Registrar el bucket comprobantes-proveedores en Supabase Storage
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
