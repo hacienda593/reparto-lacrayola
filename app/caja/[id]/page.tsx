@@ -43,14 +43,27 @@ export default function CajaPage() {
   const [guardando,    setGuardando]    = useState(false)
   
   // Formulario SRI
-  const [ruc, setRuc]                       = useState(process.env.NEXT_PUBLIC_TIENDA_RUC || '1717067647001') // RUC por defecto de La Crayola
-  const [factura, setFactura]               = useState('')
-  const [claveAcceso, setClaveAcceso]       = useState('')
-  const [montoFacturado, setMontoFacturado] = useState('')
-  const [metodoPago, setMetodoPago]         = useState('tarjeta_corporativa')
-  const [fotoSubida, setFotoSubida]         = useState(false)
-  const [error, setError]                   = useState('')
-  const [sriGenerado, setSriGenerado]       = useState(false)
+  const [ruc, setRuc]                                 = useState(process.env.NEXT_PUBLIC_TIENDA_RUC || '1717067647001') // RUC por defecto de La Crayola
+  const [provEstablecimiento, setProvEstablecimiento] = useState('001')
+  const [provPuntoEmision, setProvPuntoEmision]       = useState('010')
+  const [provSecuencial, setProvSecuencial]           = useState('')
+  const [factura, setFactura]                         = useState('')
+  const [claveAcceso, setClaveAcceso]                 = useState('')
+  const [montoFacturado, setMontoFacturado]           = useState('')
+  const [metodoPago, setMetodoPago]                   = useState('tarjeta_corporativa')
+  const [fotoSubida, setFotoSubida]                   = useState(false)
+  const [imagenFile, setImagenFile]                   = useState<File | null>(null)
+  const [error, setError]                             = useState('')
+  const [sriGenerado, setSriGenerado]                 = useState(false)
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0]
+      setImagenFile(file)
+      setFotoSubida(true)
+      setError('')
+    }
+  }
 
   useEffect(() => { cargar() }, [id])
 
@@ -85,7 +98,9 @@ export default function CajaPage() {
     // 4. Tipo de Ambiente (1 dig: 2 = Producción, 1 = Pruebas)
     const ambiente = "2"
     // 5. Serie (6 dig: 001 establecimiento, 010 punto de emisión)
-    const serie = "001010"
+    const estab = "001"
+    const ptoEmi = "010"
+    const serie = `${estab}${ptoEmi}`
     // 6. Secuencial de Factura (9 dig aleatorios para simular el ticket)
     const secuencial = String(Math.floor(100000 + Math.random() * 900000)).padStart(9, '0')
     // 7. Código Numérico (8 dig aleatorios)
@@ -108,22 +123,33 @@ export default function CajaPage() {
 
     const claveCompleta = `${claveSinDigito}${digitoVerificador}`
     
+    setProvEstablecimiento(estab)
+    setProvPuntoEmision(ptoEmi)
+    setProvSecuencial(secuencial)
     setClaveAcceso(claveCompleta)
-    setFactura(`001-010-${secuencial}`)
+    setFactura(`${estab}-${ptoEmi}-${secuencial}`)
     setSriGenerado(true)
-  }
-
-  function tomarFotoFactura() {
-    setFotoSubida(true)
-    setError('')
   }
 
   async function registrarFacturacion() {
     setError('')
     
+    const cleanEstab = provEstablecimiento.padStart(3, '0')
+    const cleanPtoEmi = provPuntoEmision.padStart(3, '0')
+    const cleanSecuencial = provSecuencial.padStart(9, '0')
+    const facturaCompleta = `${cleanEstab}-${cleanPtoEmi}-${cleanSecuencial}`
+
     // Validaciones
-    if (!factura.trim() || !factura.includes('-') || factura.split('-').length !== 3) {
-      setError('Ingrese un número de factura válido (ej. 001-010-000123456)')
+    if (cleanEstab.length !== 3 || isNaN(Number(cleanEstab))) {
+      setError('El establecimiento debe tener exactamente 3 dígitos numéricos')
+      return
+    }
+    if (cleanPtoEmi.length !== 3 || isNaN(Number(cleanPtoEmi))) {
+      setError('El punto de emisión debe tener exactamente 3 dígitos numéricos')
+      return
+    }
+    if (cleanSecuencial.length !== 9 || isNaN(Number(cleanSecuencial))) {
+      setError('El secuencial de la factura debe tener exactamente 9 dígitos numéricos')
       return
     }
     if (claveAcceso.length !== 49 || isNaN(Number(claveAcceso))) {
@@ -142,13 +168,46 @@ export default function CajaPage() {
     setGuardando(true)
 
     try {
+      // Subir foto a Supabase Storage
+      let fotoUrl = ''
+      if (imagenFile) {
+        const fileExt = imagenFile.name.split('.').pop() || 'jpg'
+        const fileName = `${pedido.id}_${Date.now()}.${fileExt}`
+        
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('comprobantes-proveedores')
+          .upload(fileName, imagenFile, { upsert: true })
+
+        if (uploadError) {
+          setError('Error al subir la foto de la factura: ' + uploadError.message)
+          setGuardando(false)
+          return
+        }
+        
+        const { data: publicUrlData } = supabase.storage
+          .from('comprobantes-proveedores')
+          .getPublicUrl(fileName)
+        
+        fotoUrl = publicUrlData?.publicUrl || ''
+      }
+
       // 1. Guardar la información estructurada de la factura SRI en la columna 'notas' del pedido
-      const notaSRI = `[SRI-BILLING] Factura: ${factura} | RUC: ${ruc} | Clave: ${claveAcceso} | Pago: ${metodoPago} | Total Facturado: $${parseFloat(montoFacturado).toFixed(2)}`
+      const notaSRI = `[SRI-BILLING] Factura: ${facturaCompleta} | RUC: ${ruc} | Clave: ${claveAcceso} | Pago: ${metodoPago} | Total Facturado: $${parseFloat(montoFacturado).toFixed(2)}`
       const notasActuales = pedido.notas ? `${pedido.notas} \n${notaSRI}` : notaSRI
 
       // 2. Actualizar el pedido en Supabase a estado 'preparado' (picking finalizado, listo para entrega)
       await supabase.from('ol_pedidos')
-        .update({ estado: 'preparado', notas: notasActuales })
+        .update({ 
+          estado: 'preparado', 
+          notas: notasActuales,
+          prov_establecimiento: cleanEstab,
+          prov_punto_emision: cleanPtoEmi,
+          prov_secuencial: cleanSecuencial,
+          prov_costo_real: parseFloat(montoFacturado),
+          prov_factura_url: fotoUrl || null,
+          prov_clave_acceso: claveAcceso || null,
+          prov_ruc: ruc
+        })
         .eq('id', pedido.id)
 
       // 3. Actualizar la asignación a estado 'recolectado'
@@ -367,18 +426,49 @@ export default function CajaPage() {
             </div>
           )}
 
-          {/* Número de Factura */}
+          {/* Número de Factura Escindido */}
           <div className="space-y-1.5">
             <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider block">
-              Número de Factura Comercial
+              Número de Factura del Proveedor
             </label>
-            <input
-              type="text"
-              value={factura}
-              onChange={e => setFactura(e.target.value)}
-              placeholder="001-010-000123456"
-              className="w-full bg-[#0c0f12] border border-[#2d3748] text-white rounded-2xl px-4 py-3.5 text-sm focus:outline-none focus:border-[#00b074] transition"
-            />
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <span className="text-[10px] text-gray-500 uppercase tracking-wider block mb-1">Est.</span>
+                <input
+                  type="text"
+                  maxLength={3}
+                  value={provEstablecimiento}
+                  onChange={e => setProvEstablecimiento(e.target.value.replace(/\D/g, ''))}
+                  placeholder="001"
+                  className="w-full bg-[#0c0f12] border border-[#2d3748] text-white rounded-2xl px-3 py-3 text-center text-sm font-mono focus:outline-none focus:border-[#00b074] transition"
+                />
+              </div>
+              <div>
+                <span className="text-[10px] text-gray-500 uppercase tracking-wider block mb-1">Pto. Emi</span>
+                <input
+                  type="text"
+                  maxLength={3}
+                  value={provPuntoEmision}
+                  onChange={e => setProvPuntoEmision(e.target.value.replace(/\D/g, ''))}
+                  placeholder="010"
+                  className="w-full bg-[#0c0f12] border border-[#2d3748] text-white rounded-2xl px-3 py-3 text-center text-sm font-mono focus:outline-none focus:border-[#00b074] transition"
+                />
+              </div>
+              <div>
+                <span className="text-[10px] text-gray-500 uppercase tracking-wider block mb-1">Secuencial</span>
+                <input
+                  type="text"
+                  maxLength={9}
+                  value={provSecuencial}
+                  onChange={e => setProvSecuencial(e.target.value.replace(/\D/g, ''))}
+                  placeholder="000123456"
+                  className="w-full bg-[#0c0f12] border border-[#2d3748] text-white rounded-2xl px-3 py-3 text-center text-sm font-mono focus:outline-none focus:border-[#00b074] transition"
+                />
+              </div>
+            </div>
+            <p className="text-[11px] text-gray-500 mt-1">
+              Formato: <span className="text-white font-mono">{provEstablecimiento.padStart(3, '0')}-{provPuntoEmision.padStart(3, '0')}-{provSecuencial.padStart(9, '0')}</span>
+            </p>
           </div>
 
           {/* Monto Facturado en Cajas */}
@@ -426,17 +516,26 @@ export default function CajaPage() {
             <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider block">
               Foto de la Factura de Caja
             </label>
-            <button
-              type="button"
-              onClick={tomarFotoFactura}
-              className={`w-full py-3.5 px-4 rounded-2xl flex items-center justify-center gap-2 text-sm font-semibold transition border
-                ${fotoSubida 
-                  ? 'bg-[#00b074]/10 border-[#00b074]/40 text-[#00b074]' 
-                  : 'bg-[#1a2129] border-[#2d3748] hover:border-[#00b074] text-white'}`}
-            >
-              <Camera size={16} />
-              <span>{fotoSubida ? '✓ Foto de Factura Cargada' : 'Tomar Foto del Comprobante'}</span>
-            </button>
+            <div className="relative">
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={handleFileChange}
+                className="hidden"
+                id="file-upload-factura"
+              />
+              <label
+                htmlFor="file-upload-factura"
+                className={`w-full py-3.5 px-4 rounded-2xl flex items-center justify-center gap-2 text-sm font-semibold transition border cursor-pointer
+                  ${fotoSubida 
+                    ? 'bg-[#00b074]/10 border-[#00b074]/40 text-[#00b074]' 
+                    : 'bg-[#1a2129] border-[#2d3748] hover:border-[#00b074] text-white'}`}
+              >
+                <Camera size={16} />
+                <span>{fotoSubida ? `✓ Foto Cargada (${imagenFile?.name.slice(0, 15) || 'Comprobante'}...)` : 'Tomar Foto del Comprobante'}</span>
+              </label>
+            </div>
           </div>
         </div>
 
