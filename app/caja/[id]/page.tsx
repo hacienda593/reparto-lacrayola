@@ -129,6 +129,20 @@ export default function CajaPage() {
     setCargando(false)
   }
 
+  // Autocompletar Código Numérico visualmente basado en la tienda y secuencial
+  useEffect(() => {
+    if (tiendaId === 'b402b85a-b006-42ef-b2f6-763722f68241') {
+      // Tuti: Secuencial de la factura completado a 8 dígitos
+      const numericSeq = provSecuencial.replace(/\D/g, '')
+      if (numericSeq) {
+        setProvCodigoNumerico(numericSeq.padStart(8, '0').slice(-8))
+      }
+    } else if (tiendaId === '37f0c318-ef34-439b-9362-1c4c9fb4d1bd') {
+      // Tía: 00000000
+      setProvCodigoNumerico('00000000')
+    }
+  }, [tiendaId, provSecuencial])
+
   // Generador reactivo de Clave de Acceso SRI de 49 dígitos (Ecuador Módulo 11)
   useEffect(() => {
     if (!fechaEmision || !provRuc || !provEstablecimiento || !provPuntoEmision || !provSecuencial || !provCodigoNumerico) {
@@ -161,8 +175,17 @@ export default function CajaPage() {
     // 6. Secuencial (9 dig)
     const seqStr = cleanSecuencial
     
-    // 7. Código Numérico (8 dig)
-    const codNumStr = provCodigoNumerico.replace(/\D/g, '').padEnd(8, '0').slice(0, 8)
+    // 7. Código Numérico (8 dig) - LÓGICA DINÁMICA POR TIENDA
+    let codNumStr = provCodigoNumerico.replace(/\D/g, '')
+    if (tiendaId === 'b402b85a-b006-42ef-b2f6-763722f68241') {
+      // Tuti: secuencial completado con ceros a la izquierda hasta 8 dígitos
+      codNumStr = cleanSecuencial.replace(/\D/g, '').padStart(8, '0').slice(-8)
+    } else if (tiendaId === '37f0c318-ef34-439b-9362-1c4c9fb4d1bd') {
+      // Tía: por defecto 00000000
+      codNumStr = '00000000'
+    } else {
+      codNumStr = codNumStr.padEnd(8, '0').slice(0, 8)
+    }
     
     // 8. Tipo de Emisión (1 dig: 1 = Normal)
     const emision = "1"
@@ -190,7 +213,7 @@ export default function CajaPage() {
     setClaveAcceso(claveCompleta)
     setFactura(`${cleanEstab}-${cleanPtoEmi}-${cleanSecuencial}`)
     setSriGenerado(true)
-  }, [fechaEmision, provRuc, provEstablecimiento, provPuntoEmision, provSecuencial, provCodigoNumerico])
+  }, [fechaEmision, provRuc, provEstablecimiento, provPuntoEmision, provSecuencial, provCodigoNumerico, tiendaId])
 
   // Simular datos de prueba para facturación del proveedor
   function simularDatosProveedor() {
