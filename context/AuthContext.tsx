@@ -3,6 +3,7 @@ import { createContext, useContext, useEffect, useState } from 'react'
 import { User } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import { Rol } from '@/lib/types'
+import { logout as serverLogout } from '@/actions/auth'
 
 export type EstadoAcceso =
   | 'cargando'
@@ -123,9 +124,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   async function logout() {
-    await supabase.auth.signOut()
     setUser(null); setRol(null); setRepartidorId(null); setEstado('sin_sesion')
-    window.location.href = '/login'
+    try {
+      await serverLogout()
+    } catch {
+      window.location.href = '/login'
+    }
   }
 
   return (
