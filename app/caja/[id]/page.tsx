@@ -56,6 +56,18 @@ export default function CajaPage() {
   const [error, setError]                             = useState('')
   const [sriGenerado, setSriGenerado]                 = useState(false)
 
+  // Datos del Proveedor para armar clave SRI
+  const [provRuc, setProvRuc]                         = useState('')
+  const [provCodigoNumerico, setProvCodigoNumerico]   = useState('00000001')
+  const [tiendaId, setTiendaId]                       = useState('')
+  
+  // Obtener fecha actual en formato YYYY-MM-DD local
+  const getLocalDateString = () => {
+    const tzoffset = (new Date()).getTimezoneOffset() * 60000;
+    return (new Date(Date.now() - tzoffset)).toISOString().slice(0, 10);
+  }
+  const [fechaEmision, setFechaEmision]               = useState(getLocalDateString())
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0]
@@ -71,44 +83,97 @@ export default function CajaPage() {
     const { data: asig } = await supabase.from('rep_asignaciones').select('*').eq('id', id).single()
     if (!asig) { router.replace('/pedidos'); return }
     setAsignacion(asig)
-    const { data: ped } = await supabase.from('ol_pedidos').select('*').eq('id', asig.pedido_id).single()
+
+    const [{ data: ped }, { data: its }, { data: pickItems }] = await Promise.all([
+      supabase.from('ol_pedidos').select('*').eq('id', asig.pedido_id).single(),
+      supabase.from('ol_pedido_items').select('*').eq('pedido_id', asig.pedido_id),
+      supabase.from('rep_picking').select('tienda_id, tienda_nombre').eq('pedido_id', asig.pedido_id).limit(1)
+    ])
+
     setPedido(ped)
     if (ped) {
       setMontoFacturado(ped.total.toFixed(2))
     }
-    const { data: its } = await supabase.from('ol_pedido_items').select('*').eq('pedido_id', asig.pedido_id)
     setItems(its ?? [])
+
+    // Cargar RUC y Código Numérico del Proveedor
+    if (pickItems && pickItems.length > 0 && pickItems[0].tienda_id) {
+      const tId = pickItems[0].tienda_id
+      setTiendaId(tId)
+      
+      // Fallback local por defecto para Tuti / Tía
+      if (tId === '37f0c318-ef34-439b-9362-1c4c9fb4d1bd') { // Tía
+        setProvRuc('0990017442001')
+        setProvCodigoNumerico('00000001')
+      } else if (tId === 'b402b85a-b006-42ef-b2f6-763722f68241') { // Tuti
+        setProvRuc('1793081118001')
+        setProvCodigoNumerico('00000001')
+      }
+
+      try {
+        const { data: tiendaData } = await supabase
+          .from('ol_tiendas')
+          .select('ruc, codigo_numerico')
+          .eq('id', tId)
+          .single()
+        
+        if (tiendaData) {
+          if (tiendaData.ruc) setProvRuc(tiendaData.ruc)
+          if (tiendaData.codigo_numerico) setProvCodigoNumerico(tiendaData.codigo_numerico)
+        }
+      } catch (e) {
+        console.error("Error al cargar tienda ruc:", e)
+      }
+    }
+    
     setCargando(false)
   }
 
-  // Generador de Clave de Acceso SRI de 49 dígitos (Ecuador Módulo 11)
-  function generarClaveAccesoSRI() {
-    setError('')
-    const now = new Date()
-    const dia = String(now.getDate()).padStart(2, '0')
-    const mes = String(now.getMonth() + 1).padStart(2, '0')
-    const anio = now.getFullYear()
+  // Generador reactivo de Clave de Acceso SRI de 49 dígitos (Ecuador Módulo 11)
+  useEffect(() => {
+    if (!fechaEmision || !provRuc || !provEstablecimiento || !provPuntoEmision || !provSecuencial || !provCodigoNumerico) {
+      setClaveAcceso('')
+      setSriGenerado(false)
+      return
+    }
+
+    const cleanEstab = provEstablecimiento.padStart(3, '0')
+    const cleanPtoEmi = provPuntoEmision.padStart(3, '0')
+    const cleanSecuencial = provSecuencial.padStart(9, '0')
     
-    // 1. Fecha de Emisión (8 dig)
-    const fechaStr = `${dia}${mes}${anio}`
+    // 1. Fecha de Emisión (8 dig: ddmmaaaa)
+    const [y, m, d] = fechaEmision.split('-')
+    if (!y || !m || !d) return
+    const fechaStr = `${d}${m}${y}`
+    
     // 2. Tipo de Comprobante (2 dig: 01 = Factura)
     const tipoComp = "01"
-    // 3. RUC (13 dig)
-    const rucStr = ruc.padEnd(13, '0').slice(0, 13)
-    // 4. Tipo de Ambiente (1 dig: 2 = Producción, 1 = Pruebas)
+    
+    // 3. RUC del Proveedor (13 dig)
+    const rucStr = provRuc.replace(/\D/g, '').padEnd(13, '0').slice(0, 13)
+    
+    // 4. Tipo de Ambiente (1 dig: 2 = Producción)
     const ambiente = "2"
-    // 5. Serie (6 dig: 001 establecimiento, 010 punto de emisión)
-    const estab = "001"
-    const ptoEmi = "010"
-    const serie = `${estab}${ptoEmi}`
-    // 6. Secuencial de Factura (9 dig aleatorios para simular el ticket)
-    const secuencial = String(Math.floor(100000 + Math.random() * 900000)).padStart(9, '0')
-    // 7. Código Numérico (8 dig aleatorios)
-    const codigoNum = "87654321"
+    
+    // 5. Serie (6 dig)
+    const serie = `${cleanEstab}${cleanPtoEmi}`
+    
+    // 6. Secuencial (9 dig)
+    const seqStr = cleanSecuencial
+    
+    // 7. Código Numérico (8 dig)
+    const codNumStr = provCodigoNumerico.replace(/\D/g, '').padEnd(8, '0').slice(0, 8)
+    
     // 8. Tipo de Emisión (1 dig: 1 = Normal)
     const emision = "1"
 
-    const claveSinDigito = `${fechaStr}${tipoComp}${rucStr}${ambiente}${serie}${secuencial}${codigoNum}${emision}`
+    const claveSinDigito = `${fechaStr}${tipoComp}${rucStr}${ambiente}${serie}${seqStr}${codNumStr}${emision}`
+
+    if (claveSinDigito.length !== 48) {
+      setClaveAcceso('')
+      setSriGenerado(false)
+      return
+    }
 
     // 9. Cálculo del Dígito Verificador usando Módulo 11
     let suma = 0
@@ -122,13 +187,22 @@ export default function CajaPage() {
     if (digitoVerificador === 10) digitoVerificador = 1
 
     const claveCompleta = `${claveSinDigito}${digitoVerificador}`
-    
-    setProvEstablecimiento(estab)
-    setProvPuntoEmision(ptoEmi)
-    setProvSecuencial(secuencial)
     setClaveAcceso(claveCompleta)
-    setFactura(`${estab}-${ptoEmi}-${secuencial}`)
+    setFactura(`${cleanEstab}-${cleanPtoEmi}-${cleanSecuencial}`)
     setSriGenerado(true)
+  }, [fechaEmision, provRuc, provEstablecimiento, provPuntoEmision, provSecuencial, provCodigoNumerico])
+
+  // Simular datos de prueba para facturación del proveedor
+  function simularDatosProveedor() {
+    setError('')
+    setProvEstablecimiento('001')
+    setProvPuntoEmision('010')
+    const randomSeq = String(Math.floor(100000 + Math.random() * 900000)).padStart(9, '0')
+    setProvSecuencial(randomSeq)
+    setProvCodigoNumerico('12345678')
+    if (!provRuc) {
+      setProvRuc('1793081118001') // Tuti por defecto
+    }
   }
 
   async function registrarFacturacion() {
@@ -192,30 +266,44 @@ export default function CajaPage() {
       }
 
       // 1. Guardar la información estructurada de la factura SRI en la columna 'notas' del pedido
-      const notaSRI = `[SRI-BILLING] Factura: ${facturaCompleta} | RUC: ${ruc} | Clave: ${claveAcceso} | Pago: ${metodoPago} | Total Facturado: $${parseFloat(montoFacturado).toFixed(2)}`
+      const provRucFinal = provRuc || ruc
+      const notaSRI = `[SRI-BILLING] Factura: ${facturaCompleta} | RUC: ${provRucFinal} | Clave: ${claveAcceso} | Pago: ${metodoPago} | Total Facturado: $${parseFloat(montoFacturado).toFixed(2)}`
       const notasActuales = pedido.notas ? `${pedido.notas} \n${notaSRI}` : notaSRI
 
-      // 2. Actualizar el pedido en Supabase a estado 'preparado' (picking finalizado, listo para entrega)
+      // 2. Insertar comprobante del proveedor en la tabla relacional
+      const { error: insertErr } = await supabase.from('ol_pedidos_comprobantes_proveedor').insert({
+        pedido_id: pedido.id,
+        tienda_id: tiendaId || '37f0c318-ef34-439b-9362-1c4c9fb4d1bd', // fallback a Tía si no hay ID
+        prov_establecimiento: cleanEstab,
+        prov_punto_emision: cleanPtoEmi,
+        prov_secuencial: cleanSecuencial,
+        prov_costo_real: parseFloat(montoFacturado),
+        prov_factura_url: fotoUrl || null,
+        prov_clave_acceso: claveAcceso || null,
+        prov_ruc: provRucFinal,
+        metodo_pago: metodoPago
+      })
+
+      if (insertErr) {
+        setError('Error al registrar ticket de proveedor: ' + insertErr.message)
+        setGuardando(false)
+        return
+      }
+
+      // 3. Actualizar el pedido en Supabase a estado 'preparado' (picking finalizado, listo para entrega)
       await supabase.from('ol_pedidos')
         .update({ 
           estado: 'preparado', 
-          notas: notasActuales,
-          prov_establecimiento: cleanEstab,
-          prov_punto_emision: cleanPtoEmi,
-          prov_secuencial: cleanSecuencial,
-          prov_costo_real: parseFloat(montoFacturado),
-          prov_factura_url: fotoUrl || null,
-          prov_clave_acceso: claveAcceso || null,
-          prov_ruc: ruc
+          notas: notasActuales
         })
         .eq('id', pedido.id)
 
-      // 3. Actualizar la asignación a estado 'recolectado'
+      // 4. Actualizar la asignación a estado 'recolectado'
       await supabase.from('rep_asignaciones')
         .update({ estado: 'recolectado', updated_at: new Date().toISOString() })
         .eq('id', id)
 
-      // 4. Redireccionar al dashboard para proceder con el traspaso o la entrega
+      // 5. Redireccionar al dashboard para proceder con el traspaso o la entrega
       router.push('/repartidor')
     } catch (e) {
       setError('Ocurrió un error al guardar en la base de datos de Supabase.')
@@ -268,87 +356,67 @@ export default function CajaPage() {
           <span className="text-[#ff9f1c] font-extrabold text-xl">${pedido?.total?.toFixed(2)}</span>
         </div>
 
-        {/* Datos de Facturación del Cliente */}
-        <div className="bg-[#181d24] border border-[#2d3748] rounded-3xl p-5 space-y-3">
-          <div className="flex justify-between items-center border-b border-gray-800 pb-2.5">
+        {/* Datos de Facturación de La Crayola (Dictar en Caja) */}
+        <div className="bg-blue-500/10 border border-blue-500/20 rounded-3xl p-5 space-y-3">
+          <p className="font-bold uppercase tracking-wider text-[10px] text-blue-300 flex items-center gap-1.5">
+            💳 DATOS PARA FACTURA DE LA CRAYOLA (Dictar en Caja)
+          </p>
+          <p className="text-[11.5px] text-blue-400 leading-normal">
+            En la caja de Tuti/Tía/Proveedor, **pide la factura con los datos de la empresa** para justificar egresos ante el SRI:
+          </p>
+          <div className="bg-slate-950/60 rounded-xl p-3.5 border border-blue-900/30 text-xs text-slate-300 space-y-1.5">
+            <div className="flex justify-between">
+              <span className="text-gray-500">Razón Social:</span>
+              <span className="text-white font-bold">Lilliana Maribel Gonzalez Vallejo</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-500">RUC Empresa:</span>
+              <span className="text-white font-mono font-bold select-all">{ruc}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-500">Correo Electrónico:</span>
+              <span className="text-white font-mono select-all">librerialacrayola.ec@gmail.com</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-500">Teléfono Contacto:</span>
+              <span className="text-white font-mono select-all">0994568477</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Datos de Entrega del Cliente (Solo Referencia) */}
+        <div className="bg-[#181d24] border border-[#2d3748] rounded-3xl p-4 space-y-2.5">
+          <div className="flex justify-between items-center border-b border-gray-800 pb-2">
             <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">
-              👤 Datos de Facturación del Cliente
+              📍 Datos de Entrega del Cliente (Solo Referencia)
             </h3>
-            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+            <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${
               datosFactura?.consumidorFinal 
                 ? 'text-gray-400 bg-gray-500/10' 
                 : 'text-green-400 bg-green-500/10'
             }`}>
-              {datosFactura?.consumidorFinal ? 'Consumidor Final' : 'Factura con Datos'}
+              {datosFactura?.consumidorFinal ? 'CF' : 'Con Datos'}
             </span>
           </div>
           
-          <div className="space-y-1 text-xs">
-            {datosFactura && !datosFactura.consumidorFinal ? (
-              <>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Razón Social:</span>
-                  <span className="text-white font-bold">{datosFactura.razonSocial || pedido?.nombre_cliente}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">RUC / Cédula:</span>
-                  <span className="text-white font-mono font-bold text-green-400">{datosFactura.identificacion}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Correo Facturación:</span>
-                  <span className="text-white font-semibold">{datosFactura.correo || 'Sin correo'}</span>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Nombre / Razón Social:</span>
-                  <span className="text-white font-bold">{pedido?.nombre_cliente || 'Consumidor Final'}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">RUC / Cédula:</span>
-                  <span className="text-white font-mono font-semibold">9999999999999</span>
-                </div>
-              </>
-            )}
-            
-            <div className="flex justify-between pt-1 border-t border-gray-800 mt-1">
-              <span className="text-gray-500">Teléfono Contacto:</span>
-              <span className="text-white font-mono">{pedido?.telefono || 'Sin teléfono'}</span>
+          <div className="space-y-1 text-xs text-gray-400">
+            <div className="flex justify-between">
+              <span>Nombre:</span>
+              <span className="text-white font-semibold">{datosFactura?.razonSocial || pedido?.nombre_cliente}</span>
             </div>
-            
             {pedido?.direccion && (
-              <div className="pt-1.5 border-t border-gray-800/50 mt-1.5 text-[11px] text-gray-400">
-                📍 <strong>Dirección de entrega:</strong> {pedido.direccion}, {pedido.ciudad}
+              <div className="flex justify-between">
+                <span>Dirección:</span>
+                <span className="text-white font-semibold">{pedido.direccion}, {pedido.ciudad}</span>
               </div>
             )}
-          </div>
-          
-          <div className="bg-blue-500/10 border border-blue-500/20 rounded-2xl p-4 text-[10.5px] text-blue-400 leading-relaxed space-y-2">
-            <p className="font-bold uppercase tracking-wider text-[10px] text-blue-300 flex items-center gap-1.5">
-              💡 Datos para Factura del Local (supermercado)
-            </p>
-            <p>
-              En la caja de Tuti/Tía/Proveedor, **pide la factura con los datos de la empresa** para justificar egresos ante el SRI:
-            </p>
-            <div className="bg-slate-950/60 rounded-xl p-3 border border-blue-900/30 text-xs text-slate-300 space-y-1.5">
-              <div className="flex justify-between">
-                <span className="text-gray-500">Razón Social:</span>
-                <span className="text-white font-bold">Lilliana Maribel Gonzalez Vallejo</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">RUC Empresa:</span>
-                <span className="text-white font-mono font-bold select-all">{ruc}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">Correo Electrónico:</span>
-                <span className="text-white font-mono select-all">librerialacrayola.ec@gmail.com</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">Teléfono Contacto:</span>
-                <span className="text-white font-mono select-all">0994568477</span>
-              </div>
+            <div className="flex justify-between">
+              <span>Teléfono Contacto:</span>
+              <span className="text-white font-mono font-semibold">{pedido?.telefono || 'Sin teléfono'}</span>
             </div>
+            <p className="text-[10px] text-red-400/80 leading-normal pt-1.5 border-t border-gray-800/40">
+              ⚠️ *Nota: No dictes estos datos del cliente en la caja registradora del supermercado.*
+            </p>
           </div>
         </div>
 
@@ -379,52 +447,33 @@ export default function CajaPage() {
         <div className="bg-[#181d24] border border-[#2d3748] rounded-3xl p-5 space-y-4">
           <p className="text-gray-500 text-xs font-bold uppercase tracking-wider mb-2">Detalles de Facturación</p>
 
-          {/* RUC Selector */}
+          {/* Fecha de Emisión del Ticket */}
           <div className="space-y-1.5">
             <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider block">
-              RUC de Facturación (La Crayola)
+              Fecha de Emisión del Ticket
             </label>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={ruc}
-                onChange={e => setRuc(e.target.value)}
-                placeholder="1717067647001"
-                className="flex-1 bg-[#0c0f12] border border-[#2d3748] text-white rounded-2xl px-4 py-3 text-sm focus:outline-none focus:border-[#00b074] transition"
-              />
-              <button 
-                type="button"
-                onClick={() => setRuc('9999999999999')}
-                className="bg-[#2d3748] hover:bg-[#3d4d63] text-xs text-white px-3 rounded-2xl font-bold transition">
-                Cons. Final
-              </button>
-            </div>
+            <input
+              type="date"
+              value={fechaEmision}
+              onChange={e => setFechaEmision(e.target.value)}
+              className="w-full bg-[#0c0f12] border border-[#2d3748] text-white rounded-2xl px-4 py-3.5 text-sm focus:outline-none focus:border-[#00b074] transition"
+            />
           </div>
 
-          {/* Escáner de QR SRI */}
+          {/* RUC del Proveedor */}
           <div className="space-y-1.5">
             <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider block">
-              Clave de Acceso SRI (49 dígitos)
+              RUC del Proveedor (Tuti/Tía/Local)
             </label>
-            <button
-              type="button"
-              onClick={generarClaveAccesoSRI}
-              className="w-full bg-[#1a2129] border border-[#2d3748] hover:border-[#00b074] text-white py-3.5 px-4 rounded-2xl flex items-center justify-center gap-2 text-sm font-semibold transition"
-            >
-              <Shield size={16} className="text-[#00b074]" />
-              <span>Escanear QR de Factura Física</span>
-            </button>
+            <input
+              type="text"
+              maxLength={13}
+              value={provRuc}
+              onChange={e => setProvRuc(e.target.value.replace(/\D/g, ''))}
+              placeholder="Ej. 1793081118001"
+              className="w-full bg-[#0c0f12] border border-[#2d3748] text-white rounded-2xl px-4 py-3.5 text-sm focus:outline-none focus:border-[#00b074] transition font-mono"
+            />
           </div>
-
-          {/* Mostrar Clave SRI Generada */}
-          {sriGenerado && (
-            <div className="bg-[#00b074]/10 border border-[#00b074]/30 rounded-2xl p-3">
-              <p className="text-[#00b074] text-[11px] font-bold uppercase tracking-wider">✓ Clave Autorizada SRI</p>
-              <p className="text-gray-300 font-mono text-[10.5px] mt-1 break-all tracking-wider leading-relaxed">
-                {claveAcceso}
-              </p>
-            </div>
-          )}
 
           {/* Número de Factura Escindido */}
           <div className="space-y-1.5">
@@ -470,6 +519,46 @@ export default function CajaPage() {
               Formato: <span className="text-white font-mono">{provEstablecimiento.padStart(3, '0')}-{provPuntoEmision.padStart(3, '0')}-{provSecuencial.padStart(9, '0')}</span>
             </p>
           </div>
+
+          {/* Código Numérico (8 dígitos) */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider block">
+              Código Numérico del Ticket (8 dígitos)
+            </label>
+            <input
+              type="text"
+              maxLength={8}
+              value={provCodigoNumerico}
+              onChange={e => setProvCodigoNumerico(e.target.value.replace(/\D/g, ''))}
+              placeholder="00000001"
+              className="w-full bg-[#0c0f12] border border-[#2d3748] text-white rounded-2xl px-4 py-3.5 text-sm focus:outline-none focus:border-[#00b074] transition font-mono"
+            />
+          </div>
+
+          {/* Simulación / Escáner de Prueba */}
+          <div className="space-y-1.5">
+            <button
+              type="button"
+              onClick={simularDatosProveedor}
+              className="w-full bg-[#1a2129] border border-[#2d3748] hover:border-[#ff9f1c] text-white py-3 px-4 rounded-2xl flex items-center justify-center gap-2 text-xs font-semibold transition"
+            >
+              <Shield size={14} className="text-[#ff9f1c]" />
+              <span>Simular Datos de Factura Proveedor</span>
+            </button>
+          </div>
+
+          {/* Clave de Acceso Generada */}
+          {sriGenerado && claveAcceso && (
+            <div className="bg-[#00b074]/10 border border-[#00b074]/30 rounded-2xl p-4 space-y-1.5">
+              <p className="text-[#00b074] text-[11px] font-bold uppercase tracking-wider">✓ Clave de Acceso SRI Generada</p>
+              <p className="text-gray-300 font-mono text-xs break-all tracking-widest leading-relaxed bg-black/35 p-3 rounded-xl border border-gray-800">
+                {claveAcceso.match(/.{1,4}/g)?.join(' ') || claveAcceso}
+              </p>
+              <p className="text-[10px] text-gray-500 leading-normal">
+                Compara esta clave con la clave de 49 dígitos impresa al final del ticket del proveedor.
+              </p>
+            </div>
+          )}
 
           {/* Monto Facturado en Cajas */}
           <div className="space-y-1.5">
@@ -554,7 +643,7 @@ export default function CajaPage() {
           className="w-full bg-[#00b074] hover:bg-[#008f5d] disabled:opacity-60 text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-2 text-base shadow-lg shadow-[#00b074]/30 active:scale-95 transition"
         >
           {guardando ? <Loader2 size={18} className="animate-spin" /> : <CheckCircle2 size={18} />}
-          <span>{guardando ? 'Registrando en SRI...' : 'Registrar en SRI y continuar'}</span>
+          <span>{guardando ? 'Guardando registro...' : 'Confirmar compra y continuar'}</span>
           {!guardando && <ArrowRight size={16} />}
         </button>
       </div>
