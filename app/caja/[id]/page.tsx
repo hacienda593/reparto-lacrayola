@@ -237,18 +237,7 @@ export default function CajaPage() {
     setSriGenerado(true)
   }, [fechaEmision, provRuc, provEstablecimiento, provPuntoEmision, provSecuencial, provCodigoNumerico, tiendaId])
 
-  // Simular datos de prueba para facturación del proveedor
-  function simularDatosProveedor() {
-    setError('')
-    setProvEstablecimiento('001')
-    setProvPuntoEmision('010')
-    const randomSeq = String(Math.floor(100000 + Math.random() * 900000)).padStart(9, '0')
-    setProvSecuencial(randomSeq)
-    setProvCodigoNumerico('12345678')
-    if (!provRuc) {
-      setProvRuc('1793081118001') // Tuti por defecto
-    }
-  }
+
 
   async function registrarFacturacion() {
     setError('')
@@ -580,17 +569,7 @@ export default function CajaPage() {
             />
           </div>
 
-          {/* Simulación / Escáner de Prueba */}
-          <div className="space-y-1.5">
-            <button
-              type="button"
-              onClick={simularDatosProveedor}
-              className="w-full bg-[#1a2129] border border-[#2d3748] hover:border-[#ff9f1c] text-white py-3 px-4 rounded-2xl flex items-center justify-center gap-2 text-xs font-semibold transition"
-            >
-              <Shield size={14} className="text-[#ff9f1c]" />
-              <span>Simular Datos de Factura Proveedor</span>
-            </button>
-          </div>
+
 
           {/* Clave de Acceso Generada */}
           {sriGenerado && claveAcceso && (
