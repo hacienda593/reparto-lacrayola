@@ -96,20 +96,42 @@ export default function CajaPage() {
     }
     setItems(its ?? [])
 
-    // Cargar RUC y Código Numérico del Proveedor
+    // 1. Obtener la tienda (de rep_picking o buscando el producto en el catálogo ol_productos)
+    let tId = ''
     if (pickItems && pickItems.length > 0 && pickItems[0].tienda_id) {
-      const tId = pickItems[0].tienda_id
+      tId = pickItems[0].tienda_id
+    } else if (its && its.length > 0) {
+      const codigos = its.map(it => it.codigo).filter(Boolean)
+      if (codigos.length > 0) {
+        try {
+          const { data: prods } = await supabase
+            .from('ol_productos')
+            .select('tienda_id')
+            .in('codigo', codigos)
+            .limit(1)
+          if (prods && prods.length > 0 && prods[0].tienda_id) {
+            tId = prods[0].tienda_id
+          }
+        } catch (e) {
+          console.error("Error al buscar tienda_id en ol_productos:", e)
+        }
+      }
+    }
+
+    // 2. Cargar RUC y Código Numérico del Proveedor
+    if (tId) {
       setTiendaId(tId)
       
-      // Fallback local por defecto para Tuti / Tía
+      // Fallbacks locales por defecto (según la tienda detectada)
       if (tId === '37f0c318-ef34-439b-9362-1c4c9fb4d1bd') { // Tía
         setProvRuc('0990017442001')
-        setProvCodigoNumerico('00000001')
+        setProvCodigoNumerico('00000000')
       } else if (tId === 'b402b85a-b006-42ef-b2f6-763722f68241') { // Tuti
-        setProvRuc('1793081118001')
-        setProvCodigoNumerico('00000001')
+        setProvRuc('0993152161001') // RUC Real de Tuti en Ecuador
+        setProvCodigoNumerico('00000000')
       }
 
+      // Intentar cargar la configuración directa de la base de datos (por si se actualizó)
       try {
         const { data: tiendaData } = await supabase
           .from('ol_tiendas')
@@ -122,7 +144,7 @@ export default function CajaPage() {
           if (tiendaData.codigo_numerico) setProvCodigoNumerico(tiendaData.codigo_numerico)
         }
       } catch (e) {
-        console.error("Error al cargar tienda ruc:", e)
+        console.error("Error al cargar datos de tienda en ol_tiendas:", e)
       }
     }
     
