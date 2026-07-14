@@ -1,0 +1,1382 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tipti Shopper - Consola Interactiva de Flujos y Formularios</title>
+  <!-- Google Fonts: Outfit & Plus Jakarta Sans -->
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800;900&family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-dark: #090d10;
+      --bg-card: #12181f;
+      --bg-input: #0b0f14;
+      --primary: #00b074;
+      --primary-hover: #008f5d;
+      --accent: #ff9f1c;
+      --accent-blue: #0084ff;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --border: #242f3d;
+      --font-outfit: 'Outfit', sans-serif;
+      --font-jakarta: 'Plus Jakarta Sans', sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      font-family: var(--font-jakarta);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+    }
+
+    /* Header */
+    header {
+      background-color: var(--bg-card);
+      border-bottom: 1px solid var(--border);
+      padding: 1rem 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .brand-logo {
+      width: 40px;
+      height: 40px;
+      background: linear-gradient(135deg, #00b074, #a3e635);
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--font-outfit);
+      font-weight: 900;
+      font-size: 1.5rem;
+      color: white;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+
+    .brand-title h1 {
+      font-family: var(--font-outfit);
+      font-size: 1.25rem;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+    }
+
+    .brand-title p {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    .badge-dev {
+      background-color: rgba(0, 176, 116, 0.1);
+      border: 1px solid rgba(0, 176, 116, 0.3);
+      color: var(--primary);
+      padding: 0.25rem 0.75rem;
+      border-radius: 9999px;
+      font-size: 0.65rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    /* Main Grid Layout */
+    .container {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      min-height: calc(100vh - 72px);
+    }
+
+    /* Left Sidebar: Operational Sequence */
+    .sidebar {
+      background-color: var(--bg-card);
+      border-right: 1px solid var(--border);
+      padding: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+      overflow-y: auto;
+    }
+
+    .sidebar-title {
+      font-family: var(--font-outfit);
+      font-size: 0.85rem;
+      font-weight: 800;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.5rem;
+    }
+
+    .steps-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .step-btn {
+      width: 100%;
+      background: none;
+      border: 1px solid transparent;
+      padding: 0.85rem 1rem;
+      border-radius: 16px;
+      text-align: left;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .step-btn:hover {
+      background-color: rgba(255, 255, 255, 0.02);
+      border-color: var(--border);
+    }
+
+    .step-btn.active {
+      background-color: rgba(0, 176, 116, 0.08);
+      border-color: rgba(0, 176, 116, 0.3);
+    }
+
+    .step-number {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background-color: var(--border);
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--font-outfit);
+      font-weight: 800;
+      font-size: 0.75rem;
+      transition: all 0.2s;
+    }
+
+    .step-btn.active .step-number {
+      background-color: var(--primary);
+      color: white;
+      box-shadow: 0 0 10px rgba(0, 176, 116, 0.3);
+    }
+
+    .step-info {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .step-name {
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: var(--text-muted);
+      transition: color 0.2s;
+    }
+
+    .step-btn.active .step-name {
+      color: var(--text-main);
+    }
+
+    .step-role {
+      font-size: 0.65rem;
+      font-weight: 600;
+      color: var(--accent);
+      text-transform: uppercase;
+    }
+
+    .step-role.rider { color: var(--accent-blue); }
+    .step-role.admin { color: #f43f5e; }
+
+    /* Content Area */
+    .content {
+      padding: 2rem;
+      display: grid;
+      grid-template-columns: 1fr 400px;
+      gap: 2rem;
+      overflow-y: auto;
+      height: calc(100vh - 72px);
+    }
+
+    /* Form Simulator Card */
+    .simulator-panel {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 32px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+    }
+
+    .sim-header {
+      background-color: rgba(255, 255, 255, 0.02);
+      border-bottom: 1px solid var(--border);
+      padding: 1.25rem 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .sim-device-decor {
+      display: flex;
+      gap: 6px;
+    }
+
+    .decor-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background-color: var(--border);
+    }
+
+    .decor-dot.red { background-color: #f43f5e; }
+    .decor-dot.yellow { background-color: #eab308; }
+    .decor-dot.green { background-color: #22c55e; }
+
+    .sim-title {
+      font-family: var(--font-outfit);
+      font-size: 0.9rem;
+      font-weight: 800;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .sim-body {
+      flex: 1;
+      padding: 2rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+      overflow-y: auto;
+    }
+
+    /* Data Spec Sidebar */
+    .spec-panel {
+      background-color: rgba(18, 24, 31, 0.6);
+      border: 1px solid var(--border);
+      border-radius: 32px;
+      padding: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+      height: fit-content;
+    }
+
+    .spec-section-title {
+      font-family: var(--font-outfit);
+      font-size: 0.85rem;
+      font-weight: 800;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.75rem;
+      line-height: 1.4;
+    }
+
+    .data-table th, .data-table td {
+      padding: 0.6rem 0.5rem;
+      text-align: left;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .data-table th {
+      color: var(--text-muted);
+      font-weight: 700;
+    }
+
+    .data-table td.code-field {
+      font-family: monospace;
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    .data-table td.badge-type {
+      font-family: monospace;
+      color: var(--accent-blue);
+      font-weight: 600;
+    }
+
+    .spec-block {
+      background-color: rgba(0,0,0,0.2);
+      border: 1px solid rgba(255, 255, 255, 0.02);
+      border-radius: 16px;
+      padding: 1rem;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    .spec-block strong {
+      color: var(--text-main);
+      display: block;
+      margin-bottom: 0.25rem;
+    }
+
+    /* Generic UI elements inside the simulator */
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .form-label {
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--text-muted);
+    }
+
+    .form-input, .form-select, .form-textarea {
+      width: 100%;
+      background-color: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 0.85rem 1rem;
+      color: white;
+      font-family: var(--font-jakarta);
+      font-size: 0.8rem;
+      transition: all 0.2s;
+    }
+
+    .form-input:focus, .form-select:focus, .form-textarea:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(0, 176, 116, 0.15);
+    }
+
+    .form-btn {
+      width: 100%;
+      background-color: var(--primary);
+      color: white;
+      border: none;
+      border-radius: 14px;
+      padding: 1rem;
+      font-family: var(--font-jakarta);
+      font-weight: 800;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+    }
+
+    .form-btn:hover {
+      background-color: var(--primary-hover);
+    }
+
+    .form-btn:active {
+      transform: scale(0.98);
+    }
+
+    /* Specific Screen Layouts */
+    .login-brand {
+      text-align: center;
+      margin-bottom: 1rem;
+    }
+
+    .login-brand h2 {
+      font-family: var(--font-outfit);
+      font-weight: 900;
+      font-size: 2rem;
+      background: linear-gradient(to right, #00b074, #a3e635);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .kpi-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.75rem;
+    }
+
+    .kpi-card {
+      background-color: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 0.85rem;
+      text-align: center;
+    }
+
+    .kpi-val {
+      font-family: var(--font-outfit);
+      font-size: 1.5rem;
+      font-weight: 900;
+      color: white;
+    }
+
+    .kpi-val.red { color: #f43f5e; }
+    .kpi-val.green { color: var(--primary); }
+
+    .kpi-label {
+      font-size: 0.6rem;
+      color: var(--text-muted);
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-top: 0.25rem;
+    }
+
+    .pool-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+
+    .pool-item {
+      background-color: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 1rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .pool-meta h3 {
+      font-size: 0.8rem;
+      font-weight: 800;
+      color: var(--primary);
+    }
+
+    .pool-meta p {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      margin-top: 0.15rem;
+    }
+
+    .pool-price {
+      font-family: var(--font-outfit);
+      font-weight: 800;
+      font-size: 0.95rem;
+      color: white;
+    }
+
+    .claim-btn {
+      background-color: var(--primary);
+      border: none;
+      color: white;
+      font-size: 0.7rem;
+      font-weight: 800;
+      padding: 0.5rem 0.85rem;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .claim-btn:hover { background-color: var(--primary-hover); }
+
+    /* Picking Corridor design */
+    .corridor-header {
+      background-color: rgba(0, 176, 116, 0.1);
+      border: 1px solid rgba(0, 176, 116, 0.2);
+      border-radius: 16px;
+      padding: 0.85rem 1rem;
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--primary);
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .picking-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .picking-item {
+      background-color: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .pick-checkbox {
+      width: 20px;
+      height: 20px;
+      border-radius: 6px;
+      border: 2px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .picking-item.checked .pick-checkbox {
+      background-color: var(--primary);
+      border-color: var(--primary);
+      color: white;
+    }
+
+    .pick-details {
+      flex: 1;
+    }
+
+    .pick-title {
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: white;
+    }
+
+    .picking-item.checked .pick-title {
+      text-decoration: line-through;
+      color: var(--text-muted);
+    }
+
+    .pick-meta {
+      font-size: 0.65rem;
+      color: var(--text-muted);
+      margin-top: 0.15rem;
+    }
+
+    .pick-qty {
+      background-color: var(--border);
+      color: white;
+      font-family: var(--font-outfit);
+      font-weight: 800;
+      font-size: 0.75rem;
+      padding: 0.25rem 0.5rem;
+      border-radius: 8px;
+    }
+
+    /* Modal / replacement UI */
+    .replacement-box {
+      border: 1.5px dashed var(--accent-blue);
+      background-color: rgba(0, 132, 255, 0.03);
+      border-radius: 18px;
+      padding: 1rem;
+      font-size: 0.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .replacement-title {
+      color: var(--accent-blue);
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+    }
+
+    /* Handoff code display */
+    .otp-circle-container {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      margin: 1rem 0;
+    }
+
+    .otp-circle {
+      width: 140px;
+      height: 140px;
+      border-radius: 50%;
+      border: 4px solid var(--primary);
+      box-shadow: 0 0 20px rgba(0,176,116,0.15);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background-color: var(--bg-input);
+    }
+
+    .otp-code {
+      font-family: var(--font-outfit);
+      font-weight: 900;
+      font-size: 2rem;
+      letter-spacing: 1px;
+      color: white;
+    }
+
+    .otp-label {
+      font-size: 0.6rem;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      margin-top: 0.25rem;
+    }
+
+    /* Google Maps route mock */
+    .route-map-mock {
+      width: 100%;
+      height: 150px;
+      background-color: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .route-line {
+      position: absolute;
+      width: 80%;
+      height: 4px;
+      background: linear-gradient(90deg, var(--primary), var(--accent));
+      border-radius: 2px;
+    }
+
+    .map-pin {
+      position: absolute;
+      width: 16px;
+      height: 16px;
+      background-color: var(--primary);
+      border: 3px solid white;
+      border-radius: 50%;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.5);
+    }
+
+    .map-pin.start { left: 10%; }
+    .map-pin.end { right: 10%; background-color: var(--accent); }
+
+    .map-label {
+      position: absolute;
+      font-size: 0.55rem;
+      font-weight: 800;
+      color: white;
+      background-color: black;
+      padding: 0.15rem 0.35rem;
+      border-radius: 4px;
+      top: 20px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <header>
+    <div class="brand">
+      <div class="brand-logo">T</div>
+      <div class="brand-title">
+        <h1>Tipti Shopper Simulator</h1>
+        <p>Estructura de Formularios, Secuencias y Atributos de Base de Datos</p>
+      </div>
+    </div>
+    <div class="badge-dev">Consola de Análisis Técnico</div>
+  </header>
+
+  <!-- Container -->
+  <div class="container">
+    
+    <!-- Left Sidebar: Flow Steps -->
+    <div class="sidebar">
+      <div class="sidebar-title">Secuencia del Ciclo</div>
+      <div class="steps-list">
+        
+        <button class="step-btn active" onclick="switchScreen(0)">
+          <div class="step-number">1</div>
+          <div class="step-info">
+            <span class="step-name">Login / Autenticación</span>
+            <span class="step-role">Común</span>
+          </div>
+        </button>
+
+        <button class="step-btn" onclick="switchScreen(1)">
+          <div class="step-number">2</div>
+          <div class="step-info">
+            <span class="step-name">Panel Supervisor</span>
+            <span class="step-role admin">Supervisor</span>
+          </div>
+        </button>
+
+        <button class="step-btn" onclick="switchScreen(2)">
+          <div class="step-number">3</div>
+          <div class="step-info">
+            <span class="step-name">Cola de Espera (Pool)</span>
+            <span class="step-role">Shopper</span>
+          </div>
+        </button>
+
+        <button class="step-btn" onclick="switchScreen(3)">
+          <div class="step-number">4</div>
+          <div class="step-info">
+            <span class="step-name">Checklist de Pasillos</span>
+            <span class="step-role">Shopper</span>
+          </div>
+        </button>
+
+        <button class="step-btn" onclick="switchScreen(4)">
+          <div class="step-number">5</div>
+          <div class="step-info">
+            <span class="step-name">Registro de Caja (SRI)</span>
+            <span class="step-role">Shopper</span>
+          </div>
+        </button>
+
+        <button class="step-btn" onclick="switchScreen(5)">
+          <div class="step-number">6</div>
+          <div class="step-info">
+            <span class="step-name">Traspaso QR / OTP</span>
+            <span class="step-role">Handoff</span>
+          </div>
+        </button>
+
+        <button class="step-btn" onclick="switchScreen(6)">
+          <div class="step-number">7</div>
+          <div class="step-info">
+            <span class="step-name">Entrega y Cobro</span>
+            <span class="step-role rider">Repartidor</span>
+          </div>
+        </button>
+
+      </div>
+    </div>
+
+    <!-- Main Content Area -->
+    <div class="content">
+      
+      <!-- Center: Device Mock Simulator -->
+      <div class="simulator-panel">
+        <div class="sim-header">
+          <div class="sim-device-decor">
+            <div class="decor-dot red"></div>
+            <div class="decor-dot yellow"></div>
+            <div class="decor-dot green"></div>
+          </div>
+          <div class="sim-title" id="screen-title-header">Login Tipti Shopper</div>
+          <div style="width: 30px;"></div>
+        </div>
+        
+        <div class="sim-body" id="screen-container">
+          <!-- Screens are dynamically loaded here -->
+        </div>
+      </div>
+
+      <!-- Right: Technical Data Spec Panel -->
+      <div class="spec-panel">
+        <div class="spec-section-title">📊 Atributos y Contratos de Datos</div>
+        <div id="spec-content">
+          <!-- Tech specs loaded here based on active step -->
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+
+  <script>
+    // Data representation of each screen's HTML mockup and technical specifications
+    const screens = [
+      // STEP 1: LOGIN
+      {
+        title: "Login Tipti Shopper",
+        html: `
+          <div class="login-brand">
+            <h2>tipti shopper</h2>
+            <p style="font-size: 0.75rem; color: var(--text-muted); font-weight: 700;">ÁREA OPERATIVA DE CAMPO</p>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Correo Electrónico:</label>
+            <input type="email" class="form-input" placeholder="nombre@tipti.com.ec" value="shopper1@tipti.com.ec">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Contraseña:</label>
+            <input type="password" class="form-input" placeholder="••••••••" value="admin1234">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Supermercado Base:</label>
+            <select class="form-select">
+              <option value="tuti">Tuti - Sucursal Principal Los Bancos</option>
+              <option value="tia">Tía - Sucursal Central</option>
+              <option value="supermaxi">Supermaxi - San Luis</option>
+            </select>
+          </div>
+          <button class="form-btn" onclick="switchScreen(1)">Iniciar Sesión</button>
+        `,
+        specs: `
+          <div class="spec-block">
+            <strong>Firma del API / Endpoint:</strong>
+            POST <code>/api/v1/auth/login</code>
+          </div>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Atributo</th>
+                <th>Tipo</th>
+                <th>Descripción</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="code-field">email</td>
+                <td class="badge-type">string</td>
+                <td>Correo validado del colaborador.</td>
+              </tr>
+              <tr>
+                <td class="code-field">password</td>
+                <td class="badge-type">string</td>
+                <td>Clave encriptada.</td>
+              </tr>
+              <tr>
+                <td class="code-field">store_id</td>
+                <td class="badge-type">uuid</td>
+                <td>Local asignado para geocercas.</td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="spec-block" style="margin-top: 1rem;">
+            <strong>Lógica interna:</strong>
+            El sistema valida que el rol del usuario corresponda a 'shopper', 'supervisor' o 'repartidor', y comprueba si tiene un turno activo registrado.
+          </div>
+        `
+      },
+      // STEP 2: SUPERVISOR PANEL
+      {
+        title: "Consola de Supervisión",
+        html: `
+          <div class="kpi-row">
+            <div class="kpi-card">
+              <div class="kpi-val red">3</div>
+              <div class="kpi-label">Demorados</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-val">8</div>
+              <div class="kpi-label">En Picking</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-val green">15</div>
+              <div class="kpi-label">Completados</div>
+            </div>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Asignación de Emergencia (Fuerza Mayor):</label>
+            <select class="form-select">
+              <option value="">-- Seleccionar Pedido en Alerta --</option>
+              <option value="p1">Pedido #0022 - Cliente: Juan Pérez ($45.90)</option>
+              <option value="p2">Pedido #0023 - Cliente: María Gómez ($12.50)</option>
+            </select>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Reasignar a Shopper de Reemplazo:</label>
+            <select class="form-select">
+              <option value="">-- Seleccionar Colaborador Libre --</option>
+              <option value="s1">Carlos Ruiz (En Tuti Los Bancos)</option>
+              <option value="s2">Ana Martínez (En Tía Los Bancos)</option>
+            </select>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Motivo del Cambio Manual:</label>
+            <input type="text" class="form-input" placeholder="Batería baja / Moto averiada / etc.">
+          </div>
+          
+          <button class="form-btn" style="background-color: #f43f5e;" onclick="switchScreen(2)">Aplicar Reasignación Manual</button>
+        `,
+        specs: `
+          <div class="spec-block">
+            <strong>Firma del API / Endpoint:</strong>
+            POST <code>/api/v1/supervisor/reassign</code>
+          </div>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Atributo</th>
+                <th>Tipo</th>
+                <th>Descripción</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="code-field">pedido_id</td>
+                <td class="badge-type">uuid</td>
+                <td>Pedido a reasignar.</td>
+              </tr>
+              <tr>
+                <td class="code-field">new_shopper_id</td>
+                <td class="badge-type">uuid</td>
+                <td>Shopper que asume.</td>
+              </tr>
+              <tr>
+                <td class="code-field">reason</td>
+                <td class="badge-type">string</td>
+                <td>Justificación para auditoría.</td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="spec-block" style="margin-top: 1rem;">
+            <strong>Lógica de Negocio (Supervisor):</strong>
+            Esta pantalla es una torre de control en la app que permite al administrador intervenir en tiempo real sobre las asignaciones si un shopper no puede continuar con el picking.
+          </div>
+        `
+      },
+      // STEP 3: COLA DE ESPERA (POOL)
+      {
+        title: "Bandeja de Pedidos Libres",
+        html: `
+          <div class="corridor-header">
+            <span>PEDIDOS DISPONIBLES EN TU LOCAL</span>
+            <span style="color: var(--accent);">Tuti Los Bancos</span>
+          </div>
+          
+          <div class="pool-list">
+            <div class="pool-item">
+              <div class="pool-meta">
+                <h3>Pedido #0034</h3>
+                <p>2 items · Tuti Los Bancos</p>
+                <p style="font-size:0.6rem; color: #ef4444;">⏱️ Creado hace 12 min (Alerta SLA)</p>
+              </div>
+              <div style="text-align: right; display: flex; flex-direction: column; gap: 0.35rem; align-items: flex-end;">
+                <span class="pool-price">$4.50</span>
+                <button class="claim-btn" onclick="switchScreen(3)">Reclamar</button>
+              </div>
+            </div>
+            
+            <div class="pool-item">
+              <div class="pool-meta">
+                <h3>Pedido #0035</h3>
+                <p>8 items · Tuti Los Bancos</p>
+                <p style="font-size:0.6rem; color: var(--text-muted);">⏱️ Creado hace 2 min</p>
+              </div>
+              <div style="text-align: right; display: flex; flex-direction: column; gap: 0.35rem; align-items: flex-end;">
+                <span class="pool-price">$18.90</span>
+                <button class="claim-btn" onclick="switchScreen(3)">Reclamar</button>
+              </div>
+            </div>
+          </div>
+          
+          <div class="spec-block" style="background-color: rgba(255, 159, 28, 0.05); border-color: rgba(255, 159, 28, 0.2); color: var(--accent); font-size: 0.7rem;">
+            💡 Los pedidos en esta bandeja están en estado "Confirmado" (Pago validado). Al presionar "Reclamar", se te asigna de inmediato el pedido a tu cuenta.
+          </div>
+        `,
+        specs: `
+          <div class="spec-block">
+            <strong>Firma del API / Endpoint:</strong>
+            POST <code>/api/v1/shopper/claim</code>
+          </div>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Atributo</th>
+                <th>Tipo</th>
+                <th>Descripción</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="code-field">pedido_id</td>
+                <td class="badge-type">uuid</td>
+                <td>Identificador de la orden.</td>
+              </tr>
+              <tr>
+                <td class="code-field">shopper_id</td>
+                <td class="badge-type">uuid</td>
+                <td>Comprador que reclama.</td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="spec-block" style="margin-top: 1rem;">
+            <strong>Lógica interna:</strong>
+            Al ejecutar el reclamo, se crea el registro en <code>rep_asignaciones</code> con estado 'asignado' y el pedido en <code>ol_pedidos</code> mantiene el estado 'confirmado' para no alertar falsamente al cliente.
+          </div>
+        `
+      },
+      // STEP 4: CHECKLIST DE PASILLOS (CON CHAT Y LLAMADAS)
+      {
+        title: "Checklist de Pasillos",
+        html: `
+          <div class="corridor-header">
+            <span>PASILLO 2: LÁCTEOS Y EMBUTIDOS</span>
+            <span style="color: var(--accent);">Picking: 1/2 items</span>
+          </div>
+          
+          <div class="picking-list">
+            <div class="picking-item checked">
+              <div class="pick-checkbox">✓</div>
+              <div class="pick-details">
+                <div class="pick-title">Limpiapipas Crema</div>
+                <div class="pick-meta">Código: 09211 · Precio Ref: $1.50</div>
+              </div>
+              <div class="pick-qty">2 u</div>
+            </div>
+            
+            <div class="picking-item" id="item-to-replace">
+              <div class="pick-checkbox" onclick="checkItem()"></div>
+              <div class="pick-details">
+                <div class="pick-title">Limpiapipas Rosado</div>
+                <div class="pick-meta">Código: C242 · Precio Ref: $1.50</div>
+              </div>
+              <div class="pick-qty">1 u</div>
+            </div>
+          </div>
+
+          <!-- Canales de comunicación en picking (Tipti style) -->
+          <div style="background-color: var(--bg-input); border: 1px solid var(--border); border-radius: 18px; padding: 0.85rem; display: flex; align-items: center; justify-content: space-between; margin-top: 0.5rem;">
+            <span style="font-size: 0.7rem; font-weight: 700; color: var(--text-muted);">Canales de Contacto:</span>
+            <div style="display: flex; gap: 0.5rem;">
+              <button onclick="toggleChat()" style="background-color: var(--accent-blue); border: none; color: white; padding: 0.4rem 0.75rem; border-radius: 8px; font-size: 0.65rem; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 4px;">
+                💬 Chat (1)
+              </button>
+              <button onclick="alert('Llamando al cliente por teléfono...')" style="background-color: var(--primary); border: none; color: white; padding: 0.4rem 0.75rem; border-radius: 8px; font-size: 0.65rem; font-weight: 800; cursor: pointer;">
+                📞 Llamar
+              </button>
+            </div>
+          </div>
+
+          <!-- Chat Drawer simulado -->
+          <div id="chat-drawer" style="display: none; border: 1px solid var(--accent-blue); background-color: var(--bg-input); border-radius: 18px; padding: 1rem; flex-direction: column; gap: 0.75rem; max-height: 220px; overflow-y: auto; margin-top: 0.5rem;">
+            <div style="font-size: 0.7rem; font-weight: 800; color: var(--accent-blue); border-bottom: 1px solid var(--border); padding-bottom: 0.35rem; display: flex; justify-content: space-between;">
+              <span>💬 Chat con Cliente (Juan Pérez)</span>
+              <span onclick="toggleChat()" style="cursor: pointer; color: var(--text-muted);">✖</span>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.65rem;">
+              <div style="align-self: flex-end; background-color: var(--border); color: white; padding: 0.4rem 0.65rem; border-radius: 10px 10px 0 10px; max-width: 80%;">
+                Hola Juan, buenas tardes. Te comento que no hay Limpiapipas Rosado en percha. ¿Deseas sustituirlo por el fucsia o por otro color?
+              </div>
+              <div style="align-self: flex-start; background-color: rgba(0, 132, 255, 0.1); border: 1px solid rgba(0, 132, 255, 0.2); color: var(--text-main); padding: 0.4rem 0.65rem; border-radius: 10px 10px 10px 0; max-width: 80%;">
+                ¡Hola! Sí, por favor cámbialo por el fucsia. Muchas gracias.
+              </div>
+              <div style="align-self: flex-end; background-color: var(--border); color: white; padding: 0.4rem 0.65rem; border-radius: 10px 10px 0 10px; max-width: 80%;">
+                Listo, ya lo registro.
+              </div>
+            </div>
+          </div>
+          
+          <div class="replacement-box" id="replacement-ui" style="display: none; margin-top: 0.5rem;">
+            <div class="replacement-title">🔄 MÓDULO DE SUSTITUCIÓN DE PRODUCTO</div>
+            <p>El producto "Limpiapipas Rosado" no tiene stock físico. Registra el reemplazo acordado con el cliente por chat:</p>
+            <input type="text" class="form-input" style="padding: 0.5rem 0.75rem; font-size: 0.75rem;" placeholder="Sustituido por: Limpiapipas Fucsia 1u" id="sust-input" value="Limpiapipas Fucsia 1u">
+            <button class="form-btn" style="padding: 0.5rem; font-size: 0.7rem; background-color: var(--accent-blue);" onclick="confirmSust()">Confirmar Sustitución</button>
+          </div>
+          
+          <button class="form-btn" style="margin-top: 1rem;" onclick="switchScreen(4)">Ir a Caja y Facturar</button>
+        `,
+        specs: `
+          <div class="spec-block">
+            <strong>Firma del API / Endpoint (Picking Update):</strong>
+            PATCH <code>/api/v1/picking/{id}</code>
+          </div>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Atributo</th>
+                <th>Tipo</th>
+                <th>Descripción</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="code-field">estado</td>
+                <td class="badge-type">enum</td>
+                <td>'recogido', 'sustituido', 'no_disponible'</td>
+              </tr>
+              <tr>
+                <td class="code-field">sustitucion</td>
+                <td class="badge-type">string</td>
+                <td>Detalle de la alternativa acordada.</td>
+              </tr>
+              <tr>
+                <td class="code-field">precio_real</td>
+                <td class="badge-type">numeric</td>
+                <td>Precio cobrado en caja.</td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="spec-block" style="margin-top: 1rem;">
+            <strong>Lógica de Comunicación:</strong>
+            El shopper usa los recursos <code>ic_bubble_chat</code>, <code>ic_phone</code> e <code>ic_whatsapp</code> para coordinar el reemplazo en tiempo real. La sustitución no se fuerza de forma arbitraria sin consultar antes.
+          </div>
+        `
+      },
+      // STEP 5: REGISTRO DE CAJA (SRI)
+      {
+        title: "Caja y Facturación",
+        html: `
+          <div class="spec-block" style="background-color: rgba(0, 132, 255, 0.05); border-color: rgba(0, 132, 255, 0.2); color: var(--accent-blue); font-size: 0.7rem;">
+            📋 DATOS DE FACTURACIÓN DE LA EMPRESA (Dictar en Caja)
+            <strong style="margin-top: 0.25rem;">RUC: 1717067647001</strong>
+            <strong>Razón Social: Lilliana Maribel Gonzalez Vallejo</strong>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Clave de Acceso SRI (49 dígitos):</label>
+            <input type="text" class="form-input" placeholder="01022026011717067647001200101000000..." value="1407202601171706764700120010100000000351234567819">
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Monto Total Facturado ($):</label>
+            <input type="number" class="form-input" placeholder="Monto total del ticket" value="4.50">
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Método de Pago Utilizado:</label>
+            <select class="form-select">
+              <option value="tarjeta_corporativa">Tarjeta Corporativa (Prepago Tipti)</option>
+              <option value="efectivo_caja_chica">Efectivo de Caja Chica</option>
+            </select>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Subir Foto del Ticket:</label>
+            <div style="border: 2px dashed var(--border); border-radius: 14px; padding: 1.5rem; text-align: center; font-size: 0.7rem; color: var(--text-muted); cursor: pointer;">
+              📷 Tomar foto con la cámara del celular
+              <p style="font-size: 0.6rem; color: var(--primary); margin-top: 0.25rem;">✓ Ticket_Compra_Tia.jpg seleccionado</p>
+            </div>
+          </div>
+          
+          <button class="form-btn" onclick="switchScreen(5)">Registrar Pago y Factura</button>
+        `,
+        specs: `
+          <div class="spec-block">
+            <strong>Firma del API / Endpoint (Caja Submit):</strong>
+            POST <code>/api/v1/billing/receipt</code>
+          </div>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Atributo</th>
+                <th>Tipo</th>
+                <th>Descripción</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="code-field">clave_acceso</td>
+                <td class="badge-type">string</td>
+                <td>Clave oficial del SRI del ticket.</td>
+              </tr>
+              <tr>
+                <td class="code-field">monto_facturado</td>
+                <td class="badge-type">numeric</td>
+                <td>Valor total debitado de la tarjeta.</td>
+              </tr>
+              <tr>
+                <td class="code-field">foto_ticket_url</td>
+                <td class="badge-type">string</td>
+                <td>Imagen del ticket subida a Storage.</td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="spec-block" style="margin-top: 1rem;">
+            <strong>Fase de Transición:</strong>
+            Al guardar, la asignación en la base de datos cambia a 'recolectado' (listo en caja), y el pedido queda disponible para que el repartidor realice el traspaso físico de bolsas.
+          </div>
+        `
+      },
+      // STEP 6: TRASPASO QR / OTP
+      {
+        title: "Traspaso de Custodia",
+        html: `
+          <div class="corridor-header" style="background-color: rgba(255, 159, 28, 0.1); border-color: rgba(255, 159, 28, 0.2); color: var(--accent);">
+            <span>COMPRAS COMPLETADAS - TRASPASO</span>
+            <span>Pedido #0035</span>
+          </div>
+          
+          <p style="font-size: 0.75rem; text-align: center; color: var(--text-muted); line-height: 1.4;">
+            Muestra este código al repartidor (motorizado) para que escanee o digite en su app y asuma la custodia física de las bolsas.
+          </p>
+          
+          <div class="otp-circle-container">
+            <div class="otp-circle">
+              <span class="otp-code">A78D</span>
+              <span class="otp-label">Código OTP</span>
+            </div>
+          </div>
+          
+          <div style="border: 1px solid var(--border); border-radius: 16px; padding: 1rem; text-align: center; background-color: var(--bg-input);">
+            <div style="font-size: 0.55rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700;">Código QR de Seguridad</div>
+            <div style="margin: 0.5rem auto; width: 80px; height: 80px; background-color: white; border: 4px solid white; display: flex; align-items: center; justify-content: center; font-size: 1.5rem;">📱</div>
+            <div style="font-size: 0.6rem; color: var(--primary);">Escaneo dinámico habilitado</div>
+          </div>
+          
+          <button class="form-btn" onclick="switchScreen(6)">Confirmar Entrega a Motorizado</button>
+        `,
+        specs: `
+          <div class="spec-block">
+            <strong>Firma del API / Endpoint (Traspaso):</strong>
+            POST <code>/api/v1/handoff/transfer</code>
+          </div>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Atributo</th>
+                <th>Tipo</th>
+                <th>Descripción</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="code-field">asignacion_id</td>
+                <td class="badge-type">uuid</td>
+                <td>Identificador de la asignación.</td>
+              </tr>
+              <tr>
+                <td class="code-field">otp_code</td>
+                <td class="badge-type">string</td>
+                <td>4 caracteres finales del UUID.</td>
+              </tr>
+              <tr>
+                <td class="code-field">repartidor_id</td>
+                <td class="badge-type">uuid</td>
+                <td>ID del motorizado que asume.</td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="spec-block" style="margin-top: 1rem;">
+            <strong>Lógica Contable:</strong>
+            El traspaso valida el OTP/QR. En ese instante, el campo <code>repartidor_id</code> de la asignación se actualiza al ID del Rider, y el estado del pedido en <code>ol_pedidos</code> pasa a 'enviado'.
+          </div>
+        `
+      },
+      // STEP 7: ENTREGA Y COBRO
+      {
+        title: "Ruta de Entrega y Cobro",
+        html: `
+          <div class="route-map-mock">
+            <div class="map-label">📍 Ruta al Cliente: Juan Pérez</div>
+            <div class="route-line"></div>
+            <div class="map-pin start"></div>
+            <div class="map-pin end"></div>
+          </div>
+          
+          <div style="background-color: var(--bg-input); border: 1px solid var(--border); border-radius: 18px; padding: 1rem; space-y-2;">
+            <div style="font-size: 0.75rem; font-weight: 700; color: white;">Dirección: Av. Amazonas y Orellana</div>
+            <div style="font-size: 0.65rem; color: var(--text-muted);">Referencias: Edificio de vidrio, Oficina 4B</div>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Monto Recaudado ($):</label>
+            <input type="number" class="form-input" placeholder="Monto total cobrado" value="4.50">
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Método de Recaudación:</label>
+            <select class="form-select">
+              <option value="efectivo">Efectivo (COD)</option>
+              <option value="deuna">Deuna (Transferencia en puerta)</option>
+            </select>
+          </div>
+          
+          <button class="form-btn" onclick="alert('Ciclo Completo Exitosamente. ¡Felicidades!')">Confirmar Entrega y Cobrar</button>
+        `,
+        specs: `
+          <div class="spec-block">
+            <strong>Firma del API / Endpoint (Finalizar):</strong>
+            POST <code>/api/v1/delivery/complete</code>
+          </div>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Atributo</th>
+                <th>Tipo</th>
+                <th>Descripción</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="code-field">monto_cobrado</td>
+                <td class="badge-type">numeric</td>
+                <td>Efectivo recibido físicamente.</td>
+              </tr>
+              <tr>
+                <td class="code-field">metodo_pago</td>
+                <td class="badge-type">string</td>
+                <td>'efectivo', 'deuna', etc.</td>
+              </tr>
+              <tr>
+                <td class="code-field">geo_lat / geo_lng</td>
+                <td class="badge-type">numeric</td>
+                <td>Coordenadas de entrega (GPS check).</td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="spec-block" style="margin-top: 1rem;">
+            <strong>Liquidación del Efectivo:</strong>
+            El monto cobrado se suma a la columna <code>efectivo_en_mano</code> del repartidor. Si supera el límite de la billetera ($40), la PWA le bloqueará automáticamente nuevos pedidos.
+          </div>
+        `
+      }
+    ];
+
+    function switchScreen(index) {
+      // Update step list buttons
+      const buttons = document.querySelectorAll('.step-btn');
+      buttons.forEach((btn, idx) => {
+        if (idx === index) {
+          btn.classList.add('active');
+        } else {
+          btn.classList.remove('active');
+        }
+      });
+
+      // Update Screen Header Title
+      document.getElementById('screen-title-header').innerText = screens[index].title;
+
+      // Update Simulator Body
+      document.getElementById('screen-container').innerHTML = screens[index].html;
+
+      // Update Technical Specifications Sidebar
+      document.getElementById('spec-content').innerHTML = screens[index].specs;
+    }
+
+    // Interactive functions for Screen 4 (Checklist mockup)
+    function checkItem() {
+      const item = document.getElementById('item-to-replace');
+      item.classList.add('checked');
+      document.getElementById('replacement-ui').style.display = 'flex';
+    }
+
+    function confirmSust() {
+      const val = document.getElementById('sust-input').value;
+      if (val) {
+        alert("Sustitución registrada: " + val);
+        document.getElementById('replacement-ui').style.display = 'none';
+        switchScreen(4); // Move to caja
+      }
+    }
+
+    // Toggle chat visibility in mockup
+    function toggleChat() {
+      const chat = document.getElementById('chat-drawer');
+      if (chat.style.display === 'none') {
+        chat.style.display = 'flex';
+      } else {
+        chat.style.display = 'none';
+      }
+    }
+
+    // Load initial Login screen
+    switchScreen(0);
+  </script>
+</body>
+</html>

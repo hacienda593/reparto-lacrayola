@@ -70,13 +70,23 @@ export default function RepartidorPage() {
 
       const hoy = new Date().toISOString().split('T')[0]
       
-      // 1. Cargar asignaciones vigentes del repartidor (incluyendo recolectado)
-      const { data: asigs } = await supabase
+      // 1. Cargar asignaciones vigentes del repartidor (dependiendo del modo)
+      let queryAsigs = supabase
         .from('rep_asignaciones')
         .select('id,estado,pedido_id,ol_pedidos(numero,nombre_cliente,telefono,direccion,ciudad,referencias,total,geo_lat,geo_lng,notas,estado)')
-        .eq('repartidor_id', rep.id)
-        .in('estado', ['asignado','recolectado','en_ruta'])
         .gte('asignado_at', hoy)
+
+      if (modo === 'comprador') {
+        queryAsigs = queryAsigs
+          .eq('shopper_id', rep.id)
+          .in('estado', ['asignado', 'recolectado'])
+      } else {
+        queryAsigs = queryAsigs
+          .eq('rider_id', rep.id)
+          .in('estado', ['en_ruta'])
+      }
+
+      const { data: asigs } = await queryAsigs
 
       setPedidos((asigs ?? []).map((a: any) => ({
         asignacion_id:  a.id,
@@ -114,12 +124,13 @@ export default function RepartidorPage() {
     if (!repartidor) return
     setProcesando(pedidoId)
     
-    // 1. Crear la asignación en rep_asignaciones
+    // 1. Crear la asignación en rep_asignaciones (decoupled Shopper/Rider)
     const { data: asig, error: errAsig } = await supabase
       .from('rep_asignaciones')
       .insert({
         pedido_id:     pedidoId,
         repartidor_id: repartidor.id,
+        shopper_id:    repartidor.id,
         estado:        'asignado',
         notas:         'Auto-asignado por el Comprador desde el celular',
         prioridad:     1,
@@ -173,9 +184,10 @@ export default function RepartidorPage() {
     if (!repartidor) return
     setProcesando(asignacionId)
     
-    // 1. Cambiar estado de asignación a en_ruta
+    // 1. Cambiar estado de asignación a en_ruta y asignar rider_id (autotraspaso)
     await supabase.from('rep_asignaciones').update({
-      estado: 'en_ruta',
+      rider_id:   repartidor.id,
+      estado:     'en_ruta',
       updated_at: new Date().toISOString()
     }).eq('id', asignacionId)
 
@@ -205,9 +217,10 @@ export default function RepartidorPage() {
     if (authEstado === 'cargando') return
     if (!user) { router.replace('/login'); return }
     cargar(user.id)
-  }, [user, authEstado])
+  }, [user, authEstado, modo])
 
   async function enRuta(asignacionId: string, pedidoId: string) {
+    if (!repartidor) return
     setProcesando(asignacionId)
     const geo = await new Promise<{ lat: number; lng: number } | null>(res => {
       if (typeof window === 'undefined' || !navigator?.geolocation) {
@@ -221,7 +234,9 @@ export default function RepartidorPage() {
       )
     })
     await supabase.from('rep_asignaciones').update({
-      estado: 'en_ruta', updated_at: new Date().toISOString()
+      rider_id:   repartidor.id,
+      estado:     'en_ruta',
+      updated_at: new Date().toISOString()
     }).eq('id', asignacionId)
     await supabase.from('ol_pedidos').update({ estado: 'enviado' }).eq('id', pedidoId)
     if (repartidor) {
@@ -306,6 +321,15 @@ export default function RepartidorPage() {
         metodo_pago:   'efectivo',
         estado:        'cobrado',
         cobrado_at:    new Date().toISOString(),
+      })
+
+      // Registrar ingreso en la caja chica del repartidor
+      await supabase.from('rep_transacciones_caja').insert({
+        repartidor_id: repartidor.id,
+        pedido_id:     pedidoId,
+        tipo:          'ingreso_entrega',
+        monto:         monto,
+        estado:        'pendiente'
       })
     }
 

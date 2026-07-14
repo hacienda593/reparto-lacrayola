@@ -92,6 +92,16 @@ export default function EntregaPage() {
       metodo_pago: 'efectivo', exitosa: true,
       geo_lat: geo?.lat ?? null, geo_lng: geo?.lng ?? null,
     })
+
+    // Registrar ingreso en la caja del repartidor (recaudación COD)
+    await sb.from('rep_transacciones_caja').insert({
+      repartidor_id: pedido.repartidor_id,
+      pedido_id:     pedido.id,
+      tipo:          'ingreso_entrega',
+      monto:         parseFloat(monto),
+      estado:        'pendiente'
+    })
+
     setEntregado(true); setGuardando(false)
   }
 

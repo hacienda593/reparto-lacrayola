@@ -46,7 +46,17 @@ export default function PickingPage() {
   const [procesando, setProcesando] = useState<string | null>(null)
   const [modalSust,  setModalSust]  = useState<string | null>(null) // item id
   const [textoSust,  setTextoSust]  = useState('')
-  const [pedido,     setPedido]     = useState<{ numero: number; nombre_cliente: string } | null>(null)
+  const [pedido,     setPedido]     = useState<{ numero: number; nombre_cliente: string; telefono: string } | null>(null)
+
+  function formatWhatsApp(phone: string | null | undefined): string {
+    if (!phone) return ''
+    const clean = phone.replace(/\D/g, '')
+    return clean.startsWith('0') 
+      ? '593' + clean.slice(1) 
+      : clean.startsWith('9') && clean.length === 9 
+        ? '593' + clean 
+        : clean
+  }
 
   const cargar = useCallback(async () => {
     const [{ data: ps }, { data: ped }] = await Promise.all([
@@ -55,7 +65,7 @@ export default function PickingPage() {
         .eq('pedido_id', pedidoId)
         .order('tienda_id'),
       supabase.from('ol_pedidos')
-        .select('numero, nombre_cliente')
+        .select('numero, nombre_cliente, telefono')
         .eq('id', pedidoId)
         .single(),
     ])
@@ -146,6 +156,29 @@ export default function PickingPage() {
               style={{ width: `${porcentaje}%` }} />
           </div>
         </div>
+
+        {/* Contacto con el Cliente */}
+        {pedido && (
+          <div className="flex items-center justify-between bg-white/10 rounded-xl px-3 py-2 text-xs text-white">
+            <span className="font-semibold text-green-200">Contacto Cliente:</span>
+            <div className="flex gap-2">
+              <a
+                href={`https://wa.me/${formatWhatsApp(pedido.telefono)}?text=${encodeURIComponent(`Hola *${pedido.nombre_cliente}*, soy tu shopper de La Crayola Express. Estoy haciendo tus compras en este momento y te mantendré al tanto de cualquier sustitución. 🛒`)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-3 py-1.5 rounded-lg text-[10px] flex items-center gap-1 transition active:scale-95 cursor-pointer"
+              >
+                💬 WhatsApp
+              </a>
+              <a
+                href={`tel:${pedido.telefono}`}
+                className="bg-white/20 hover:bg-white/30 text-white font-bold px-3 py-1.5 rounded-lg text-[10px] flex items-center gap-1 transition active:scale-95 cursor-pointer"
+              >
+                📞 Llamar
+              </a>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="px-4 py-4 space-y-3">

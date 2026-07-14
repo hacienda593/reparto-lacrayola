@@ -151,6 +151,8 @@ export default function EscanearPage() {
         .from('rep_asignaciones')
         .update({
           repartidor_id: repartidor.id,
+          rider_id:      repartidor.id,
+          handoff_at:    new Date().toISOString(),
           estado:        'en_ruta',
           updated_at:    new Date().toISOString()
         })

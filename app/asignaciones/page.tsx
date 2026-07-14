@@ -39,6 +39,12 @@ interface Asignacion {
   rep_repartidores?: {
     nombre: string
   }
+  shopper?: {
+    nombre: string
+  }
+  rider?: {
+    nombre: string
+  }
 }
 
 export default function AsignacionesPage() {
@@ -78,7 +84,12 @@ export default function AsignacionesPage() {
 
       const { data: dataAsig, error: errAsig } = await supabase
         .from('rep_asignaciones')
-        .select('*, rep_repartidores(nombre)')
+        .select(`
+          *,
+          shopper:rep_repartidores!shopper_id(nombre),
+          rider:rep_repartidores!rider_id(nombre),
+          rep_repartidores!repartidor_id(nombre)
+        `)
         .in('estado', ['asignado', 'recolectado', 'en_ruta'])
       
       if (errAsig) throw errAsig
@@ -118,6 +129,7 @@ export default function AsignacionesPage() {
         .insert({
           pedido_id:     pedidoId,
           repartidor_id: repartidorId,
+          shopper_id:    repartidorId,
           prioridad:     1,
           notas:         'Asignación forzada manualmente por el Administrador',
           estado:        'asignado'
@@ -150,6 +162,8 @@ export default function AsignacionesPage() {
         .from('rep_asignaciones')
         .update({
           repartidor_id: repartidorId,
+          rider_id:      repartidorId,
+          handoff_at:    new Date().toISOString(),
           estado:        'en_ruta',
           updated_at:    new Date().toISOString()
         })
@@ -371,7 +385,7 @@ export default function AsignacionesPage() {
                       <div className="space-y-1">
                         <div className="font-extrabold text-xs text-white">{ped?.nombre_cliente || 'Desconocido'}</div>
                         <div className="text-[10px] text-gray-400 font-semibold flex items-center gap-1">
-                          👤 Shopper: {a.rep_repartidores?.nombre}
+                          👤 Shopper: {a.shopper?.nombre || a.rep_repartidores?.nombre || 'Desconocido'}
                         </div>
                       </div>
 
@@ -441,7 +455,7 @@ export default function AsignacionesPage() {
                       <div className="space-y-1">
                         <div className="font-extrabold text-xs text-white">{ped?.nombre_cliente || 'Desconocido'}</div>
                         <div className="text-[10px] text-gray-400 font-semibold">
-                          👤 Shopper/Rider: {a.rep_repartidores?.nombre}
+                          👤 Shopper: {a.shopper?.nombre || a.rep_repartidores?.nombre || 'Desconocido'} {a.rider?.nombre ? `· Rider: ${a.rider.nombre}` : ''}
                         </div>
                       </div>
 
@@ -527,7 +541,7 @@ export default function AsignacionesPage() {
                         <td className="py-2.5 text-center">
                           {asig ? (
                             <span className="bg-green-500/10 text-green-400 px-2.5 py-1 rounded-full text-[9px] font-bold">
-                              👤 {asig.rep_repartidores?.nombre} ({asig.estado})
+                              👤 S: {asig.shopper?.nombre || asig.rep_repartidores?.nombre} {asig.rider?.nombre ? `· R: ${asig.rider.nombre}` : ''} ({asig.estado})
                             </span>
                           ) : p.estado === 'entregado' ? (
                             <span className="bg-slate-800 text-slate-500 px-2.5 py-1 rounded-full text-[9px] font-semibold">

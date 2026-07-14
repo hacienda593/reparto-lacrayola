@@ -325,6 +325,18 @@ export default function CajaPage() {
         return
       }
 
+      // Registrar egreso en la caja del shopper si el método de pago fue caja chica (efectivo)
+      if (metodoPago === 'efectivo_caja_chica' && asignacion) {
+        await supabase.from('rep_transacciones_caja').insert({
+          repartidor_id: asignacion.repartidor_id,
+          pedido_id:     pedido.id,
+          tipo:          'egreso_compra',
+          monto:         parseFloat(montoFacturado),
+          comprobante_url: fotoUrl || null,
+          estado:        'pendiente'
+        })
+      }
+
       // 3. Actualizar el pedido en Supabase a estado 'preparado' (picking finalizado, listo para entrega)
       await supabase.from('ol_pedidos')
         .update({ 
