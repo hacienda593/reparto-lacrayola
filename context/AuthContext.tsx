@@ -41,7 +41,8 @@ async function resolverAcceso(u: User): Promise<{
         if (rolData?.activo) {
           const r = rolData.rol as Rol
           let repartidorId: string | null = null
-          if (r === 'repartidor') {
+          const isMobileCollab = r === 'repartidor' || r === 'comprador' || r === 'comprador-repartidor'
+          if (isMobileCollab) {
             const { data: rep } = await supabase
               .from('rep_repartidores').select('id').eq('user_id', u.id).single()
             repartidorId = rep?.id ?? null

@@ -1,4 +1,4 @@
-export type Rol = 'superadmin' | 'admin' | 'supervisor' | 'repartidor' | 'contador'
+export type Rol = 'superadmin' | 'admin' | 'supervisor' | 'repartidor' | 'contador' | 'comprador' | 'comprador-repartidor'
 
 export interface RepRepartidor {
   id:             string

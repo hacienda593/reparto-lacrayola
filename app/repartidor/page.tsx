@@ -32,17 +32,17 @@ const EST_COLOR: Record<string, string> = {
 }
 
 export default function RepartidorPage() {
-  const { user, estado: authEstado } = useAuth()
+  const { user, rol, estado: authEstado } = useAuth()
   const router = useRouter()
   const [pedidos,    setPedidos]    = useState<PedidoAsignado[]>([])
   const [pedidosEspera, setPedidosEspera] = useState<any[]>([])
   const [cargando,   setCargando]   = useState(true)
-  const [repartidor, setRepartidor] = useState<{ id: string; nombre: string; comision_valor: number; efectivo_en_mano: number; estado: string } | null>(null)
+  const [repartidor, setRepartidor] = useState<{ id: string; nombre: string; comision_valor: number; efectivo_en_mano: number; estado: string; vehiculo: string | null; email: string | null } | null>(null)
   const [procesando, setProcesando] = useState<string | null>(null)
   const [cobro,      setCobro]      = useState<Record<string, string>>({})
   
   // Selector dinámico de Rol: 'repartidor' (Entregas) o 'comprador' (Compras/Picking)
-  const [modo, setModo] = useState<'repartidor' | 'comprador'>('comprador')
+  const [modo, setModo] = useState<'repartidor' | 'comprador'>('repartidor')
 
   function formatWhatsApp(phone: string | null | undefined): string {
     if (!phone) return ''
@@ -58,7 +58,7 @@ export default function RepartidorPage() {
     try {
       const { data: rep } = await supabase
         .from('rep_repartidores')
-        .select('id,nombre,comision_valor,efectivo_en_mano,estado,estado_registro,activo')
+        .select('id,nombre,email,comision_valor,efectivo_en_mano,estado,estado_registro,activo,vehiculo')
         .eq('user_id', userId)
         .single()
 
@@ -68,6 +68,17 @@ export default function RepartidorPage() {
       }
       setRepartidor(rep as any)
 
+      // Determinar el modo esperado según el rol o perfil del colaborador
+      const isShopper = rol === 'comprador' || 
+                        rol === 'comprador-repartidor' ||
+                        rep.nombre.toLowerCase().includes('shopper') || 
+                        rep.email?.toLowerCase().includes('shopper') || 
+                        rep.vehiculo === 'pie'
+      const expectedModo = isShopper ? 'comprador' : 'repartidor'
+      if (modo !== expectedModo) {
+        setModo(expectedModo)
+      }
+
       const hoy = new Date().toISOString().split('T')[0]
       
       // 1. Cargar asignaciones vigentes del repartidor (dependiendo del modo)
@@ -76,7 +87,7 @@ export default function RepartidorPage() {
         .select('id,estado,pedido_id,ol_pedidos(numero,nombre_cliente,telefono,direccion,ciudad,referencias,total,geo_lat,geo_lng,notas,estado)')
         .gte('asignado_at', hoy)
 
-      if (modo === 'comprador') {
+      if (expectedModo === 'comprador') {
         queryAsigs = queryAsigs
           .eq('shopper_id', rep.id)
           .in('estado', ['asignado', 'recolectado'])
@@ -217,7 +228,7 @@ export default function RepartidorPage() {
     if (authEstado === 'cargando') return
     if (!user) { router.replace('/login'); return }
     cargar(user.id)
-  }, [user, authEstado, modo])
+  }, [user, authEstado, modo, rol])
 
   async function enRuta(asignacionId: string, pedidoId: string) {
     if (!repartidor) return
@@ -395,28 +406,27 @@ export default function RepartidorPage() {
               <UserCircle size={20} />
             </a>
           </div>
-        </div>
-
-        {/* Dynamic Role Switcher (🧺 Compras / 🛵 Entregas) */}
-        <div className="flex bg-white/15 p-1 rounded-xl w-full max-w-[280px] mx-auto mt-2">
-          <button
-            onClick={() => setModo('comprador')}
-            className={`flex-1 py-1.5 rounded-lg text-[11px] font-extrabold transition-all flex items-center justify-center gap-1 ${
-              modo === 'comprador' ? 'bg-white text-green-800 shadow-xs' : 'text-green-150 hover:text-white'
-            }`}
-          >
-            🧺 Modo Compras
-          </button>
-          <button
-            onClick={() => setModo('repartidor')}
-            className={`flex-1 py-1.5 rounded-lg text-[11px] font-extrabold transition-all flex items-center justify-center gap-1 ${
-              modo === 'repartidor' ? 'bg-white text-green-800 shadow-xs' : 'text-green-150 hover:text-white'
-            }`}
-          >
-            🛵 Modo Entregas
-          </button>
-        </div>
-
+        </div>        {/* Dynamic Role Switcher (🧺 Compras / 🛵 Entregas) - Solo para rol híbrido 'comprador-repartidor' */}
+        {rol === 'comprador-repartidor' && (
+          <div className="flex bg-white/15 p-1 rounded-xl w-full max-w-[280px] mx-auto mt-2 mb-1">
+            <button
+              onClick={() => setModo('comprador')}
+              className={`flex-1 py-1.5 rounded-lg text-[11px] font-extrabold transition-all flex items-center justify-center gap-1 ${
+                modo === 'comprador' ? 'bg-white text-green-800 shadow-xs' : 'text-green-150 hover:text-white'
+              }`}
+            >
+              🧺 Modo Compras
+            </button>
+            <button
+              onClick={() => setModo('repartidor')}
+              className={`flex-1 py-1.5 rounded-lg text-[11px] font-extrabold transition-all flex items-center justify-center gap-1 ${
+                modo === 'repartidor' ? 'bg-white text-green-800 shadow-xs' : 'text-green-150 hover:text-white'
+              }`}
+            >
+              🛵 Modo Entregas
+            </button>
+          </div>
+        )}
         <div className="flex gap-2.5 pt-2 overflow-x-auto no-scrollbar">
           <div className="bg-white/20 rounded-xl px-3 py-1.5 text-[11px] font-semibold shrink-0">
             📦 {pedidos.length} asignados
