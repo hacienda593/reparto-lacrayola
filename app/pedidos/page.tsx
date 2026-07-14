@@ -21,17 +21,28 @@ export default async function PedidosPage() {
   const rol = rolData?.activo ? rolData.rol : null
 
   // Si es un rol administrativo, redirigir a /asignaciones
-  if (rol && rol !== 'repartidor') {
+  const rolesAdmin = ['superadmin', 'admin', 'supervisor', 'contador']
+  if (rol && rolesAdmin.includes(rol)) {
     redirect('/asignaciones')
   }
 
   const { data: repartidor } = await supabase
     .from('rep_repartidores')
-    .select('id, nombre, comision_tipo, comision_valor, estado_registro, activo')
+    .select('id, nombre, email, comision_tipo, comision_valor, estado_registro, activo, vehiculo')
     .eq('user_id', user.id).single()
 
   if (!repartidor || repartidor.estado_registro !== 'aprobado' || !repartidor.activo) {
     redirect('/')
+  }
+
+  // Si es un shopper/comprador (y no es rol híbrido comprador-repartidor), redirigir a /repartidor
+  const isShopper = rol === 'comprador' || 
+                    repartidor.nombre.toLowerCase().includes('shopper') || 
+                    repartidor.email?.toLowerCase().includes('shopper') || 
+                    repartidor.vehiculo === 'pie'
+                    
+  if (isShopper && rol !== 'comprador-repartidor') {
+    redirect('/repartidor')
   }
 
   const { data: asignaciones } = await supabase
