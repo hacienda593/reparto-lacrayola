@@ -24,7 +24,7 @@ export default async function Home() {
   // 2. Verificar si está registrado como repartidor
   const { data: rep } = await supabase
     .from('rep_repartidores')
-    .select('id, nombre, estado_registro, activo')
+    .select('id, nombre, email, estado_registro, activo, vehiculo')
     .eq('user_id', user.id)
     .single()
 
@@ -41,9 +41,18 @@ export default async function Home() {
     )
   }
 
-  // 4. Si es un repartidor aprobado y activo, redirigir a pedidos
+  // 4. Si es un repartidor aprobado y activo, redirigir según su perfil (shopper vs rider)
   if (rep && rep.estado_registro === 'aprobado' && rep.activo) {
-    redirect('/pedidos')
+    const isShopper = rol === 'comprador' || 
+                      rol === 'comprador-repartidor' ||
+                      rep.nombre.toLowerCase().includes('shopper') || 
+                      rep.email?.toLowerCase().includes('shopper') || 
+                      rep.vehiculo === 'pie'
+    if (isShopper) {
+      redirect('/repartidor')
+    } else {
+      redirect('/pedidos')
+    }
   }
 
   // 5. En cualquier otro caso, mostrar pantalla de estado de acceso o sin autorización

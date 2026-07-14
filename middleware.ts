@@ -24,7 +24,7 @@ export async function middleware(req: NextRequest) {
 
   // Rutas públicas
   if (path === '/login') {
-    if (user) return NextResponse.redirect(new URL('/pedidos', req.url))
+    if (user) return NextResponse.redirect(new URL('/', req.url))
     return res
   }
 
