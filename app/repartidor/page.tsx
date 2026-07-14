@@ -10,6 +10,7 @@ function fmt(n: number) { return '$' + (n ?? 0).toFixed(2) }
 interface PedidoAsignado {
   asignacion_id:  string
   estado:         string
+  pedido_estado:  string
   pedido_id:      string
   numero:         number
   nombre_cliente: string
@@ -72,7 +73,7 @@ export default function RepartidorPage() {
       // 1. Cargar asignaciones vigentes del repartidor (incluyendo recolectado)
       const { data: asigs } = await supabase
         .from('rep_asignaciones')
-        .select('id,estado,pedido_id,ol_pedidos(numero,nombre_cliente,telefono,direccion,ciudad,referencias,total,geo_lat,geo_lng,notas)')
+        .select('id,estado,pedido_id,ol_pedidos(numero,nombre_cliente,telefono,direccion,ciudad,referencias,total,geo_lat,geo_lng,notas,estado)')
         .eq('repartidor_id', rep.id)
         .in('estado', ['asignado','recolectado','en_ruta'])
         .gte('asignado_at', hoy)
@@ -80,6 +81,7 @@ export default function RepartidorPage() {
       setPedidos((asigs ?? []).map((a: any) => ({
         asignacion_id:  a.id,
         estado:         a.estado,
+        pedido_estado:  a.ol_pedidos?.estado,
         pedido_id:      a.pedido_id,
         numero:         a.ol_pedidos?.numero,
         nombre_cliente: a.ol_pedidos?.nombre_cliente,
@@ -131,16 +133,40 @@ export default function RepartidorPage() {
       return
     }
 
-    // 2. Cambiar el estado de ol_pedidos a 'preparado'
-    await supabase.from('ol_pedidos').update({ estado: 'preparado' }).eq('id', pedidoId)
+    // 2. Cambiar el estado de ol_pedidos a 'confirmado'
+    await supabase.from('ol_pedidos').update({ estado: 'confirmado' }).eq('id', pedidoId)
 
     // 3. Recargar datos
     await cargar(user!.id)
     setProcesando(null)
+  }
 
-    // 4. Abrir WhatsApp para notificar al cliente automáticamente
+  async function iniciarCompra(pedidoId: string, numero: number, nombreCliente: string, telefonoCliente: string) {
+    if (!repartidor) return
+    setProcesando(pedidoId)
+
+    // 1. Cambiar el estado de ol_pedidos a 'preparado'
+    const { error: errUpdate } = await supabase
+      .from('ol_pedidos')
+      .update({ estado: 'preparado' })
+      .eq('id', pedidoId)
+
+    if (errUpdate) {
+      alert('Error al iniciar la compra: ' + errUpdate.message)
+      setProcesando(null)
+      return
+    }
+
+    // 2. Recargar datos
+    await cargar(user!.id)
+    setProcesando(null)
+
+    // 3. Abrir WhatsApp para notificar al cliente
     const msg = `🛒 *La Crayola - Compras en curso* \n\n¡Hola *${nombreCliente}*! Soy *${repartidor.nombre}*, tu comprador asignado de La Crayola. He recibido tu pedido *#${String(numero).padStart(4,'0')}* y voy a iniciar tus compras ahora mismo en los supermercados asociados. Te mantendré al tanto de cualquier novedad por este medio. 🧺`
     window.open(`https://wa.me/${formatWhatsApp(telefonoCliente)}?text=${encodeURIComponent(msg)}`, '_blank')
+
+    // 4. Navegar a la pantalla de picking
+    router.push(`/repartidor/picking/${pedidoId}`)
   }
 
   async function autotraspaso(asignacionId: string, pedidoId: string, numero: number, nombreCliente: string, telefonoCliente: string) {
@@ -480,10 +506,25 @@ export default function RepartidorPage() {
                 {/* Vista Compras (Picking - solo si está en estado asignado) */}
                 {modo === 'comprador' && p.estado === 'asignado' && (
                   <div className="pt-2">
-                    <a href={`/repartidor/picking/${p.pedido_id}`}
-                      className="w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white font-bold py-3.5 rounded-xl transition text-sm shadow-xs">
-                      🛒 Iniciar Compras en Supermercados
-                    </a>
+                    {p.pedido_estado === 'confirmado' || p.pedido_estado === 'pendiente' ? (
+                      <button
+                        type="button"
+                        onClick={() => iniciarCompra(p.pedido_id, p.numero, p.nombre_cliente, p.telefono)}
+                        disabled={procesando !== null}
+                        className="w-full flex items-center justify-center gap-2 bg-[#00b074] hover:bg-[#008f5d] disabled:opacity-50 text-white font-extrabold py-3.5 rounded-xl transition text-sm shadow-sm cursor-pointer"
+                      >
+                        {procesando === p.pedido_id ? (
+                          <Loader2 size={16} className="animate-spin" />
+                        ) : (
+                          <span>▶️ Iniciar compra en supermercados</span>
+                        )}
+                      </button>
+                    ) : (
+                      <a href={`/repartidor/picking/${p.pedido_id}`}
+                        className="w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white font-extrabold py-3.5 rounded-xl transition text-sm shadow-sm text-center">
+                        🛒 Continuar compra en supermercados
+                      </a>
+                    )}
                   </div>
                 )}
 
