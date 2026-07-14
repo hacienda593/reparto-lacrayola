@@ -6,7 +6,8 @@ import { useAuth } from '@/context/AuthContext'
 import Sidebar from '@/components/Sidebar'
 import { 
   Truck, Package, Users, Plus, Trash2, Loader2, 
-  MapPin, CheckCircle, RefreshCw, AlertCircle, Info, ArrowRight 
+  MapPin, CheckCircle, RefreshCw, AlertCircle, Info, ArrowRight,
+  Phone, ExternalLink, Lock, Unlock, DollarSign, Check
 } from 'lucide-react'
 
 function fmt(n: number) { return '$' + (n ?? 0).toFixed(2) }
@@ -21,6 +22,11 @@ interface Pedido {
   total: number
   estado: string
   created_at: string
+  geo_lat?: number | null
+  geo_lng?: number | null
+  metodo_pago?: string | null
+  pago_confirmado?: boolean | null
+  referencias?: string | null
 }
 
 interface Repartidor {
@@ -58,6 +64,114 @@ export default function AsignacionesPage() {
   const [procesando, setProcesando] = useState(false)
   const [error, setError] = useState('')
   const [mensaje, setMensaje] = useState('')
+
+  // Variables de estado para modal de validación GPS y pagos
+  const [modalPedido, setModalPedido] = useState<Pedido | null>(null)
+  const [direccionesCliente, setDireccionesCliente] = useState<any[]>([])
+  const [direccionSeleccionada, setDireccionSeleccionada] = useState<string>('')
+  const [nuevaDireccion, setNuevaDireccion] = useState({ nombre: 'Casa', lat: '', lng: '', referencias: '' })
+  const [cargandoDirecciones, setCargandoDirecciones] = useState(false)
+
+  async function abrirVerificacion(p: Pedido) {
+    setModalPedido(p)
+    setDireccionSeleccionada('')
+    setNuevaDireccion({ nombre: 'Casa', lat: '', lng: '', referencias: p.referencias || '' })
+    setCargandoDirecciones(true)
+    try {
+      const { data, error } = await supabase
+        .from('rep_clientes_direcciones')
+        .select('*')
+        .eq('telefono', p.telefono)
+      if (error) throw error
+      setDireccionesCliente(data || [])
+      
+      // Auto-seleccionar si hay una verificada
+      const verif = data?.find(d => d.verificada)
+      if (verif) {
+        setDireccionSeleccionada(verif.id)
+      }
+    } catch (err) {
+      console.error("Error al cargar direcciones:", err)
+    } finally {
+      setCargandoDirecciones(false)
+    }
+  }
+
+  async function confirmarPagoPedido(pedidoId: string) {
+    setProcesando(true)
+    setError('')
+    try {
+      const { error } = await supabase
+        .from('ol_pedidos')
+        .update({ pago_confirmado: true })
+        .eq('id', pedidoId)
+      if (error) throw error
+      
+      setPedidos(prev => prev.map(p => p.id === pedidoId ? { ...p, pago_confirmado: true } as any : p))
+      setModalPedido(prev => prev && prev.id === pedidoId ? { ...prev, pago_confirmado: true } as any : prev)
+      setMensaje('✓ Pago validado y registrado en el sistema.')
+    } catch (err: any) {
+      setError(`Error al confirmar pago: ${err.message}`)
+    } finally {
+      setProcesando(false)
+    }
+  }
+
+  async function liberarPedido(p: Pedido) {
+    setProcesando(true)
+    setError('')
+    try {
+      let lat = p.geo_lat
+      let lng = p.geo_lng
+
+      if (direccionSeleccionada) {
+        const dSel = direccionesCliente.find(d => d.id === direccionSeleccionada)
+        if (dSel) {
+          lat = dSel.geo_lat
+          lng = dSel.geo_lng
+        }
+      } else if (nuevaDireccion.lat && nuevaDireccion.lng) {
+        const latNum = parseFloat(nuevaDireccion.lat)
+        const lngNum = parseFloat(nuevaDireccion.lng)
+        
+        const { error: errDir } = await supabase
+          .from('rep_clientes_direcciones')
+          .insert({
+            telefono: p.telefono,
+            nombre_direccion: nuevaDireccion.nombre,
+            direccion: p.direccion || 'Sin dirección',
+            ciudad: p.ciudad,
+            referencias: nuevaDireccion.referencias,
+            geo_lat: latNum,
+            geo_lng: lngNum,
+            verificada: true
+          })
+        if (errDir) throw errDir
+        
+        lat = latNum
+        lng = lngNum
+      }
+
+      const { error: errPed } = await supabase
+        .from('ol_pedidos')
+        .update({
+          estado: 'confirmado',
+          geo_lat: lat,
+          geo_lng: lng
+        })
+        .eq('id', p.id)
+      if (errPed) throw errPed
+
+      setPedidos(prev => prev.map(o => o.id === p.id ? { ...o, estado: 'confirmado', geo_lat: lat, geo_lng: lng } as any : o))
+      setMensaje('✓ Pedido confirmado y liberado para Auto-Asignación.')
+      setModalPedido(null)
+      await cargarDatos()
+    } catch (err: any) {
+      setError(`Error al liberar pedido: ${err.message}`)
+    } finally {
+      setProcesando(false)
+    }
+  }
 
   async function cargarDatos() {
     setCargando(true)
@@ -309,8 +423,18 @@ export default function AsignacionesPage() {
                   const created = new Date(p.created_at).getTime()
                   const elapsedMin = Math.floor((Date.now() - created) / 60000)
                   const esRetrasado = elapsedMin > 10
+
+                  const esTransferencia = p.metodo_pago === 'transferencia'
+                  const necesitaValidarPago = esTransferencia && !p.pago_confirmado
+                  const gpsVerificado = p.geo_lat && p.geo_lng
+
+                  // Determinar borde y fondo según el estado de pago
+                  const borderClass = necesitaValidarPago 
+                    ? 'border-orange-500/40 bg-orange-950/10' 
+                    : 'border-[#2d3748] bg-[#0c0f12]'
+
                   return (
-                    <div key={p.id} className="bg-[#0c0f12] border border-[#2d3748] rounded-2xl p-4 space-y-3">
+                    <div key={p.id} className={`border rounded-2xl p-4 space-y-3 transition ${borderClass}`}>
                       <div className="flex justify-between items-center">
                         <span className="text-xs font-bold text-green-400">Pedido #{String(p.numero).padStart(4,'0')}</span>
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
@@ -319,31 +443,75 @@ export default function AsignacionesPage() {
                           ⏱️ Hace {elapsedMin} min
                         </span>
                       </div>
+                      
                       <div className="space-y-1">
                         <div className="font-extrabold text-xs text-white">{p.nombre_cliente}</div>
                         <div className="text-[10px] text-gray-500">{p.direccion || 'Sin dirección'}, {p.ciudad}</div>
                         <div className="text-xs font-black text-white pt-1">{fmt(p.total)}</div>
                       </div>
+
+                      {/* Badges de Estado Operativo */}
+                      <div className="flex flex-wrap gap-1.5 pt-1">
+                        {esTransferencia ? (
+                          <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-md border ${
+                            p.pago_confirmado 
+                              ? 'bg-green-500/10 text-green-400 border-green-500/20' 
+                              : 'bg-orange-500/10 text-orange-400 border-orange-500/20 animate-pulse'
+                          }`}>
+                            🏦 Transferencia {p.pago_confirmado ? '(Pagado)' : '(Por Validar)'}
+                          </span>
+                        ) : (
+                          <span className="text-[9px] font-extrabold px-2 py-0.5 rounded-md border bg-blue-500/10 text-blue-400 border-blue-500/20">
+                            💵 Contra-Entrega (Efectivo)
+                          </span>
+                        )}
+
+                        {gpsVerificado ? (
+                          <span className="text-[9px] font-extrabold px-2 py-0.5 rounded-md border bg-emerald-500/10 text-emerald-400 border-emerald-500/20">
+                            📍 GPS Verificado
+                          </span>
+                        ) : (
+                          <span className="text-[9px] font-extrabold px-2 py-0.5 rounded-md border bg-rose-500/10 text-rose-400 border-rose-500/20 animate-pulse">
+                            ⚠️ Falta GPS
+                          </span>
+                        )}
+
+                        <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-md border ${
+                          p.estado === 'confirmado' 
+                            ? 'bg-green-500/10 text-green-400 border-green-500/20' 
+                            : 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20'
+                        }`}>
+                          {p.estado === 'confirmado' ? '✓ Confirmado (Pool)' : '⏳ Pendiente'}
+                        </span>
+                      </div>
                       
-                      <div className="pt-2 border-t border-gray-850 flex gap-2">
-                        <select
-                          id={`select-rep-${p.id}`}
-                          defaultValue=""
-                          className="flex-1 bg-[#0c0f12] border border-[#2d3748] rounded-xl px-2 py-1 text-[10px] text-white focus:outline-none focus:border-green-500">
-                          <option value="">-- Forzar Shopper --</option>
-                          {repartidores.map(r => (
-                            <option key={r.id} value={r.id}>{r.nombre}</option>
-                          ))}
-                        </select>
+                      <div className="pt-2 border-t border-gray-850 flex flex-col gap-2">
                         <button
-                          onClick={() => {
-                            const sel = document.getElementById(`select-rep-${p.id}`) as HTMLSelectElement
-                            if (sel.value) forzarAsignacion(p.id, sel.value)
-                          }}
-                          disabled={procesando}
-                          className="bg-green-600 hover:bg-green-500 text-white font-extrabold text-[10px] px-3 py-1 rounded-xl transition cursor-pointer">
-                          ⚡ Asignar
+                          onClick={() => abrirVerificacion(p)}
+                          className="w-full bg-green-600 hover:bg-green-500 text-white font-extrabold text-[10px] py-1.5 rounded-xl transition cursor-pointer flex items-center justify-center gap-1">
+                          🔍 Validar Pago & GPS
                         </button>
+                        
+                        <div className="flex gap-2 mt-1">
+                          <select
+                            id={`select-rep-${p.id}`}
+                            defaultValue=""
+                            className="flex-1 bg-[#0c0f12] border border-[#2d3748] rounded-xl px-2 py-1 text-[10px] text-white focus:outline-none focus:border-green-500">
+                            <option value="">-- Forzar Shopper --</option>
+                            {repartidores.map(r => (
+                              <option key={r.id} value={r.id}>{r.nombre}</option>
+                            ))}
+                          </select>
+                          <button
+                            onClick={() => {
+                              const sel = document.getElementById(`select-rep-${p.id}`) as HTMLSelectElement
+                              if (sel.value) forzarAsignacion(p.id, sel.value)
+                            }}
+                            disabled={procesando}
+                            className="bg-gray-800 hover:bg-gray-700 border border-gray-750 text-white font-bold text-[10px] px-3 py-1 rounded-xl transition cursor-pointer shrink-0">
+                            ⚡ Asignar
+                          </button>
+                        </div>
                       </div>
                     </div>
                   )
@@ -561,6 +729,238 @@ export default function AsignacionesPage() {
             </div>
           )}
         </div>
+
+        {/* MODAL DE VALIDACIÓN DE PAGO Y DIRECCIÓN GPS */}
+        {modalPedido && (
+          <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-[#181d24] border border-[#2d3748] rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl animate-in fade-in zoom-in duration-200">
+              {/* Header */}
+              <div className="px-6 py-4 border-b border-gray-800 flex justify-between items-center bg-[#0c0f12]/50">
+                <div>
+                  <h3 className="font-bold text-white text-base">Validación de Pedido #{String(modalPedido.numero).padStart(4, '0')}</h3>
+                  <p className="text-xs text-gray-400">Verificación obligatoria de pago y localización GPS</p>
+                </div>
+                <button
+                  onClick={() => setModalPedido(null)}
+                  className="text-gray-450 hover:text-white text-lg font-bold">
+                  &times;
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="p-6 space-y-5 overflow-y-auto max-h-[70vh]">
+                
+                {/* 1. Datos Generales */}
+                <div className="bg-[#0c0f12]/50 rounded-2xl p-4 border border-[#2d3748] space-y-1.5 text-xs text-left">
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Cliente:</span>
+                    <span className="font-bold text-white">{modalPedido.nombre_cliente}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Teléfono:</span>
+                    <span className="font-bold text-white flex items-center gap-1">
+                      <Phone size={11} className="text-green-500" />
+                      {modalPedido.telefono}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Dirección:</span>
+                    <span className="font-bold text-white text-right max-w-[240px] truncate">{modalPedido.direccion || 'Sin dirección'}</span>
+                  </div>
+                  <div className="flex justify-between border-t border-gray-805 pt-1.5 mt-1.5 font-bold">
+                    <span className="text-gray-400">Total a Cobrar:</span>
+                    <span className="text-green-400 text-sm">{fmt(modalPedido.total)}</span>
+                  </div>
+                </div>
+
+                {/* 2. Sección de Pago */}
+                <div className="space-y-2 text-left">
+                  <h4 className="text-xs font-bold text-gray-200 uppercase tracking-wider">💳 Control de Pago</h4>
+                  
+                  {modalPedido.metodo_pago === 'transferencia' ? (
+                    <div className={`rounded-2xl p-4 border flex flex-col gap-3 ${
+                      modalPedido.pago_confirmado 
+                        ? 'bg-green-500/5 border-green-500/20' 
+                        : 'bg-orange-500/5 border-orange-500/20'
+                    }`}>
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-gray-300 font-semibold flex items-center gap-1.5">
+                          🏦 Pago por Transferencia Bancaria
+                        </span>
+                        <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
+                          modalPedido.pago_confirmado ? 'bg-green-500/10 text-green-400' : 'bg-orange-500/10 text-orange-400 animate-pulse'
+                        }`}>
+                          {modalPedido.pago_confirmado ? 'PAGO CONFIRMADO' : 'PENDIENTE DE VALIDAR'}
+                        </span>
+                      </div>
+                      
+                      {!modalPedido.pago_confirmado ? (
+                        <button
+                          onClick={() => confirmarPagoPedido(modalPedido.id)}
+                          disabled={procesando}
+                          className="w-full bg-orange-600 hover:bg-orange-500 text-white font-extrabold text-xs py-2 rounded-xl transition cursor-pointer flex items-center justify-center gap-1">
+                          {procesando ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+                          Validar Depósito / Pago Recibido
+                        </button>
+                      ) : (
+                        <div className="text-[10px] text-green-400/90 font-medium flex items-center gap-1 bg-green-500/5 p-2 rounded-lg">
+                          ✓ Depósito bancario verificado por el Administrador. Pago conciliado con éxito.
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="bg-blue-500/5 border border-blue-500/20 rounded-2xl p-4 flex justify-between items-center text-xs">
+                      <span className="text-gray-300 font-semibold flex items-center gap-1.5">
+                        💵 Método: Pago Contra-Entrega (Efectivo / Puerta)
+                      </span>
+                      <span className="bg-blue-500/10 text-blue-400 text-[10px] font-extrabold px-2 py-0.5 rounded-full">
+                        PAGO AL ENTREGAR
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* 3. Sección de Ubicación GPS */}
+                <div className="space-y-2.5 text-left">
+                  <h4 className="text-xs font-bold text-gray-200 uppercase tracking-wider flex justify-between items-center">
+                    <span>📍 Localización GPS</span>
+                    {cargandoDirecciones && <Loader2 size={12} className="animate-spin text-green-500" />}
+                  </h4>
+
+                  {/* Direcciones guardadas */}
+                  {direccionesCliente.length > 0 ? (
+                    <div className="space-y-2">
+                      <label className="text-[10px] text-gray-400 font-semibold">Seleccionar una ubicación verificada del historial:</label>
+                      <div className="grid grid-cols-1 gap-2">
+                        {direccionesCliente.map(d => (
+                          <label
+                            key={d.id}
+                            className={`flex items-start gap-3 p-3 rounded-2xl border text-xs cursor-pointer transition ${
+                              direccionSeleccionada === d.id 
+                                ? 'bg-green-500/5 border-green-500/40 text-white' 
+                                : 'bg-[#0c0f12]/30 border-gray-800 text-gray-400 hover:border-gray-700'
+                            }`}>
+                            <input
+                              type="radio"
+                              name="direccion_seleccionada"
+                              checked={direccionSeleccionada === d.id}
+                              onChange={() => {
+                                setDireccionSeleccionada(d.id)
+                              }}
+                              className="mt-0.5 accent-green-500"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div className="font-bold flex items-center gap-1 text-gray-200">
+                                <span>{d.nombre_direccion}</span>
+                                {d.verificada && <span className="bg-green-500/10 text-green-400 text-[8px] font-extrabold px-1.5 py-0.2 rounded">GPS Verificado</span>}
+                              </div>
+                              <div className="text-[10px] truncate">{d.direccion}</div>
+                              <div className="text-[9px] text-gray-500 mt-0.5">Coords: {d.geo_lat}, {d.geo_lng}</div>
+                            </div>
+                          </label>
+                        ))}
+                        
+                        <label
+                          className={`flex items-start gap-3 p-3 rounded-2xl border text-xs cursor-pointer transition ${
+                            direccionSeleccionada === '' 
+                              ? 'bg-green-500/5 border-green-500/40 text-white' 
+                              : 'bg-[#0c0f12]/30 border-gray-800 text-gray-400 hover:border-gray-700'
+                          }`}>
+                          <input
+                            type="radio"
+                            name="direccion_seleccionada"
+                            checked={direccionSeleccionada === ''}
+                            onChange={() => setDireccionSeleccionada('')}
+                            className="mt-0.5 accent-green-500"
+                          />
+                          <div className="flex-1">
+                            <span className="font-bold text-gray-200">Nueva ubicación / Dirección personalizada</span>
+                          </div>
+                        </label>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-rose-500/5 border border-rose-500/20 rounded-2xl p-4 text-xs text-rose-400 flex items-center gap-2">
+                      <AlertCircle size={14} className="shrink-0" />
+                      <span><strong>Cliente Nuevo:</strong> No tiene ubicaciones GPS registradas en su historial.</span>
+                    </div>
+                  )}
+
+                  {/* Crear/Configurar Nueva Dirección */}
+                  {direccionSeleccionada === '' && (
+                    <div className="bg-[#0c0f12]/50 border border-gray-800 rounded-2xl p-4 space-y-3">
+                      <div className="flex justify-between items-center flex-wrap gap-2">
+                        <label className="text-[10px] text-gray-400 font-bold uppercase">Registrar Coordenadas GPS</label>
+                        <a
+                          href={`https://wa.me/593${modalPedido.telefono.replace(/^0/, '')}?text=${encodeURIComponent(
+                            `Hola ${modalPedido.nombre_cliente}, te saluda La Crayola. Para poder entregar tu pedido #${modalPedido.numero} sin contratiempos, ¿serías tan amable de compartirnos tu ubicación GPS exacta por este medio? ¡Muchas gracias!`
+                          )}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="bg-green-600 hover:bg-green-550 text-white font-extrabold text-[9px] px-2.5 py-1 rounded-lg flex items-center gap-1 transition cursor-pointer">
+                          <Phone size={10} /> Pedir Ubicación por WhatsApp
+                        </a>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <div className="space-y-1 col-span-2">
+                          <label className="text-[10px] text-gray-500">Etiqueta de la dirección (ej: Casa, Trabajo):</label>
+                          <input
+                            type="text"
+                            value={nuevaDireccion.nombre}
+                            onChange={e => setNuevaDireccion(prev => ({ ...prev, nombre: e.target.value }))}
+                            className="w-full bg-[#0c0f12] border border-gray-800 rounded-xl px-3 py-1.5 text-white focus:outline-none focus:border-green-500"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] text-gray-500">Latitud:</label>
+                          <input
+                            type="text"
+                            placeholder="ej: -0.1806"
+                            value={nuevaDireccion.lat}
+                            onChange={e => setNuevaDireccion(prev => ({ ...prev, lat: e.target.value }))}
+                            className="w-full bg-[#0c0f12] border border-gray-800 rounded-xl px-3 py-1.5 text-white focus:outline-none focus:border-green-500"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] text-gray-500">Longitud:</label>
+                          <input
+                            type="text"
+                            placeholder="ej: -78.4658"
+                            value={nuevaDireccion.lng}
+                            onChange={e => setNuevaDireccion(prev => ({ ...prev, lng: e.target.value }))}
+                            className="w-full bg-[#0c0f12] border border-gray-800 rounded-xl px-3 py-1.5 text-white focus:outline-none focus:border-green-500"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+              </div>
+
+              {/* Footer */}
+              <div className="px-6 py-4 border-t border-gray-850 bg-[#0c0f12]/50 flex gap-3">
+                <button
+                  onClick={() => setModalPedido(null)}
+                  className="flex-1 bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white font-bold text-xs py-2 rounded-xl transition cursor-pointer">
+                  Cerrar
+                </button>
+                <button
+                  onClick={() => liberarPedido(modalPedido)}
+                  disabled={
+                    procesando ||
+                    (modalPedido.metodo_pago === 'transferencia' && !modalPedido.pago_confirmado) ||
+                    (direccionSeleccionada === '' && (!nuevaDireccion.lat || !nuevaDireccion.lng))
+                  }
+                  className="flex-1 bg-green-600 hover:bg-green-550 text-white font-extrabold text-xs py-2 rounded-xl transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1">
+                  {procesando && <Loader2 size={13} className="animate-spin" />}
+                  Liberar al Pool (Aprobar)
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         
       </main>
     </div>
