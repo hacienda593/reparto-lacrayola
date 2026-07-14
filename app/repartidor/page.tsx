@@ -42,7 +42,7 @@ export default function RepartidorPage() {
   const [cobro,      setCobro]      = useState<Record<string, string>>({})
   
   // Selector dinámico de Rol: 'repartidor' (Entregas) o 'comprador' (Compras/Picking)
-  const [modo, setModo] = useState<'repartidor' | 'comprador'>('repartidor')
+  const [modo, setModo] = useState<'repartidor' | 'comprador'>('comprador')
 
   function formatWhatsApp(phone: string | null | undefined): string {
     if (!phone) return ''
