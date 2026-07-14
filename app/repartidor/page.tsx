@@ -71,7 +71,7 @@ export default function RepartidorPage() {
       // Determinar el modo esperado según el rol o perfil del colaborador
       const isShopper = rol === 'comprador' || 
                         rol === 'comprador-repartidor' ||
-                        rep.nombre.toLowerCase().includes('shopper') || 
+                        rep.nombre?.toLowerCase().includes('shopper') || 
                         rep.email?.toLowerCase().includes('shopper') || 
                         rep.vehiculo === 'pie'
       const expectedModo = isShopper ? 'comprador' : 'repartidor'
