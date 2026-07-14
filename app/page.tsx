@@ -41,18 +41,9 @@ export default async function Home() {
     )
   }
 
-  // 4. Si es un repartidor aprobado y activo, redirigir según su perfil (shopper vs rider)
+  // 4. Si es un repartidor aprobado y activo, redirigir a pedidos
   if (rep && rep.estado_registro === 'aprobado' && rep.activo) {
-    const isShopper = rol === 'comprador' || 
-                      rol === 'comprador-repartidor' ||
-                      rep.nombre.toLowerCase().includes('shopper') || 
-                      rep.email?.toLowerCase().includes('shopper') || 
-                      rep.vehiculo === 'pie'
-    if (isShopper) {
-      redirect('/repartidor')
-    } else {
-      redirect('/pedidos')
-    }
+    redirect('/pedidos')
   }
 
   // 5. En cualquier otro caso, mostrar pantalla de estado de acceso o sin autorización

@@ -35,16 +35,6 @@ export default async function PedidosPage() {
     redirect('/')
   }
 
-  // Si es un shopper/comprador (y no es rol híbrido comprador-repartidor), redirigir a /repartidor
-  const isShopper = rol === 'comprador' || 
-                    repartidor.nombre.toLowerCase().includes('shopper') || 
-                    repartidor.email?.toLowerCase().includes('shopper') || 
-                    repartidor.vehiculo === 'pie'
-                    
-  if (isShopper && rol !== 'comprador-repartidor') {
-    redirect('/repartidor')
-  }
-
   const { data: asignaciones } = await supabase
     .from('rep_asignaciones').select('id, estado, prioridad, pedido_id')
     .eq('repartidor_id', repartidor?.id ?? '').in('estado', ['asignado', 'en_ruta'])
