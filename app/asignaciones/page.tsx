@@ -201,9 +201,9 @@ export default function AsignacionesPage() {
         .from('rep_asignaciones')
         .select(`
           *,
-          shopper:rep_repartidores!shopper_id(nombre),
-          rider:rep_repartidores!rider_id(nombre),
-          rep_repartidores!repartidor_id(nombre)
+          shopper:rep_repartidores!rep_asignaciones_shopper_id_fkey(nombre),
+          rider:rep_repartidores!rep_asignaciones_rider_id_fkey(nombre),
+          rep_repartidores!rep_asignaciones_repartidor_id_fkey(nombre)
         `)
         .in('estado', ['asignado', 'recolectado', 'en_ruta'])
       
