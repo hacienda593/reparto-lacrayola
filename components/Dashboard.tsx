@@ -54,7 +54,7 @@ export default function Dashboard() {
         { data: repartidores },
       ] = await Promise.all([
         supabase.from('ol_pedidos').select('id,numero,nombre_cliente,total,estado,created_at').order('created_at', { ascending: false }).limit(50),
-        supabase.from('rep_asignaciones').select('id,pedido_id,estado,repartidor_id,rep_repartidores(nombre)'),
+        supabase.from('rep_asignaciones').select('id,pedido_id,estado,repartidor_id,rep_repartidores!repartidor_id(nombre)'),
         supabase.from('rep_entregas').select('monto_cobrado,entregado_at').gte('entregado_at', hoy),
         supabase.from('rep_repartidores').select('id').eq('activo', true),
       ])
