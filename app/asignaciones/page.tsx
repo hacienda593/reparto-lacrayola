@@ -27,6 +27,7 @@ interface Pedido {
   metodo_pago?: string | null
   pago_confirmado?: boolean | null
   referencias?: string | null
+  notas?: string | null
 }
 
 interface Repartidor {
@@ -749,9 +750,8 @@ export default function AsignacionesPage() {
 
               {/* Body */}
               <div className="p-6 space-y-5 overflow-y-auto max-h-[70vh]">
-                
                 {/* 1. Datos Generales */}
-                <div className="bg-[#0c0f12]/50 rounded-2xl p-4 border border-[#2d3748] space-y-1.5 text-xs text-left">
+                <div className="bg-[#0c0f12]/50 rounded-2xl p-4 border border-[#2d3748] space-y-2 text-xs text-left">
                   <div className="flex justify-between">
                     <span className="text-gray-400">Cliente:</span>
                     <span className="font-bold text-white">{modalPedido.nombre_cliente}</span>
@@ -767,7 +767,36 @@ export default function AsignacionesPage() {
                     <span className="text-gray-400">Dirección:</span>
                     <span className="font-bold text-white text-right max-w-[240px] truncate">{modalPedido.direccion || 'Sin dirección'}</span>
                   </div>
-                  <div className="flex justify-between border-t border-gray-805 pt-1.5 mt-1.5 font-bold">
+                  
+                  {modalPedido.referencias && (
+                    <div className="flex justify-between items-start">
+                      <span className="text-gray-400 shrink-0">Referencias:</span>
+                      <span className="font-bold text-gray-300 text-right max-w-[220px] break-words">{modalPedido.referencias}</span>
+                    </div>
+                  )}
+
+                  {modalPedido.notas && (
+                    <div className="bg-yellow-500/5 p-2.5 rounded-xl border border-yellow-500/10 mt-1 space-y-1">
+                      <div className="text-[10px] text-yellow-500 font-bold uppercase tracking-wider">Notas / Transferencia (Doble clic para copiar):</div>
+                      <div className="font-mono text-xs text-white break-words select-all bg-black/40 p-1.5 rounded border border-gray-800/40">
+                        {modalPedido.notas}
+                      </div>
+                    </div>
+                  )}
+
+                  {modalPedido.geo_lat && modalPedido.geo_lng && (
+                    <div className="pt-1.5">
+                      <a
+                        href={"https://www.google.com/maps/search/?api=1&query=" + modalPedido.geo_lat + "," + modalPedido.geo_lng}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-400 hover:text-blue-300 font-bold underline flex items-center gap-1 hover:underline">
+                        🗺️ Ver Coordenadas del Pedido en Google Maps
+                      </a>
+                    </div>
+                  )}
+
+                  <div className="flex justify-between border-t border-gray-800 pt-2 font-bold">
                     <span className="text-gray-400">Total a Cobrar:</span>
                     <span className="text-green-400 text-sm">{fmt(modalPedido.total)}</span>
                   </div>
@@ -850,9 +879,18 @@ export default function AsignacionesPage() {
                               className="mt-0.5 accent-green-500"
                             />
                             <div className="flex-1 min-w-0">
-                              <div className="font-bold flex items-center gap-1 text-gray-200">
-                                <span>{d.nombre_direccion}</span>
-                                {d.verificada && <span className="bg-green-500/10 text-green-400 text-[8px] font-extrabold px-1.5 py-0.2 rounded">GPS Verificado</span>}
+                              <div className="font-bold flex items-center justify-between text-gray-200">
+                                <div className="flex items-center gap-1">
+                                  <span>{d.nombre_direccion}</span>
+                                  {d.verificada && <span className="bg-green-500/10 text-green-400 text-[8px] font-extrabold px-1.5 py-0.2 rounded">GPS Verificado</span>}
+                                </div>
+                                <a
+                                  href={"https://www.google.com/maps/search/?api=1&query=" + d.geo_lat + "," + d.geo_lng}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-blue-400 hover:text-blue-300 font-bold text-[9px] underline">
+                                  🗺️ Ver en Mapa
+                                </a>
                               </div>
                               <div className="text-[10px] truncate">{d.direccion}</div>
                               <div className="text-[9px] text-gray-500 mt-0.5">Coords: {d.geo_lat}, {d.geo_lng}</div>
@@ -892,9 +930,9 @@ export default function AsignacionesPage() {
                       <div className="flex justify-between items-center flex-wrap gap-2">
                         <label className="text-[10px] text-gray-400 font-bold uppercase">Registrar Coordenadas GPS</label>
                         <a
-                          href={`https://wa.me/593${modalPedido.telefono.replace(/^0/, '')}?text=${encodeURIComponent(
-                            `Hola ${modalPedido.nombre_cliente}, te saluda La Crayola. Para poder entregar tu pedido #${modalPedido.numero} sin contratiempos, ¿serías tan amable de compartirnos tu ubicación GPS exacta por este medio? ¡Muchas gracias!`
-                          )}`}
+                          href={"https://wa.me/593" + (modalPedido.telefono.startsWith('0') ? modalPedido.telefono.slice(1) : modalPedido.telefono) + "?text=" + encodeURIComponent(
+                            "Hola " + modalPedido.nombre_cliente + ", te saluda La Crayola. Para poder entregar tu pedido #" + modalPedido.numero + " sin contratiempos, ¿serías tan amable de compartirnos tu ubicación GPS exacta por este medio? ¡Muchas gracias!"
+                          )}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="bg-green-600 hover:bg-green-550 text-white font-extrabold text-[9px] px-2.5 py-1 rounded-lg flex items-center gap-1 transition cursor-pointer">
@@ -932,6 +970,17 @@ export default function AsignacionesPage() {
                             className="w-full bg-[#0c0f12] border border-gray-800 rounded-xl px-3 py-1.5 text-white focus:outline-none focus:border-green-500"
                           />
                         </div>
+                        {nuevaDireccion.lat && nuevaDireccion.lng && (
+                          <div className="col-span-2 pt-1">
+                            <a
+                              href={"https://www.google.com/maps/search/?api=1&query=" + nuevaDireccion.lat + "," + nuevaDireccion.lng}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-400 hover:text-blue-300 font-bold underline text-[10px] flex items-center gap-1">
+                              🗺️ Previsualizar Ubicación Manual en Google Maps
+                            </a>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
