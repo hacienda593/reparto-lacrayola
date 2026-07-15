@@ -4,7 +4,7 @@ import { usePathname } from 'next/navigation'
 import { useAuth } from '@/context/AuthContext'
 import {
   LayoutDashboard, Package, Users, Wallet,
-  ClipboardList, Settings, LogOut, Truck, Menu, X, ShieldCheck,
+  ClipboardList, Settings, LogOut, Truck, Menu, X, ShieldCheck, FileText
 } from 'lucide-react'
 import { useState } from 'react'
 
@@ -13,6 +13,7 @@ const NAV = [
   { href: '/pedidos',       label: 'Pedidos',        icon: Package,         roles: ['superadmin','admin','supervisor','contador'] },
   { href: '/repartidores',  label: 'Repartidores',   icon: Users,           roles: ['superadmin','admin','supervisor','contador'] },
   { href: '/asignaciones',  label: 'Asignaciones',   icon: Truck,           roles: ['superadmin','admin','supervisor'] },
+  { href: '/asignaciones/facturacion', label: 'Facturación SRI', icon: FileText, roles: ['superadmin','admin','supervisor','contador'] },
   { href: '/liquidaciones', label: 'Liquidaciones',  icon: Wallet,          roles: ['superadmin','admin','supervisor','contador'] },
   { href: '/reportes',      label: 'Reportes',       icon: ClipboardList,   roles: ['superadmin','admin','contador'] },
   { href: '/usuarios',      label: 'Usuarios',       icon: ShieldCheck,     roles: ['superadmin'] },

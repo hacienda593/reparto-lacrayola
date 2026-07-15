@@ -22,6 +22,8 @@ interface PedidoAsignado {
   geo_lat:        number | null
   geo_lng:        number | null
   notas:          string | null
+  metodo_pago?:    string | null
+  pago_confirmado?: boolean | null
 }
 
 const EST_COLOR: Record<string, string> = {
@@ -43,6 +45,7 @@ export default function RepartidorPage() {
   
   // Selector dinámico de Rol: 'repartidor' (Entregas) o 'comprador' (Compras/Picking)
   const [modo, setModo] = useState<'repartidor' | 'comprador'>('repartidor')
+  const [pestana, setPestana] = useState<'nuevos' | 'tramite'>('tramite')
 
   function formatWhatsApp(phone: string | null | undefined): string {
     if (!phone) return ''
@@ -84,7 +87,7 @@ export default function RepartidorPage() {
       // 1. Cargar asignaciones vigentes del repartidor (dependiendo del modo)
       let queryAsigs = supabase
         .from('rep_asignaciones')
-        .select('id,estado,pedido_id,ol_pedidos(numero,nombre_cliente,telefono,direccion,ciudad,referencias,total,geo_lat,geo_lng,notas,estado)')
+        .select('id,estado,pedido_id,ol_pedidos(numero,nombre_cliente,telefono,direccion,ciudad,referencias,total,geo_lat,geo_lng,notas,estado,metodo_pago,pago_confirmado)')
         .gte('asignado_at', hoy)
 
       if (expectedModo === 'comprador') {
@@ -114,16 +117,25 @@ export default function RepartidorPage() {
         geo_lat:        a.ol_pedidos?.geo_lat,
         geo_lng:        a.ol_pedidos?.geo_lng,
         notas:          a.ol_pedidos?.notas,
+        metodo_pago:     a.ol_pedidos?.metodo_pago,
+        pago_confirmado: a.ol_pedidos?.pago_confirmado,
       })))
 
-      // 2. Cargar pedidos libres en cola (estado 'pendiente')
+      // 2. Cargar pedidos libres en cola (estado 'confirmado') y filtrar ya asignados
       const { data: pends } = await supabase
         .from('ol_pedidos')
         .select('id, numero, nombre_cliente, telefono, direccion, ciudad, referencias, total, geo_lat, geo_lng, notas')
-        .eq('estado', 'pendiente')
+        .eq('estado', 'confirmado')
         .order('numero', { ascending: false })
 
-      setPedidosEspera(pends ?? [])
+      const { data: activeAsigs } = await supabase
+        .from('rep_asignaciones')
+        .select('pedido_id')
+        .in('estado', ['asignado', 'recolectado', 'en_ruta'])
+      const assignedIds = new Set((activeAsigs ?? []).map((a: any) => a.pedido_id))
+
+      const filteredPends = (pends ?? []).filter(p => !assignedIds.has(p.id))
+      setPedidosEspera(filteredPends)
     } catch (err) {
       console.error('Error loading driver data:', err)
     } finally {
@@ -348,6 +360,73 @@ export default function RepartidorPage() {
     setProcesando(null)
   }
 
+  async function confirmarGpsEntrega(p: PedidoAsignado) {
+    setProcesando(p.asignacion_id)
+    try {
+      const geo = await new Promise<{ lat: number; lng: number } | null>(res => {
+        if (typeof window === 'undefined' || !navigator?.geolocation) {
+          res(null)
+          return
+        }
+        navigator.geolocation.getCurrentPosition(
+          pos => res({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+          () => res(null),
+          { timeout: 7000, enableHighAccuracy: true }
+        )
+      })
+
+      if (!geo) {
+        alert('No se pudo obtener la ubicación GPS actual. Activa el GPS de tu celular e intenta nuevamente.')
+        setProcesando(null)
+        return
+      }
+
+      // 1. Actualizar coordenadas del pedido en ol_pedidos
+      await supabase.from('ol_pedidos')
+        .update({ geo_lat: geo.lat, geo_lng: geo.lng })
+        .eq('id', p.pedido_id)
+
+      // 2. Buscar si ya existe la dirección en rep_clientes_direcciones por teléfono
+      const { data: extDir } = await supabase
+        .from('rep_clientes_direcciones')
+        .select('id')
+        .eq('telefono', p.telefono)
+        .limit(1)
+
+      if (extDir && extDir.length > 0) {
+        // Actualizar la dirección existente con las coordenadas definitivas de la puerta
+        await supabase.from('rep_clientes_direcciones')
+          .update({
+            geo_lat: geo.lat,
+            geo_lng: geo.lng,
+            verificada: true,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', extDir[0].id)
+      } else {
+        // Insertar un nuevo registro de dirección para este cliente
+        await supabase.from('rep_clientes_direcciones')
+          .insert({
+            telefono: p.telefono,
+            nombre_direccion: 'Entrega Definitiva',
+            direccion: p.direccion || 'Dirección de Entrega',
+            ciudad: p.ciudad || 'Ciudad',
+            referencias: p.referencias || '',
+            geo_lat: geo.lat,
+            geo_lng: geo.lng,
+            verificada: true
+          })
+      }
+
+      alert('✓ Ubicación GPS definitiva de la puerta grabada y verificada correctamente.')
+      await cargar(user!.id)
+    } catch (err: any) {
+      alert('Error al grabar ubicación GPS: ' + err.message)
+    } finally {
+      setProcesando(null)
+    }
+  }
+
   if (authEstado === 'cargando' || cargando) return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50">
       <Loader2 size={28} className="animate-spin text-green-600" />
@@ -446,28 +525,118 @@ export default function RepartidorPage() {
         </div>
       </div>
 
-      {/* Pedidos */}
+      {/* Tab Switcher for Shoppers */}
+      {modo === 'comprador' && (
+        <div className="flex bg-slate-100/80 backdrop-blur-xs rounded-2xl p-1.5 mx-4 mt-3 border border-slate-200/50">
+          <button
+            onClick={() => setPestana('tramite')}
+            className={`flex-1 text-center py-2.5 rounded-xl text-xs font-black transition-all ${
+              pestana === 'tramite' 
+                ? 'bg-white text-[#00b074] shadow-xs' 
+                : 'text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            📥 En Trámite ({pedidos.length})
+          </button>
+          <button
+            onClick={() => setPestana('nuevos')}
+            className={`flex-1 text-center py-2.5 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1 ${
+              pestana === 'nuevos' 
+                ? 'bg-white text-[#00b074] shadow-xs' 
+                : 'text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            🧺 Nuevos ({pedidosEspera.length})
+            {pedidosEspera.length > 0 && (
+              <span className="w-2 h-2 bg-red-500 rounded-full animate-ping" />
+            )}
+          </button>
+        </div>
+      )}
+
+      {/* Pedidos Container */}
       <div className="px-4 py-4 space-y-4">
-        {pedidos.length === 0 ? (
-          <div className="text-center py-16 space-y-3">
-            <CheckCircle size={48} className="text-green-300 mx-auto" />
-            <p className="font-semibold text-slate-600">Sin pedidos pendientes</p>
-            <p className="text-sm text-slate-400">Cuando te asignen pedidos aparecerán aquí.</p>
-          </div>
-        ) : (
-          pedidos.map(p => (
-            <div key={p.asignacion_id} className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-              {/* Cabecera del pedido */}
-              <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
-                <div className="flex items-center gap-2">
-                  <Package size={16} className="text-slate-400" />
-                  <span className="font-bold text-slate-800">Pedido #{String(p.numero).padStart(4,'0')}</span>
-                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${EST_COLOR[p.estado] ?? 'bg-slate-100 text-slate-600'}`}>
-                    {(p.estado ?? '').replace('_',' ')}
-                  </span>
+        {modo === 'comprador' && pestana === 'nuevos' ? (
+          /* VISTA: PEDIDOS NUEVOS EN ESPERA (POOL) */
+          pedidosEspera.length === 0 ? (
+            <div className="bg-white border border-slate-100 rounded-3xl p-12 text-center text-slate-400 text-xs shadow-xs space-y-2">
+              <Package size={36} className="mx-auto text-slate-300" />
+              <div className="font-semibold text-slate-600">No hay pedidos nuevos disponibles</div>
+              <p className="text-[10px] text-slate-400">Los pedidos confirmados de La Crayola aparecerán en esta lista para auto-asignarte.</p>
+            </div>
+          ) : (
+            pedidosEspera.map(p => (
+              <div key={p.id} className="bg-white rounded-3xl shadow-sm border border-slate-100 p-5 space-y-4">
+                <div className="flex justify-between items-center border-b border-slate-50 pb-2.5">
+                  <span className="font-extrabold text-xs text-slate-800">Pedido #{String(p.numero).padStart(4,'0')}</span>
+                  <span className="font-extrabold text-sm text-green-700">{fmt(p.total)}</span>
                 </div>
-                <span className="font-bold text-green-700">{fmt(p.total)}</span>
+                <div className="space-y-1 text-left">
+                  <div className="text-xs text-slate-700 font-extrabold">{p.nombre_cliente}</div>
+                  {p.direccion && (
+                    <div className="text-[10px] text-slate-400 flex items-start gap-1">
+                      <MapPin size={12} className="shrink-0 mt-0.5" />
+                      <span>{p.direccion}, {p.ciudad}</span>
+                    </div>
+                  )}
+                </div>
+                {p.notas && (
+                  <div className="text-[10px] text-yellow-700 bg-yellow-50 px-3 py-2 rounded-xl border border-yellow-100 text-left">
+                    📝 {p.notas}
+                  </div>
+                )}
+                <button
+                  onClick={() => aceptarPedido(p.id, p.numero, p.nombre_cliente, p.telefono)}
+                  disabled={procesando !== null}
+                  className="w-full bg-[#00b074] hover:bg-[#008f5d] disabled:opacity-50 text-white font-extrabold py-3.5 rounded-2xl text-xs transition-all flex items-center justify-center gap-1.5 shadow-sm cursor-pointer active:scale-95">
+                  {procesando === p.id ? <Loader2 size={14} className="animate-spin" /> : '🧺 Auto-Asignar y Empezar'}
+                </button>
               </div>
+            ))
+          )
+        ) : (
+          /* VISTA: MIS PEDIDOS / EN TRÁMITE */
+          pedidos.length === 0 ? (
+            <div className="text-center py-16 space-y-3 bg-white rounded-3xl border border-slate-100 p-5 shadow-xs">
+              <CheckCircle size={48} className="text-green-300 mx-auto" />
+              <p className="font-semibold text-slate-600">Sin pedidos pendientes</p>
+              <p className="text-sm text-slate-400">
+                {modo === 'comprador' 
+                  ? 'Ve a la pestaña de "Nuevos" para auto-asignarte un pedido.' 
+                  : 'Cuando te asignen entregas aparecerán aquí.'}
+              </p>
+            </div>
+          ) : (
+            pedidos.map(p => (
+              <div key={p.asignacion_id} className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+                {/* Cabecera del pedido */}
+                <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <Package size={16} className="text-slate-400" />
+                    <span className="font-bold text-slate-800">Pedido #{String(p.numero).padStart(4,'0')}</span>
+                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${EST_COLOR[p.estado] ?? 'bg-slate-100 text-slate-600'}`}>
+                      {(p.estado ?? '').replace('_',' ')}
+                    </span>
+                  </div>
+                  <span className="font-bold text-green-700">{fmt(p.total)}</span>
+                </div>
+
+                {/* Banner de Pago Destacado */}
+                {p.metodo_pago === 'transferencia' && p.pago_confirmado === true && (
+                  <div className="bg-emerald-500 text-white font-extrabold text-xs px-4 py-3 text-center flex items-center justify-center gap-1.5 shadow-inner">
+                    <span>💳 PAGADO POR TRANSFERENCIA (Confirmado)</span>
+                  </div>
+                )}
+                {p.metodo_pago === 'transferencia' && p.pago_confirmado !== true && (
+                  <div className="bg-yellow-500 text-slate-900 font-extrabold text-xs px-4 py-3 text-center flex items-center justify-center gap-1.5 shadow-inner animate-pulse">
+                    <span>⚠️ TRANSFERENCIA POR CONFIRMAR: {fmt(p.total)}</span>
+                  </div>
+                )}
+                {(!p.metodo_pago || p.metodo_pago === 'efectivo') && (
+                  <div className="bg-orange-600 text-white font-extrabold text-xs px-4 py-3 text-center flex items-center justify-center gap-1.5 shadow-inner">
+                    <span>💵 COBRAR EN EFECTIVO: {fmt(p.total)}</span>
+                  </div>
+                )}
 
               {/* Datos cliente */}
               <div className="px-4 py-3 space-y-2">
@@ -602,6 +771,14 @@ export default function RepartidorPage() {
                         />
                       </div>
                       <button
+                        type="button"
+                        onClick={() => confirmarGpsEntrega(p)}
+                        disabled={procesando !== null}
+                        className="w-full flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold py-2.5 rounded-xl transition text-xs shadow-sm mb-1.5 cursor-pointer">
+                        {procesando === p.asignacion_id ? <Loader2 size={12} className="animate-spin" /> : <MapPin size={12} />}
+                        Confirmar GPS de Entrega (en puerta)
+                      </button>
+                      <button
                         onClick={() => entregar(p.asignacion_id, p.pedido_id)}
                         disabled={procesando === p.asignacion_id}
                         className="w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white font-bold py-3 rounded-xl transition text-sm">
@@ -613,71 +790,87 @@ export default function RepartidorPage() {
                       </button>
                     </div>
                   )}
-
-                  <a href={`https://wa.me/${formatWhatsApp(p.telefono)}`} target="_blank" rel="noopener noreferrer"
-                    className="w-full flex items-center justify-center gap-2 border border-slate-200 hover:bg-slate-50 text-slate-600 font-semibold py-2.5 rounded-xl transition text-sm">
-                    <svg className="w-4 h-4 fill-green-500" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
-                    WhatsApp al cliente
-                  </a>
                 </div>
               )}
+                  {modo === 'comprador' && (
+                    <div className="pt-3 border-t border-slate-100 mt-2 space-y-2 text-left">
+                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">💬 Notificar Hito al Cliente (WhatsApp):</div>
+                      <div className="grid grid-cols-3 gap-1">
+                        <a
+                          href={`https://wa.me/${formatWhatsApp(p.telefono)}?text=${encodeURIComponent(
+                            "Hola " + p.nombre_cliente + ", te saluda " + (repartidor?.nombre || "tu Shopper") + " de La Crayola. He aceptado tu pedido #" + p.numero + " y estoy listo para procesarlo."
+                          )}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="bg-green-50 hover:bg-green-100 border border-green-200 text-green-700 text-[10px] font-bold py-2 rounded-xl text-center flex items-center justify-center"
+                        >
+                          🤝 Aceptado
+                        </a>
+                        <a
+                          href={`https://wa.me/${formatWhatsApp(p.telefono)}?text=${encodeURIComponent(
+                            "He iniciado la compra de tu pedido #" + p.numero + ". Te mantendré al tanto de cualquier novedad con tus productos."
+                          )}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="bg-green-50 hover:bg-green-100 border border-green-200 text-green-700 text-[10px] font-bold py-2 rounded-xl text-center flex items-center justify-center"
+                        >
+                          🛒 En Compra
+                        </a>
+                        <a
+                          href={`https://wa.me/${formatWhatsApp(p.telefono)}?text=${encodeURIComponent(
+                            "Tu pedido #" + p.numero + " ha sido facturado y entregado al repartidor. ¡Va en camino!"
+                          )}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="bg-green-50 hover:bg-green-100 border border-green-200 text-green-700 text-[10px] font-bold py-2 rounded-xl text-center flex items-center justify-center"
+                        >
+                          🛵 Despachado
+                        </a>
+                      </div>
+                    </div>
+                  )}
 
-              {/* Botón de WhatsApp visible siempre en modo Comprador también por si necesita comunicarse */}
-              {modo === 'comprador' && (
-                <div className="px-4 pb-4">
-                  <a href={`https://wa.me/${formatWhatsApp(p.telefono)}`} target="_blank" rel="noopener noreferrer"
-                    className="w-full flex items-center justify-center gap-2 border border-slate-200 hover:bg-slate-50 text-slate-600 font-semibold py-2.5 rounded-xl transition text-sm">
-                    <svg className="w-4 h-4 fill-green-500" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
-                    WhatsApp al cliente
-                  </a>
-                </div>
-              )}
-            </div>
-          ))
-        )}
-      </div>
+                  {/* Plantillas de WhatsApp para Repartidores */}
+                  {modo === 'repartidor' && p.estado === 'en_ruta' && (
+                    <div className="pt-3 border-t border-slate-100 mt-2 space-y-2 text-left">
+                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">💬 Notificar Hito al Cliente (WhatsApp):</div>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <a
+                          href={`https://wa.me/${formatWhatsApp(p.telefono)}?text=${encodeURIComponent(
+                            "Hola " + p.nombre_cliente + ", te saluda " + (repartidor?.nombre || "tu Repartidor") + " de La Crayola. Tu pedido #" + p.numero + " va en camino a tu domicilio. Por favor estar atento."
+                          )}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="bg-green-50 hover:bg-green-100 border border-green-200 text-green-700 text-[10px] font-bold py-2.5 rounded-xl text-center flex items-center justify-center gap-1"
+                        >
+                          🛵 En Camino
+                        </a>
+                        <a
+                          href={`https://wa.me/${formatWhatsApp(p.telefono)}?text=${encodeURIComponent(
+                            "Voy en camino con tu pedido #" + p.numero + ". Puedes ver mi ubicación compartida en tiempo real por aquí por los siguientes 15 minutos."
+                          )}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="bg-green-50 hover:bg-green-100 border border-green-200 text-green-700 text-[10px] font-bold py-2.5 rounded-xl text-center flex items-center justify-center gap-1"
+                        >
+                          📍 Compartir GPS
+                        </a>
+                      </div>
+                    </div>
+                  )}
 
-      {/* Bandeja de Pedidos Libres (Auto-Asignación) */}
-      {modo === 'comprador' && (
-        <div className="mt-6 border-t border-slate-200 pt-4 px-4 pb-20">
-          <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-2">
-            🛒 Pedidos Libres en Espera ({pedidosEspera.length})
-          </h2>
-          {pedidosEspera.length === 0 ? (
-            <div className="bg-white border border-slate-100 rounded-2xl p-6 text-center text-slate-400 text-xs">
-              No hay pedidos en espera de compras en este momento.
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {pedidosEspera.map(p => (
-                <div key={p.id} className="bg-white rounded-2xl shadow-xs border border-slate-100 p-4 space-y-3">
-                  <div className="flex justify-between items-center">
-                    <span className="font-extrabold text-xs text-slate-800">Pedido #{String(p.numero).padStart(4,'0')}</span>
-                    <span className="font-extrabold text-sm text-green-700">{fmt(p.total)}</span>
+                  <div className="px-4 pb-4 pt-2">
+                    <a href={`https://wa.me/${formatWhatsApp(p.telefono)}`} target="_blank" rel="noopener noreferrer"
+                      className="w-full flex items-center justify-center gap-2 border border-slate-200 hover:bg-slate-50 text-slate-600 font-semibold py-2 rounded-xl transition text-sm">
+                      <svg className="w-3.5 h-3.5 fill-green-500" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+                      Chat Directo WhatsApp
+                    </a>
                   </div>
-                  <div className="text-xs text-slate-600 font-semibold">{p.nombre_cliente}</div>
-                  {p.direccion && (
-                    <div className="text-[10px] text-slate-400">
-                      📍 {p.direccion}, {p.ciudad}
-                    </div>
-                  )}
-                  {p.notas && (
-                    <div className="text-[10px] text-yellow-700 bg-yellow-50 px-2 py-1 rounded-md">
-                      📝 {p.notas}
-                    </div>
-                  )}
-                  <button
-                    onClick={() => aceptarPedido(p.id, p.numero, p.nombre_cliente, p.telefono)}
-                    disabled={procesando !== null}
-                    className="w-full bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white font-bold py-2.5 rounded-xl text-xs transition-all flex items-center justify-center gap-1 shadow-sm">
-                    {procesando === p.id ? <Loader2 size={12} className="animate-spin" /> : 'Aceptar Pedido y Empezar'}
-                  </button>
                 </div>
-              ))}
-            </div>
+              ))
+            )
           )}
         </div>
-      )}
-    </div>
-  )
-}
+      </div>
+    )
+  }
