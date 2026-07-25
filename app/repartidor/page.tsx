@@ -24,6 +24,9 @@ interface PedidoAsignado {
   notas:          string | null
   metodo_pago?:    string | null
   pago_confirmado?: boolean | null
+  compra_iniciada_at?: string | null
+  rider_id?:      string | null
+  shopper_id?:    string | null
 }
 
 const EST_COLOR: Record<string, string> = {
@@ -54,7 +57,12 @@ export default function RepartidorPage() {
     const params = new URLSearchParams(window.location.search)
     if (params.get('modo') === 'comprador') setModo('comprador')
   }, [])
-  const [pestana, setPestana] = useState<'nuevos' | 'tramite'>('tramite')
+  // Clasificacion interna del comprador (no afecta el seguimiento que ve el cliente):
+  // inicio (pool sin tomar) / aceptadas (tomadas, sin iniciar) / preparando (comprando) /
+  // porentregar (pagado en caja, esperando repartidor) / entregadasrep (traspasadas a otro) /
+  // entregadasyo (compro y entrego el mismo comprador)
+  type PestanaComprador = 'inicio' | 'aceptadas' | 'preparando' | 'porentregar' | 'entregadasrep' | 'entregadasyo'
+  const [pestana, setPestana] = useState<PestanaComprador>('inicio')
 
   // Traspaso de efectivo en mano a otro colaborador (ej: repartidor entrega el COD cobrado al comprador)
   const [showTraspaso, setShowTraspaso] = useState(false)
@@ -203,12 +211,14 @@ export default function RepartidorPage() {
       // de la lista del comprador/repartidor aunque siga activo).
       let queryAsigs = supabase
         .from('rep_asignaciones')
-        .select('id,estado,pedido_id,ol_pedidos(numero,nombre_cliente,telefono,direccion,ciudad,referencias,total,geo_lat,geo_lng,notas,estado,metodo_pago,pago_confirmado)')
+        .select('id,estado,pedido_id,rider_id,shopper_id,compra_iniciada_at,ol_pedidos(numero,nombre_cliente,telefono,direccion,ciudad,referencias,total,geo_lat,geo_lng,notas,estado,metodo_pago,pago_confirmado)')
 
       if (expectedModo === 'comprador') {
+        // Trae todo el ciclo de vida del comprador, incluyendo lo ya entregado,
+        // para poder clasificarlo en las 6 pestañas internas.
         queryAsigs = queryAsigs
           .eq('shopper_id', rep.id)
-          .in('estado', ['asignado', 'recolectado'])
+          .in('estado', ['asignado', 'recolectado', 'en_ruta', 'entregado'])
       } else {
         queryAsigs = queryAsigs
           .eq('rider_id', rep.id)
@@ -234,6 +244,9 @@ export default function RepartidorPage() {
         notas:          a.ol_pedidos?.notas,
         metodo_pago:     a.ol_pedidos?.metodo_pago,
         pago_confirmado: a.ol_pedidos?.pago_confirmado,
+        compra_iniciada_at: a.compra_iniciada_at,
+        rider_id:       a.rider_id,
+        shopper_id:     a.shopper_id,
       })))
 
       // 2. Cargar pedidos libres en cola (estado 'confirmado') y filtrar ya asignados
@@ -290,21 +303,25 @@ export default function RepartidorPage() {
     setProcesando(null)
   }
 
-  async function iniciarCompra(pedidoId: string, numero: number, nombreCliente: string, telefonoCliente: string) {
+  async function iniciarCompra(asignacionId: string, pedidoId: string, numero: number, nombreCliente: string, telefonoCliente: string) {
     if (!repartidor) return
     setProcesando(pedidoId)
 
-    // 1. Cambiar el estado de ol_pedidos a 'preparado'
+    // 1. Marcar la asignacion como "compra iniciada" (pasa de Aceptadas -> Preparando
+    // en la clasificacion interna del comprador)
     const { error: errUpdate } = await supabase
-      .from('ol_pedidos')
-      .update({ estado: 'preparado' })
-      .eq('id', pedidoId)
+      .from('rep_asignaciones')
+      .update({ compra_iniciada_at: new Date().toISOString() })
+      .eq('id', asignacionId)
 
     if (errUpdate) {
       alert('Error al iniciar la compra: ' + errUpdate.message)
       setProcesando(null)
       return
     }
+
+    // 1b. Reflejar tambien en ol_pedidos para que el cliente vea "Preparando" en su seguimiento
+    await supabase.from('ol_pedidos').update({ estado: 'preparado' }).eq('id', pedidoId)
 
     // 2. Recargar datos
     await cargar(user!.id)
@@ -585,6 +602,22 @@ export default function RepartidorPage() {
   const totalACobrar = pedidos.filter(p => p.estado === 'asignado' || p.estado === 'en_ruta')
     .reduce((s, p) => s + p.total, 0)
 
+  // Clasificacion interna del comprador en las 6 pestañas
+  const pedidosAceptadas    = pedidos.filter(p => p.estado === 'asignado' && !p.compra_iniciada_at)
+  const pedidosPreparando   = pedidos.filter(p => p.estado === 'asignado' && !!p.compra_iniciada_at)
+  const pedidosPorEntregar  = pedidos.filter(p => p.estado === 'recolectado')
+  const pedidosEntregadasRep = pedidos.filter(p =>
+    (p.estado === 'en_ruta' || p.estado === 'entregado') && p.rider_id && p.rider_id !== p.shopper_id)
+  const pedidosEntregadasYo = pedidos.filter(p =>
+    p.estado === 'entregado' && p.rider_id && p.rider_id === p.shopper_id)
+
+  const listaActivaComprador: PedidoAsignado[] =
+    pestana === 'aceptadas'     ? pedidosAceptadas :
+    pestana === 'preparando'    ? pedidosPreparando :
+    pestana === 'porentregar'   ? pedidosPorEntregar :
+    pestana === 'entregadasrep' ? pedidosEntregadasRep :
+    pestana === 'entregadasyo'  ? pedidosEntregadasYo : []
+
   return (
     <>
     <div className="min-h-screen bg-slate-50">
@@ -656,32 +689,38 @@ export default function RepartidorPage() {
         </div>
       </div>
 
-      {/* Tab Switcher for Shoppers */}
+      {/* Tab Switcher for Shoppers: 6 pestañas de clasificación interna */}
       {modo === 'comprador' && (
-        <div className="flex bg-slate-100/80 backdrop-blur-xs rounded-2xl p-1.5 mx-4 mt-3 border border-slate-200/50">
-          <button
-            onClick={() => setPestana('tramite')}
-            className={`flex-1 text-center py-2.5 rounded-xl text-xs font-black transition-all ${
-              pestana === 'tramite' 
-                ? 'bg-white text-[#00b074] shadow-xs' 
-                : 'text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            📥 En Trámite ({pedidos.length})
-          </button>
-          <button
-            onClick={() => setPestana('nuevos')}
-            className={`flex-1 text-center py-2.5 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1 ${
-              pestana === 'nuevos' 
-                ? 'bg-white text-[#00b074] shadow-xs' 
-                : 'text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            🧺 Nuevos ({pedidosEspera.length})
-            {pedidosEspera.length > 0 && (
-              <span className="w-2 h-2 bg-red-500 rounded-full animate-ping" />
-            )}
-          </button>
+        <div className="grid grid-cols-3 gap-1.5 mx-4 mt-3">
+          {([
+            { key: 'inicio' as const,        label: 'Inicio',       emoji: '🧺', count: pedidosEspera.length, alerta: pedidosEspera.length > 0 },
+            { key: 'aceptadas' as const,      label: 'Aceptadas',    emoji: '📥', count: pedidosAceptadas.length },
+            { key: 'preparando' as const,     label: 'Preparando',   emoji: '🛒', count: pedidosPreparando.length },
+            { key: 'porentregar' as const,    label: 'Por entregar', emoji: '📦', count: pedidosPorEntregar.length, alerta: pedidosPorEntregar.length > 0 },
+            { key: 'entregadasrep' as const,  label: 'A repartidor', emoji: '🛵', count: pedidosEntregadasRep.length },
+            { key: 'entregadasyo' as const,   label: 'Por mí mismo', emoji: '✅', count: pedidosEntregadasYo.length },
+          ]).map(t => (
+            <button
+              key={t.key}
+              onClick={() => setPestana(t.key)}
+              className={`relative rounded-xl py-2 px-1 text-center transition-all border ${
+                pestana === t.key
+                  ? 'bg-white border-[#00b074] shadow-xs'
+                  : 'bg-slate-100/80 border-transparent hover:bg-white'
+              }`}
+            >
+              <div className="text-base leading-none">{t.emoji}</div>
+              <div className={`text-[9px] font-black mt-1 leading-tight ${pestana === t.key ? 'text-[#00b074]' : 'text-slate-500'}`}>
+                {t.label}
+              </div>
+              <div className={`text-[9px] font-bold ${pestana === t.key ? 'text-slate-600' : 'text-slate-400'}`}>
+                ({t.count})
+              </div>
+              {t.alerta && (
+                <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full animate-ping" />
+              )}
+            </button>
+          ))}
         </div>
       )}
 
@@ -700,7 +739,7 @@ export default function RepartidorPage() {
 
       {/* Pedidos Container */}
       <div className="px-4 py-4 space-y-4">
-        {modo === 'comprador' && pestana === 'nuevos' ? (
+        {modo === 'comprador' && pestana === 'inicio' ? (
           /* VISTA: PEDIDOS NUEVOS EN ESPERA (POOL) */
           pedidosEspera.length === 0 ? (
             <div className="bg-white border border-slate-100 rounded-3xl p-12 text-center text-slate-400 text-xs shadow-xs space-y-2">
@@ -739,19 +778,19 @@ export default function RepartidorPage() {
             ))
           )
         ) : (
-          /* VISTA: MIS PEDIDOS / EN TRÁMITE */
-          pedidos.length === 0 ? (
+          /* VISTA: MIS PEDIDOS (segun pestaña, o todas si es modo repartidor) */
+          (modo === 'comprador' ? listaActivaComprador : pedidos).length === 0 ? (
             <div className="text-center py-16 space-y-3 bg-white rounded-3xl border border-slate-100 p-5 shadow-xs">
               <CheckCircle size={48} className="text-green-300 mx-auto" />
-              <p className="font-semibold text-slate-600">Sin pedidos pendientes</p>
+              <p className="font-semibold text-slate-600">Sin pedidos en esta pestaña</p>
               <p className="text-sm text-slate-400">
-                {modo === 'comprador' 
-                  ? 'Ve a la pestaña de "Nuevos" para auto-asignarte un pedido.' 
+                {modo === 'comprador'
+                  ? 'Ve a la pestaña "Inicio" para auto-asignarte un pedido.'
                   : 'Cuando te asignen entregas aparecerán aquí.'}
               </p>
             </div>
           ) : (
-            pedidos.map(p => (
+            (modo === 'comprador' ? listaActivaComprador : pedidos).map(p => (
               <div key={p.asignacion_id} className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
                 {/* Cabecera del pedido */}
                 <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
@@ -853,10 +892,10 @@ export default function RepartidorPage() {
                 {/* Vista Compras (Picking - solo si está en estado asignado) */}
                 {modo === 'comprador' && p.estado === 'asignado' && (
                   <div className="pt-2">
-                    {p.pedido_estado === 'confirmado' || p.pedido_estado === 'pendiente' ? (
+                    {!p.compra_iniciada_at ? (
                       <button
                         type="button"
-                        onClick={() => iniciarCompra(p.pedido_id, p.numero, p.nombre_cliente, p.telefono)}
+                        onClick={() => iniciarCompra(p.asignacion_id, p.pedido_id, p.numero, p.nombre_cliente, p.telefono)}
                         disabled={procesando !== null}
                         className="w-full flex items-center justify-center gap-2 bg-[#00b074] hover:bg-[#008f5d] disabled:opacity-50 text-white font-extrabold py-3.5 rounded-xl transition text-sm shadow-sm cursor-pointer"
                       >
