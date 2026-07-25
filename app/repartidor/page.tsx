@@ -196,13 +196,14 @@ export default function RepartidorPage() {
         setModo(expectedModo)
       }
 
-      const hoy = new Date().toISOString().split('T')[0]
-      
       // 1. Cargar asignaciones vigentes del repartidor (dependiendo del modo)
+      // Nota: no se filtra por fecha de asignacion — una asignacion sigue vigente
+      // mientras su estado lo indique, sin importar si se creo hoy o dias atras
+      // (si no, un pedido que tarda mas de un dia en completarse "desaparece"
+      // de la lista del comprador/repartidor aunque siga activo).
       let queryAsigs = supabase
         .from('rep_asignaciones')
         .select('id,estado,pedido_id,ol_pedidos(numero,nombre_cliente,telefono,direccion,ciudad,referencias,total,geo_lat,geo_lng,notas,estado,metodo_pago,pago_confirmado)')
-        .gte('asignado_at', hoy)
 
       if (expectedModo === 'comprador') {
         queryAsigs = queryAsigs
