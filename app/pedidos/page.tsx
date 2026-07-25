@@ -28,7 +28,7 @@ export default async function PedidosPage() {
 
   const { data: repartidor } = await supabase
     .from('rep_repartidores')
-    .select('id, nombre, email, comision_tipo, comision_valor, estado_registro, activo, vehiculo')
+    .select('id, nombre, email, comision_tipo, comision_valor, estado_registro, activo, vehiculo, efectivo_en_mano')
     .eq('user_id', user.id).single()
 
   if (!repartidor || repartidor.estado_registro !== 'aprobado' || !repartidor.activo) {

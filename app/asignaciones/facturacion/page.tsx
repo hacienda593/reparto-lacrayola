@@ -69,19 +69,13 @@ export default function FacturacionPage() {
 
         if (errItems) continue
 
-        // Para cada item, buscar su iva_porcentaje en ol_productos
+        // El IVA de cada linea ya viene guardado desde la compra (snapshot en ol_pedido_items),
+        // asi que no depende de un join en vivo contra ol_productos que podria cambiar despues.
         let subtotal_0 = 0
         let subtotal_15 = 0
 
-        const itemsWithIva = []
-        for (const item of (items || [])) {
-          const { data: prod } = await supabase
-            .from('ol_productos')
-            .select('iva_porcentaje, iva_codigo')
-            .eq('codigo', item.codigo)
-            .single()
-
-          const ivaPct = prod?.iva_porcentaje ?? 0 // default 0%
+        const itemsWithIva = (items || []).map(item => {
+          const ivaPct = item.iva_porcentaje ?? 0 // default 0% si es un pedido anterior a la migracion
           const sub = (item.precio_unitario ?? 0) * (item.cantidad ?? 0)
 
           if (ivaPct === 15) {
@@ -90,12 +84,12 @@ export default function FacturacionPage() {
             subtotal_0 += sub
           }
 
-          itemsWithIva.push({
+          return {
             ...item,
             iva_porcentaje: ivaPct,
-            iva_codigo: prod?.iva_codigo ?? '0'
-          })
-        }
+            iva_codigo: item.iva_codigo ?? '0'
+          }
+        })
 
         const iva_15 = subtotal_15 * 0.15
         const total_calculado = subtotal_0 + subtotal_15 + iva_15
