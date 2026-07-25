@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
 import Sidebar from '@/components/Sidebar'
@@ -56,6 +57,7 @@ interface Asignacion {
 
 export default function AsignacionesPage() {
   const { user } = useAuth()
+  const router = useRouter()
   const [pedidos, setPedidos] = useState<Pedido[]>([])
   const [repartidores, setRepartidores] = useState<Repartidor[]>([])
   const [asignaciones, setAsignaciones] = useState<Asignacion[]>([])
@@ -231,6 +233,15 @@ export default function AsignacionesPage() {
 
   useEffect(() => {
     cargarDatos()
+
+    // Refresco en tiempo real: nuevo pedido, cambio de estado, o cambio de asignacion
+    const canal = supabase
+      .channel('asignaciones-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ol_pedidos' }, () => cargarDatos())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rep_asignaciones' }, () => cargarDatos())
+      .subscribe()
+
+    return () => { supabase.removeChannel(canal) }
   }, [])
 
   async function forzarAsignacion(pedidoId: string, repartidorId: string) {
@@ -506,7 +517,10 @@ export default function AsignacionesPage() {
                           <button
                             onClick={() => {
                               const sel = document.getElementById(`select-rep-${p.id}`) as HTMLSelectElement
-                              if (sel.value) forzarAsignacion(p.id, sel.value)
+                              const nombreSel = sel.options[sel.selectedIndex]?.text
+                              if (sel.value && confirm(`¿Asignar el pedido #${String(p.numero).padStart(4,'0')} a ${nombreSel}?`)) {
+                                forzarAsignacion(p.id, sel.value)
+                              }
                             }}
                             disabled={procesando}
                             className="bg-gray-800 hover:bg-gray-700 border border-gray-750 text-white font-bold text-[10px] px-3 py-1 rounded-xl transition cursor-pointer shrink-0">
@@ -697,7 +711,7 @@ export default function AsignacionesPage() {
                   {pedidos.map(p => {
                     const asig = asignaciones.find(a => a.pedido_id === p.id)
                     return (
-                      <tr key={p.id} className="hover:bg-gray-805/10">
+                      <tr key={p.id} onClick={() => router.push(`/pedidos/${p.id}`)} className="hover:bg-gray-800/40 cursor-pointer">
                         <td className="py-2.5 font-mono text-green-400 font-bold">#{String(p.numero).padStart(4,'0')}</td>
                         <td className="py-2.5 font-semibold text-white">{p.nombre_cliente}</td>
                         <td className="py-2.5 text-gray-400">

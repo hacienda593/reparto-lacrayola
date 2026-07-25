@@ -347,6 +347,17 @@ export default function RepartidorPage() {
     cargar(user.id)
   }, [user, authEstado, modo, rol])
 
+  // Refresco en tiempo real: pedidos nuevos liberados a la cola, o cambios en mis asignaciones
+  useEffect(() => {
+    if (!user) return
+    const canal = supabase
+      .channel('repartidor-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ol_pedidos' }, () => cargar(user.id))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rep_asignaciones' }, () => cargar(user.id))
+      .subscribe()
+    return () => { supabase.removeChannel(canal) }
+  }, [user])
+
   async function enRuta(asignacionId: string, pedidoId: string) {
     if (!repartidor) return
     setProcesando(asignacionId)
