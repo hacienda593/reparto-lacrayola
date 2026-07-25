@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '@/context/AuthContext'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
-import { Loader2, MapPin, CheckCircle, Package, Phone, Navigation, DollarSign, UserCircle } from 'lucide-react'
+import { Loader2, MapPin, CheckCircle, Package, Phone, Navigation, DollarSign, UserCircle, ArrowRightLeft, X } from 'lucide-react'
 
 function fmt(n: number) { return '$' + (n ?? 0).toFixed(2) }
 
@@ -46,6 +46,111 @@ export default function RepartidorPage() {
   // Selector dinámico de Rol: 'repartidor' (Entregas) o 'comprador' (Compras/Picking)
   const [modo, setModo] = useState<'repartidor' | 'comprador'>('repartidor')
   const [pestana, setPestana] = useState<'nuevos' | 'tramite'>('tramite')
+
+  // Traspaso de efectivo en mano a otro colaborador (ej: repartidor entrega el COD cobrado al comprador)
+  const [showTraspaso, setShowTraspaso] = useState(false)
+  const [colegas, setColegas] = useState<{ id: string; nombre: string }[]>([])
+  const [destinoTraspaso, setDestinoTraspaso] = useState('')
+  const [montoTraspaso, setMontoTraspaso] = useState('')
+  const [notasTraspaso, setNotasTraspaso] = useState('')
+  const [procesandoTraspaso, setProcesandoTraspaso] = useState(false)
+  const [errorTraspaso, setErrorTraspaso] = useState('')
+
+  async function abrirTraspaso() {
+    setErrorTraspaso('')
+    setMontoTraspaso('')
+    setNotasTraspaso('')
+    setDestinoTraspaso('')
+    setShowTraspaso(true)
+    const { data } = await supabase
+      .from('rep_repartidores')
+      .select('id, nombre')
+      .eq('activo', true)
+      .neq('id', repartidor?.id ?? '')
+      .order('nombre')
+    setColegas(data ?? [])
+  }
+
+  // Ruta combinada: ordena las entregas 'en_ruta' por cercanía (vecino más próximo) desde
+  // la ubicación actual del repartidor y abre Google Maps con todas las paradas intermedias.
+  function distanciaAprox(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
+    const dLat = a.lat - b.lat
+    const dLng = a.lng - b.lng
+    return Math.sqrt(dLat * dLat + dLng * dLng)
+  }
+
+  function abrirRutaCombinada() {
+    const paradas = pedidos.filter(p => p.estado === 'en_ruta' && p.geo_lat && p.geo_lng)
+    if (paradas.length === 0) return
+
+    if (typeof window === 'undefined' || !navigator?.geolocation) {
+      abrirRutaDesdePunto(null, paradas)
+      return
+    }
+    navigator.geolocation.getCurrentPosition(
+      pos => abrirRutaDesdePunto({ lat: pos.coords.latitude, lng: pos.coords.longitude }, paradas),
+      () => abrirRutaDesdePunto(null, paradas),
+      { timeout: 6000 }
+    )
+  }
+
+  function abrirRutaDesdePunto(origenGeo: { lat: number; lng: number } | null, paradas: PedidoAsignado[]) {
+    const restantes = [...paradas]
+    const ordenadas: PedidoAsignado[] = []
+    let puntoActual = origenGeo
+
+    while (restantes.length > 0) {
+      if (!puntoActual) {
+        ordenadas.push(...restantes)
+        break
+      }
+      restantes.sort((a, b) =>
+        distanciaAprox(puntoActual!, { lat: a.geo_lat!, lng: a.geo_lng! }) -
+        distanciaAprox(puntoActual!, { lat: b.geo_lat!, lng: b.geo_lng! })
+      )
+      const siguiente = restantes.shift()!
+      ordenadas.push(siguiente)
+      puntoActual = { lat: siguiente.geo_lat!, lng: siguiente.geo_lng! }
+    }
+
+    const destino = ordenadas[ordenadas.length - 1]
+    const intermedias = ordenadas.slice(0, -1)
+
+    const params = new URLSearchParams({
+      api: '1',
+      destination: `${destino.geo_lat},${destino.geo_lng}`,
+      travelmode: 'driving',
+    })
+    if (origenGeo) params.set('origin', `${origenGeo.lat},${origenGeo.lng}`)
+    if (intermedias.length > 0) {
+      params.set('waypoints', intermedias.map(p => `${p.geo_lat},${p.geo_lng}`).join('|'))
+    }
+    window.open(`https://www.google.com/maps/dir/?${params.toString()}`, '_blank')
+  }
+
+  async function confirmarTraspaso() {
+    if (!repartidor) return
+    const monto = parseFloat(montoTraspaso)
+    if (!destinoTraspaso) { setErrorTraspaso('Selecciona a quién le entregas el efectivo'); return }
+    if (!montoTraspaso.trim() || isNaN(monto) || monto <= 0) { setErrorTraspaso('Ingresa un monto válido'); return }
+    if (monto > (repartidor.efectivo_en_mano ?? 0)) { setErrorTraspaso('No puedes entregar más de lo que tienes en mano'); return }
+
+    setProcesandoTraspaso(true)
+    setErrorTraspaso('')
+    const { error } = await supabase.rpc('transferir_efectivo_repartidor', {
+      p_origen_id: repartidor.id,
+      p_destino_id: destinoTraspaso,
+      p_monto: monto,
+      p_notas: notasTraspaso.trim() || null,
+      p_registrado_por: user?.id ?? null,
+    })
+    setProcesandoTraspaso(false)
+
+    if (error) { setErrorTraspaso(error.message); return }
+
+    setShowTraspaso(false)
+    await cargar(user!.id)
+  }
 
   function formatWhatsApp(phone: string | null | undefined): string {
     if (!phone) return ''
@@ -460,6 +565,7 @@ export default function RepartidorPage() {
     .reduce((s, p) => s + p.total, 0)
 
   return (
+    <>
     <div className="min-h-screen bg-slate-50">
       {/* Header */}
       <div className="bg-green-700 text-white px-4 pt-10 pb-4 space-y-1">
@@ -519,9 +625,13 @@ export default function RepartidorPage() {
           <div className="bg-white/20 rounded-xl px-3 py-1.5 text-[11px] font-semibold shrink-0">
             💵 Comisión: ${repartidor?.comision_valor ?? 1}/v
           </div>
-          <div className="bg-white/20 rounded-xl px-3 py-1.5 text-[11px] font-semibold shrink-0 text-yellow-300 border border-yellow-400/25 flex items-center gap-1">
+          <button
+            onClick={abrirTraspaso}
+            className="bg-white/20 hover:bg-white/30 rounded-xl px-3 py-1.5 text-[11px] font-semibold shrink-0 text-yellow-300 border border-yellow-400/25 flex items-center gap-1 transition cursor-pointer"
+          >
             💰 Caja: {fmt(repartidor?.efectivo_en_mano ?? 0)}
-          </div>
+            <ArrowRightLeft size={11} className="text-yellow-300/80" />
+          </button>
         </div>
       </div>
 
@@ -550,6 +660,19 @@ export default function RepartidorPage() {
             {pedidosEspera.length > 0 && (
               <span className="w-2 h-2 bg-red-500 rounded-full animate-ping" />
             )}
+          </button>
+        </div>
+      )}
+
+      {/* Ruta combinada: cuando hay 2+ entregas en camino, sugiere el orden por cercanía */}
+      {modo === 'repartidor' && pedidos.filter(p => p.estado === 'en_ruta' && p.geo_lat && p.geo_lng).length > 1 && (
+        <div className="px-4 pt-4">
+          <button
+            onClick={abrirRutaCombinada}
+            className="w-full flex items-center justify-center gap-2 bg-orange-50 hover:bg-orange-100 border border-orange-200 text-orange-700 font-bold py-3 rounded-2xl text-sm transition cursor-pointer"
+          >
+            <Navigation size={15} />
+            Ver ruta combinada ({pedidos.filter(p => p.estado === 'en_ruta' && p.geo_lat && p.geo_lng).length} paradas)
           </button>
         </div>
       )}
@@ -872,5 +995,75 @@ export default function RepartidorPage() {
           )}
         </div>
       </div>
+
+      {/* Modal: Entregar efectivo en mano a un colega (comprador u otro repartidor) */}
+      {showTraspaso && (
+        <div className="fixed inset-0 bg-black/60 z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-white rounded-t-3xl sm:rounded-3xl p-5 w-full sm:max-w-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-black text-slate-800 text-base flex items-center gap-1.5">
+                <ArrowRightLeft size={16} className="text-green-600" /> Entregar efectivo
+              </h3>
+              <button onClick={() => setShowTraspaso(false)} className="text-slate-400 p-1 cursor-pointer"><X size={18} /></button>
+            </div>
+
+            <div className="bg-slate-50 border border-slate-100 rounded-xl px-3 py-2.5 text-xs text-slate-500">
+              Tienes <span className="font-black text-slate-800">{fmt(repartidor?.efectivo_en_mano ?? 0)}</span> en mano.
+              Registra a quién se lo entregas físicamente (otro colaborador, no la oficina).
+            </div>
+
+            <div>
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">¿A quién se lo entregas?</label>
+              <select
+                value={destinoTraspaso}
+                onChange={e => setDestinoTraspaso(e.target.value)}
+                className="w-full mt-1 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:border-green-500"
+              >
+                <option value="">-- Selecciona --</option>
+                {colegas.map(c => (
+                  <option key={c.id} value={c.id}>{c.nombre}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Monto a entregar</label>
+              <div className="relative mt-1">
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-green-600 font-bold text-sm">$</span>
+                <input
+                  type="number" step="0.01" min="0"
+                  value={montoTraspaso}
+                  onChange={e => setMontoTraspaso(e.target.value)}
+                  placeholder={(repartidor?.efectivo_en_mano ?? 0).toFixed(2)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-7 pr-3 py-2.5 text-sm font-bold text-slate-800 focus:outline-none focus:border-green-500"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Notas (opcional)</label>
+              <input
+                type="text"
+                value={notasTraspaso}
+                onChange={e => setNotasTraspaso(e.target.value)}
+                placeholder="Ej: entregado en caja de Tuti"
+                className="w-full mt-1 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-green-500"
+              />
+            </div>
+
+            {errorTraspaso && <p className="text-red-500 text-xs text-center">{errorTraspaso}</p>}
+
+            <button
+              onClick={confirmarTraspaso}
+              disabled={procesandoTraspaso}
+              className="w-full bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white font-bold py-3 rounded-xl text-sm flex items-center justify-center gap-2 cursor-pointer"
+            >
+              {procesandoTraspaso ? <Loader2 size={16} className="animate-spin" /> : <ArrowRightLeft size={15} />}
+              {procesandoTraspaso ? 'Registrando...' : 'Confirmar entrega de efectivo'}
+            </button>
+          </div>
+        </div>
+      )}
+    </>
     )
   }

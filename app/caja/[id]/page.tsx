@@ -368,6 +368,17 @@ export default function CajaPage() {
   const itemsCompletados = items.filter(it => it.picking_completado).reduce((sum, it) => sum + (it.cantidad ?? 1), 0)
   const datosFactura = parseDatosFactura(pedido?.notas)
 
+  // Desglose de IVA por tarifa, tomado del snapshot guardado en cada línea al momento de la compra
+  const desgloseIva = items.reduce((acc: Record<string, { porcentaje: number; subtotal: number }>, it) => {
+    const key = it.iva_codigo ?? 'sin_codigo'
+    const porcentaje = it.iva_porcentaje ?? 0
+    const subtotal = (it.precio_unitario ?? 0) * (it.cantidad ?? 1)
+    if (!acc[key]) acc[key] = { porcentaje, subtotal: 0 }
+    acc[key].subtotal += subtotal
+    return acc
+  }, {})
+  const tieneDatosIva = items.some(it => it.iva_codigo || it.iva_porcentaje)
+
   return (
     <div className="min-h-screen bg-[#0c0f12] flex flex-col pb-32">
       
@@ -402,6 +413,22 @@ export default function CajaPage() {
           </div>
           <span className="text-[#ff9f1c] font-extrabold text-xl">${pedido?.total?.toFixed(2)}</span>
         </div>
+
+        {/* Desglose de IVA (para comparar contra el ticket físico del proveedor) */}
+        {tieneDatosIva && (
+          <div className="bg-[#181d24] border border-[#2d3748] rounded-2xl p-4 space-y-2">
+            <p className="text-gray-500 text-[10px] font-bold uppercase tracking-wider">Desglose de IVA (según catálogo Tienlo)</p>
+            {Object.entries(desgloseIva).map(([codigo, { porcentaje, subtotal }]) => (
+              <div key={codigo} className="flex justify-between text-xs">
+                <span className="text-gray-400">Tarifa {porcentaje}% {codigo !== 'sin_codigo' ? `(cód. ${codigo})` : ''}</span>
+                <span className="text-white font-semibold">${subtotal.toFixed(2)}</span>
+              </div>
+            ))}
+            <p className="text-[10px] text-gray-500 pt-1 border-t border-[#2d3748] leading-normal">
+              Compara este desglose con el del ticket de caja del proveedor antes de confirmar el monto real cobrado.
+            </p>
+          </div>
+        )}
 
         {/* Datos de Facturación de La Crayola (Dictar en Caja) */}
         <div className="bg-blue-500/10 border border-blue-500/20 rounded-3xl p-5 space-y-3">

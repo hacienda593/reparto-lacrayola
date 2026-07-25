@@ -3,9 +3,9 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import Sidebar from '@/components/Sidebar'
-import { 
-  Wallet, Check, Loader2, ChevronDown, ChevronUp, AlertCircle, 
-  FileText, Camera, Upload, CheckCircle, X, Printer, DollarSign, User
+import {
+  Wallet, Check, Loader2, ChevronDown, ChevronUp, AlertCircle,
+  FileText, Camera, Upload, CheckCircle, X, Printer, DollarSign, User, ArrowRightLeft
 } from 'lucide-react'
 
 function fmt(n: number) { return '$' + (n ?? 0).toFixed(2) }
@@ -52,6 +52,10 @@ export default function LiquidacionesPage() {
 
   // Estado para visualización del Vale de Caja Digital
   const [valeVista, setValeVista] = useState<ValeCaja | null>(null)
+
+  // Traspasos de efectivo entre colaboradores (ej: repartidor entrega COD a un comprador)
+  const [traspasosDia, setTraspasosDia] = useState<any[]>([])
+  const [mostrarTraspasos, setMostrarTraspasos] = useState(false)
 
   async function cargar() {
     setCargando(true)
@@ -108,6 +112,20 @@ export default function LiquidacionesPage() {
     })
 
     setLiquidaciones(resultado)
+
+    // Traspasos de efectivo entre colaboradores ese día (ej: repartidor -> comprador)
+    const { data: traspasos } = await supabase
+      .from('rep_traspasos_efectivo')
+      .select(`
+        id, monto, notas, created_at,
+        origen:rep_repartidores!rep_traspasos_efectivo_repartidor_origen_id_fkey(nombre),
+        destino:rep_repartidores!rep_traspasos_efectivo_repartidor_destino_id_fkey(nombre)
+      `)
+      .gte('created_at', fecha)
+      .lt('created_at', fecha + 'T23:59:59')
+      .order('created_at', { ascending: false })
+    setTraspasosDia(traspasos ?? [])
+
     setCargando(false)
   }
 
@@ -262,6 +280,37 @@ export default function LiquidacionesPage() {
             </div>
           ))}
         </div>
+
+        {/* Traspasos de efectivo entre colaboradores */}
+        {traspasosDia.length > 0 && (
+          <div className="bg-[#181d24] rounded-2xl border border-[#2d3748] overflow-hidden">
+            <button
+              onClick={() => setMostrarTraspasos(!mostrarTraspasos)}
+              className="w-full flex items-center justify-between px-4 py-3.5 cursor-pointer"
+            >
+              <div className="flex items-center gap-2">
+                <ArrowRightLeft size={15} className="text-yellow-400" />
+                <span className="font-bold text-white text-sm">Traspasos entre colaboradores ({traspasosDia.length})</span>
+              </div>
+              {mostrarTraspasos ? <ChevronUp size={16} className="text-gray-500" /> : <ChevronDown size={16} className="text-gray-500" />}
+            </button>
+            {mostrarTraspasos && (
+              <div className="border-t border-[#2d3748] divide-y divide-[#2d3748]">
+                {traspasosDia.map(t => (
+                  <div key={t.id} className="px-4 py-3 flex items-center justify-between gap-3 text-sm">
+                    <div className="flex items-center gap-2 text-gray-300">
+                      <span className="font-semibold text-white">{t.origen?.nombre ?? '—'}</span>
+                      <ArrowRightLeft size={12} className="text-gray-500 shrink-0" />
+                      <span className="font-semibold text-white">{t.destino?.nombre ?? '—'}</span>
+                      {t.notas && <span className="text-xs text-gray-500 italic">· {t.notas}</span>}
+                    </div>
+                    <span className="font-bold text-yellow-400 shrink-0">{fmt(t.monto)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Lista por repartidor */}
         {cargando ? (

@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { Loader2, CheckCircle2, MapPin, Phone, Navigation, Package } from 'lucide-react'
+import { Loader2, CheckCircle2, MapPin, Phone, Navigation, Package, Check, X } from 'lucide-react'
 
 export default function EntregaPage() {
   const { id } = useParams<{ id: string }>()
@@ -17,6 +17,15 @@ export default function EntregaPage() {
   const [monto,      setMonto]      = useState('')
   const [error,      setError]      = useState('')
   const [mapUrl,     setMapUrl]     = useState('')
+
+  // Confirmación explícita de ubicación de entrega
+  const [gpsConfirmado, setGpsConfirmado] = useState<boolean | null>(null)
+  const [corrigiendoGps, setCorrigiendoGps] = useState(false)
+  const [nuevaGeo, setNuevaGeo] = useState<{ lat: number; lng: number } | null>(null)
+  const [obteniendoGps, setObteniendoGps] = useState(false)
+  const [referenciaNueva, setReferenciaNueva] = useState('')
+
+  const yaPagadoPorTransferencia = pedido?.metodo_pago === 'transferencia' && pedido?.pago_confirmado === true
 
   useEffect(() => { cargar() }, [id])
 
@@ -43,42 +52,51 @@ export default function EntregaPage() {
     window.open(`https://maps.google.com/?q=${q}`, '_blank')
   }
 
+  function capturarUbicacionActual() {
+    if (typeof window === 'undefined' || !navigator?.geolocation) return
+    setObteniendoGps(true)
+    navigator.geolocation.getCurrentPosition(
+      p => { setNuevaGeo({ lat: p.coords.latitude, lng: p.coords.longitude }); setObteniendoGps(false) },
+      () => setObteniendoGps(false),
+      { timeout: 8000, enableHighAccuracy: true }
+    )
+  }
+
   async function confirmarEntrega() {
-    if (!monto.trim() || isNaN(parseFloat(monto))) { setError('Ingresa el monto cobrado'); return }
+    if (!yaPagadoPorTransferencia && (!monto.trim() || isNaN(parseFloat(monto)))) {
+      setError('Ingresa el monto cobrado')
+      return
+    }
+    if (gpsConfirmado === null) { setError('Confirma la ubicación de entrega antes de continuar'); return }
+    if (corrigiendoGps && !nuevaGeo) { setError('Captura la nueva ubicación GPS antes de continuar'); return }
+
     setGuardando(true); setError('')
-    const geo = await new Promise<{ lat: number; lng: number } | null>(res => {
-      if (typeof window === 'undefined' || !navigator?.geolocation) {
-        res(null)
-        return
-      }
-      navigator.geolocation.getCurrentPosition(
-        p => res({ lat: p.coords.latitude, lng: p.coords.longitude }),
-        () => res(null),
-        { timeout: 5000 }
-      )
-    })
-    const nuevoLat = pedido.geo_lat || geo?.lat || null
-    const nuevoLng = pedido.geo_lng || geo?.lng || null
+
+    const geoFinal = corrigiendoGps && nuevaGeo ? nuevaGeo : { lat: pedido.geo_lat, lng: pedido.geo_lng }
+    const referenciasFinal = corrigiendoGps && referenciaNueva.trim()
+      ? [pedido.referencias, referenciaNueva.trim()].filter(Boolean).join(' · ')
+      : pedido.referencias
 
     await sb.from('rep_asignaciones').update({ estado: 'entregado', updated_at: new Date().toISOString() }).eq('id', id)
-    await sb.from('ol_pedidos').update({ 
+    await sb.from('ol_pedidos').update({
       estado: 'entregado',
-      geo_lat: nuevoLat,
-      geo_lng: nuevoLng
+      geo_lat: geoFinal.lat,
+      geo_lng: geoFinal.lng,
+      referencias: referenciasFinal,
     }).eq('id', pedido.id)
 
-    // Si el cliente tiene cuenta registrada y no tiene coordenadas guardadas para esta dirección, actualizarlas
-    if (pedido.user_id && geo && !pedido.geo_lat) {
+    // Si el cliente tiene cuenta registrada, refrescar/guardar sus coordenadas para futuras entregas
+    if (pedido.user_id && corrigiendoGps && nuevaGeo) {
       try {
         const { data: dirs } = await sb
           .from('ol_direcciones_cliente')
-          .select('id, geo_lat')
+          .select('id')
           .eq('user_id', pedido.user_id)
           .eq('direccion_texto', pedido.direccion)
 
-        if (dirs && dirs.length > 0 && !dirs[0].geo_lat) {
+        if (dirs && dirs.length > 0) {
           await sb.from('ol_direcciones_cliente')
-            .update({ geo_lat: geo.lat, geo_lng: geo.lng })
+            .update({ geo_lat: nuevaGeo.lat, geo_lng: nuevaGeo.lng, referencias: referenciasFinal })
             .eq('id', dirs[0].id)
         }
       } catch (e) {
@@ -86,21 +104,25 @@ export default function EntregaPage() {
       }
     }
 
+    const montoFinal = yaPagadoPorTransferencia ? 0 : parseFloat(monto)
+
     await sb.from('rep_entregas').insert({
       asignacion_id: id, repartidor_id: pedido.repartidor_id, pedido_id: pedido.id,
-      entregado_at: new Date().toISOString(), monto_cobrado: parseFloat(monto),
-      metodo_pago: 'efectivo', exitosa: true,
-      geo_lat: geo?.lat ?? null, geo_lng: geo?.lng ?? null,
+      entregado_at: new Date().toISOString(), monto_cobrado: montoFinal,
+      metodo_pago: yaPagadoPorTransferencia ? 'transferencia' : 'efectivo', exitosa: true,
+      geo_lat: geoFinal.lat ?? null, geo_lng: geoFinal.lng ?? null,
     })
 
-    // Registrar ingreso en la caja del repartidor (recaudación COD)
-    await sb.from('rep_transacciones_caja').insert({
-      repartidor_id: pedido.repartidor_id,
-      pedido_id:     pedido.id,
-      tipo:          'ingreso_entrega',
-      monto:         parseFloat(monto),
-      estado:        'pendiente'
-    })
+    // Solo entra a la caja de efectivo del repartidor si realmente cobró en mano
+    if (!yaPagadoPorTransferencia && montoFinal > 0) {
+      await sb.from('rep_transacciones_caja').insert({
+        repartidor_id: pedido.repartidor_id,
+        pedido_id:     pedido.id,
+        tipo:          'ingreso_entrega',
+        monto:         montoFinal,
+        estado:        'pendiente'
+      })
+    }
 
     setEntregado(true); setGuardando(false)
   }
@@ -129,8 +151,8 @@ export default function EntregaPage() {
           <span className="text-white font-semibold">{items.filter((i: any) => i.picking_completado).length} items</span>
         </div>
         <div className="flex justify-between text-sm">
-          <span className="text-gray-400">Total cobrado</span>
-          <span className="text-white font-semibold">${parseFloat(monto).toFixed(2)}</span>
+          <span className="text-gray-400">{yaPagadoPorTransferencia ? 'Pago' : 'Total cobrado en efectivo'}</span>
+          <span className="text-white font-semibold">{yaPagadoPorTransferencia ? 'Ya pagado por transferencia' : `$${parseFloat(monto).toFixed(2)}`}</span>
         </div>
         <div className="border-t border-[#2d3748] pt-3 flex justify-between text-sm font-bold">
           <span className="text-white">Total del pedido</span>
@@ -201,17 +223,60 @@ export default function EntregaPage() {
               Instrucciones: {pedido.referencias}
             </div>
           )}
-          <div className="pt-1">
-            {pedido?.geo_lat ? (
-              <span className="inline-flex items-center gap-1 bg-[#00b074]/15 border border-[#00b074]/30 rounded-full px-2.5 py-0.5 text-[10px] font-bold text-[#00b074] uppercase tracking-wider">
-                📍 GPS Confirmado
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1 bg-red-500/15 border border-red-500/30 rounded-full px-2.5 py-0.5 text-[10px] font-bold text-red-400 uppercase tracking-wider">
-                ⚠️ Sin GPS (se guardará al entregar)
-              </span>
-            )}
+        </div>
+
+        {/* Confirmación explícita de ubicación de entrega */}
+        <div className="bg-[#181d24] border border-[#2d3748] rounded-2xl p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <MapPin size={14} className="text-gray-400" />
+            <p className="text-gray-400 text-xs font-semibold uppercase tracking-wider">¿Es correcta esta ubicación?</p>
           </div>
+
+          {gpsConfirmado === null && !corrigiendoGps && (
+            <div className="flex gap-2">
+              <button
+                onClick={() => { setGpsConfirmado(true); setCorrigiendoGps(false) }}
+                className="flex-1 flex items-center justify-center gap-1.5 bg-[#00b074]/20 border border-[#00b074]/40 text-[#00b074] font-bold py-2.5 rounded-xl text-sm"
+              >
+                <Check size={14} /> Sí, es correcta
+              </button>
+              <button
+                onClick={() => { setGpsConfirmado(false); setCorrigiendoGps(true) }}
+                className="flex-1 flex items-center justify-center gap-1.5 bg-red-500/15 border border-red-500/30 text-red-400 font-bold py-2.5 rounded-xl text-sm"
+              >
+                <X size={14} /> No, corregir
+              </button>
+            </div>
+          )}
+
+          {gpsConfirmado === true && (
+            <span className="inline-flex items-center gap-1 bg-[#00b074]/15 border border-[#00b074]/30 rounded-full px-2.5 py-0.5 text-[10px] font-bold text-[#00b074] uppercase tracking-wider">
+              📍 Ubicación confirmada
+            </span>
+          )}
+
+          {corrigiendoGps && (
+            <div className="space-y-2.5 border-t border-[#2d3748] pt-3">
+              <button
+                onClick={capturarUbicacionActual}
+                disabled={obteniendoGps}
+                className="w-full flex items-center justify-center gap-2 bg-[#0c0f12] border border-[#2d3748] text-white font-semibold py-2.5 rounded-xl text-xs"
+              >
+                {obteniendoGps ? <Loader2 size={14} className="animate-spin" /> : <Navigation size={14} className="text-[#00b074]" />}
+                {nuevaGeo ? 'Ubicación capturada · tocar para repetir' : 'Usar mi ubicación actual'}
+              </button>
+              {nuevaGeo && (
+                <p className="text-[10px] text-gray-500 text-center">Lat: {nuevaGeo.lat.toFixed(5)} · Lng: {nuevaGeo.lng.toFixed(5)}</p>
+              )}
+              <input
+                type="text"
+                value={referenciaNueva}
+                onChange={e => setReferenciaNueva(e.target.value)}
+                placeholder="Referencia para futuras entregas (ej: casa azul, portón negro...)"
+                className="w-full bg-[#0c0f12] border border-[#2d3748] text-white rounded-xl px-3 py-2.5 text-xs placeholder-gray-600 focus:outline-none focus:border-[#00b074]"
+              />
+            </div>
+          )}
         </div>
 
         {/* Cliente */}
@@ -272,20 +337,34 @@ export default function EntregaPage() {
         <div className="bg-[#181d24] border border-[#2d3748] rounded-2xl p-4 space-y-3">
           <div className="flex items-center gap-2">
             <Package size={14} className="text-gray-400" />
-            <p className="text-gray-400 text-xs font-semibold uppercase tracking-wider">Confirmar cobro en efectivo</p>
+            <p className="text-gray-400 text-xs font-semibold uppercase tracking-wider">
+              {yaPagadoPorTransferencia ? 'Estado del pago' : 'Confirmar cobro en efectivo'}
+            </p>
           </div>
-          <div className="flex justify-between text-sm border-b border-[#2d3748] pb-2">
-            <span className="text-gray-400">Total estimado</span>
-            <span className="text-white font-bold">${(pedido?.total ?? 0).toFixed(2)}</span>
-          </div>
-          <div className="relative">
-            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[#00b074] font-bold">$</span>
-            <input type="number" step="0.01" min="0" value={monto}
-              onChange={e => setMonto(e.target.value)}
-              placeholder={(pedido?.total ?? 0).toFixed(2)}
-              className="w-full bg-[#0c0f12] border border-[#2d3748] text-white rounded-2xl pl-8 pr-4 py-3.5 text-lg font-bold focus:outline-none focus:border-[#00b074] text-center"
-            />
-          </div>
+
+          {yaPagadoPorTransferencia ? (
+            <div className="bg-[#00b074]/10 border border-[#00b074]/30 rounded-xl px-3 py-3 flex items-center gap-2">
+              <CheckCircle2 size={16} className="text-[#00b074] shrink-0" />
+              <p className="text-[#00b074] text-xs font-semibold">
+                Este pedido ya fue pagado por transferencia y confirmado por administración. No cobres efectivo al cliente.
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="flex justify-between text-sm border-b border-[#2d3748] pb-2">
+                <span className="text-gray-400">Total estimado</span>
+                <span className="text-white font-bold">${(pedido?.total ?? 0).toFixed(2)}</span>
+              </div>
+              <div className="relative">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[#00b074] font-bold">$</span>
+                <input type="number" step="0.01" min="0" value={monto}
+                  onChange={e => setMonto(e.target.value)}
+                  placeholder={(pedido?.total ?? 0).toFixed(2)}
+                  className="w-full bg-[#0c0f12] border border-[#2d3748] text-white rounded-2xl pl-8 pr-4 py-3.5 text-lg font-bold focus:outline-none focus:border-[#00b074] text-center"
+                />
+              </div>
+            </>
+          )}
           {error && <p className="text-red-400 text-xs text-center">{error}</p>}
         </div>
       </div>
