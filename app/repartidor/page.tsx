@@ -45,6 +45,15 @@ export default function RepartidorPage() {
   
   // Selector dinámico de Rol: 'repartidor' (Entregas) o 'comprador' (Compras/Picking)
   const [modo, setModo] = useState<'repartidor' | 'comprador'>('repartidor')
+
+  // Si venimos redirigidos desde /caja (recien terminada una compra), aterrizar
+  // directo en el modo comprador para ver el traspaso al motorizado o "Entregar yo mismo",
+  // en vez de caer por defecto en el modo repartidor donde esas opciones no se ven.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('modo') === 'comprador') setModo('comprador')
+  }, [])
   const [pestana, setPestana] = useState<'nuevos' | 'tramite'>('tramite')
 
   // Traspaso de efectivo en mano a otro colaborador (ej: repartidor entrega el COD cobrado al comprador)

@@ -351,7 +351,7 @@ export default function CajaPage() {
         .eq('id', id)
 
       // 5. Redireccionar al dashboard para proceder con el traspaso o la entrega
-      router.push('/repartidor')
+      router.push('/repartidor?modo=comprador')
     } catch (e) {
       setError('Ocurrió un error al guardar en la base de datos de Supabase.')
       setGuardando(false)
