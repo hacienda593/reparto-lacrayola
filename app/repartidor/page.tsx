@@ -636,76 +636,107 @@ export default function RepartidorPage() {
   return (
     <>
     <div className={`min-h-screen bg-slate-50 ${modo === 'comprador' ? 'pb-20' : ''}`}>
-      {/* Header */}
-      <div className="bg-green-700 text-white px-4 pt-10 pb-4 space-y-1">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-green-200 text-xs">Hola,</p>
-            <h1 className="text-xl font-extrabold">{repartidor?.nombre ?? 'Repartidor'}</h1>
+      {/* Header completo: solo en Inicio (comprador) o siempre en modo repartidor */}
+      {(modo === 'repartidor' || pestana === 'inicio') && (
+        <div className="bg-green-700 text-white px-4 pt-10 pb-4 space-y-1">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-green-200 text-xs">Hola,</p>
+              <h1 className="text-xl font-extrabold">{repartidor?.nombre ?? 'Repartidor'}</h1>
+            </div>
+            <div className="flex items-center gap-3">
+              {modo === 'repartidor' ? (
+                <div className="text-right">
+                  <div className="text-xs text-green-200">A cobrar hoy</div>
+                  <div className="text-lg font-extrabold">{fmt(totalACobrar)}</div>
+                </div>
+              ) : (
+                <div className="text-right">
+                  <div className="text-xs text-green-200">Compras pendientes</div>
+                  <div className="text-lg font-extrabold">{pedidos.length} pedidos</div>
+                </div>
+              )}
+              <a href="/repartidor/perfil"
+                className="w-9 h-9 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center transition">
+                <UserCircle size={20} />
+              </a>
+            </div>
           </div>
-          <div className="flex items-center gap-3">
-            {modo === 'repartidor' ? (
-              <div className="text-right">
-                <div className="text-xs text-green-200">A cobrar hoy</div>
-                <div className="text-lg font-extrabold">{fmt(totalACobrar)}</div>
-              </div>
-            ) : (
-              <div className="text-right">
-                <div className="text-xs text-green-200">Compras pendientes</div>
-                <div className="text-lg font-extrabold">{pedidos.length} pedidos</div>
-              </div>
-            )}
-            <a href="/repartidor/perfil"
-              className="w-9 h-9 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center transition">
-              <UserCircle size={20} />
-            </a>
-          </div>
-        </div>        {/* Dynamic Role Switcher (🧺 Compras / 🛵 Entregas) - Solo para rol híbrido 'comprador-repartidor' */}
-        {rol === 'comprador-repartidor' && (
-          <div className="flex bg-white/15 p-1 rounded-xl w-full max-w-[280px] mx-auto mt-2 mb-1">
-            <button
-              onClick={() => setModo('comprador')}
-              className={`flex-1 py-1.5 rounded-lg text-[11px] font-extrabold transition-all flex items-center justify-center gap-1 ${
-                modo === 'comprador' ? 'bg-white text-green-800 shadow-xs' : 'text-green-150 hover:text-white'
-              }`}
-            >
-              🧺 Modo Compras
-            </button>
-            <button
-              onClick={() => setModo('repartidor')}
-              className={`flex-1 py-1.5 rounded-lg text-[11px] font-extrabold transition-all flex items-center justify-center gap-1 ${
-                modo === 'repartidor' ? 'bg-white text-green-800 shadow-xs' : 'text-green-150 hover:text-white'
-              }`}
-            >
-              🛵 Modo Entregas
-            </button>
-          </div>
-        )}
-        <div className="flex gap-2.5 pt-2 overflow-x-auto no-scrollbar">
-          <div className="bg-white/20 rounded-xl px-3 py-1.5 text-[11px] font-semibold shrink-0">
-            📦 {pedidos.length} asignados
-          </div>
-          {modo === 'repartidor' && (
-            <a href="/repartidor/escanear"
-              className="bg-yellow-500 hover:bg-yellow-600 text-slate-900 rounded-xl px-3 py-1.5 text-[11px] font-bold shrink-0 flex items-center gap-1 shadow-sm transition-all">
-              📷 Recibir Traspaso
-            </a>
+          {/* Dynamic Role Switcher (🧺 Compras / 🛵 Entregas) - Solo para rol híbrido 'comprador-repartidor' */}
+          {rol === 'comprador-repartidor' && (
+            <div className="flex bg-white/15 p-1 rounded-xl w-full max-w-[280px] mx-auto mt-2 mb-1">
+              <button
+                onClick={() => setModo('comprador')}
+                className={`flex-1 py-1.5 rounded-lg text-[11px] font-extrabold transition-all flex items-center justify-center gap-1 ${
+                  modo === 'comprador' ? 'bg-white text-green-800 shadow-xs' : 'text-green-150 hover:text-white'
+                }`}
+              >
+                🧺 Modo Compras
+              </button>
+              <button
+                onClick={() => setModo('repartidor')}
+                className={`flex-1 py-1.5 rounded-lg text-[11px] font-extrabold transition-all flex items-center justify-center gap-1 ${
+                  modo === 'repartidor' ? 'bg-white text-green-800 shadow-xs' : 'text-green-150 hover:text-white'
+                }`}
+              >
+                🛵 Modo Entregas
+              </button>
+            </div>
           )}
-          <div className="bg-white/20 rounded-xl px-3 py-1.5 text-[11px] font-semibold shrink-0">
-            💵 Comisión: ${repartidor?.comision_valor ?? 1}/v
+          <div className="flex gap-2.5 pt-2 overflow-x-auto no-scrollbar">
+            <div className="bg-white/20 rounded-xl px-3 py-1.5 text-[11px] font-semibold shrink-0">
+              📦 {pedidos.length} asignados
+            </div>
+            {modo === 'repartidor' && (
+              <a href="/repartidor/escanear"
+                className="bg-yellow-500 hover:bg-yellow-600 text-slate-900 rounded-xl px-3 py-1.5 text-[11px] font-bold shrink-0 flex items-center gap-1 shadow-sm transition-all">
+                📷 Recibir Traspaso
+              </a>
+            )}
+            <div className="bg-white/20 rounded-xl px-3 py-1.5 text-[11px] font-semibold shrink-0">
+              💵 Comisión: ${repartidor?.comision_valor ?? 1}/v
+            </div>
+            <button
+              onClick={abrirTraspaso}
+              className="bg-white/20 hover:bg-white/30 rounded-xl px-3 py-1.5 text-[11px] font-semibold shrink-0 text-yellow-300 border border-yellow-400/25 flex items-center gap-1 transition cursor-pointer"
+            >
+              💰 Caja: {fmt(repartidor?.efectivo_en_mano ?? 0)}
+              <ArrowRightLeft size={11} className="text-yellow-300/80" />
+            </button>
           </div>
+        </div>
+      )}
+
+      {/* Barra compacta: cuando el comprador entra a una sección por el menú inferior
+          (no Inicio), se reemplaza el encabezado grande y la cuadrícula por esto,
+          para aprovechar toda la pantalla en la lista de pedidos. */}
+      {modo === 'comprador' && pestana !== 'inicio' && (
+        <div className="bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between sticky top-0 z-10">
+          <button
+            onClick={() => setPestana('inicio')}
+            className="flex items-center gap-2 text-slate-700 font-bold text-sm cursor-pointer"
+          >
+            <span className="text-lg">←</span>
+            {({
+              aceptadas: '📥 Aceptadas',
+              preparando: '🛒 Preparando',
+              porentregar: '📦 Por entregar',
+              entregadasrep: '🛵 A repartidor',
+              entregadasyo: '✅ Por mí mismo',
+            } as Record<string, string>)[pestana]}
+            <span className="text-slate-400 font-semibold">({listaActivaComprador.length})</span>
+          </button>
           <button
             onClick={abrirTraspaso}
-            className="bg-white/20 hover:bg-white/30 rounded-xl px-3 py-1.5 text-[11px] font-semibold shrink-0 text-yellow-300 border border-yellow-400/25 flex items-center gap-1 transition cursor-pointer"
+            className="flex items-center gap-1 text-[11px] font-bold text-yellow-700 bg-yellow-50 border border-yellow-200 rounded-lg px-2.5 py-1.5 cursor-pointer"
           >
-            💰 Caja: {fmt(repartidor?.efectivo_en_mano ?? 0)}
-            <ArrowRightLeft size={11} className="text-yellow-300/80" />
+            💰 {fmt(repartidor?.efectivo_en_mano ?? 0)}
           </button>
         </div>
-      </div>
+      )}
 
-      {/* Tab Switcher for Shoppers: 6 pestañas de clasificación interna */}
-      {modo === 'comprador' && (
+      {/* Tab Switcher for Shoppers: 6 pestañas de clasificación interna (solo en Inicio) */}
+      {modo === 'comprador' && pestana === 'inicio' && (
         <div className="grid grid-cols-3 gap-1.5 mx-4 mt-3">
           {([
             { key: 'inicio' as const,        label: 'Inicio',       emoji: '🧺', count: pedidosEspera.length, alerta: pedidosEspera.length > 0 },
