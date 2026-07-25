@@ -87,7 +87,7 @@ export default function CajaPage() {
     const [{ data: ped }, { data: its }, { data: pickItems }] = await Promise.all([
       supabase.from('ol_pedidos').select('*').eq('id', asig.pedido_id).single(),
       supabase.from('ol_pedido_items').select('*').eq('pedido_id', asig.pedido_id),
-      supabase.from('rep_picking').select('tienda_id, tienda_nombre').eq('pedido_id', asig.pedido_id).limit(1)
+      supabase.from('rep_picking').select('tienda_id').eq('pedido_id', asig.pedido_id).limit(1)
     ])
 
     setPedido(ped)

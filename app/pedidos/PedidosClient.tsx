@@ -27,8 +27,8 @@ function distanciaAprox(a: { lat: number; lng: number }, b: { lat: number; lng: 
   return Math.sqrt(dLat * dLat + dLng * dLng)
 }
 
-export default function PedidosClient({ repartidor, asignaciones, pedidoMap }: {
-  repartidor: any; asignaciones: any[]; pedidoMap: Record<string, any>
+export default function PedidosClient({ repartidor, asignaciones, pedidoMap, tiendasPorPedido }: {
+  repartidor: any; asignaciones: any[]; pedidoMap: Record<string, any>; tiendasPorPedido: Record<string, string>
 }) {
   const router = useRouter()
   const sb = createClient()
@@ -245,7 +245,7 @@ export default function PedidosClient({ repartidor, asignaciones, pedidoMap }: {
                 <div className="flex items-center justify-between px-4 pt-4 pb-3 border-b border-[#2d3748]/60">
                   <div className="flex items-center gap-2">
                     <div className={`w-2.5 h-2.5 rounded-full ${enRuta ? 'bg-[#ff9f1c]' : 'bg-[#00b074]'}`} />
-                    <span className="text-white font-bold text-sm">La Crayola · Librería</span>
+                    <span className="text-white font-bold text-sm">{tiendasPorPedido[a.pedido_id] || 'Tienda por confirmar'}</span>
                   </div>
                   <span className="text-[#00b074] font-extrabold text-lg">${total.toFixed(2)}</span>
                 </div>

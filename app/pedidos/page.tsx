@@ -46,11 +46,31 @@ export default async function PedidosPage() {
 
   const pm = Object.fromEntries((pedidos ?? []).map((p: any) => [p.id, p]))
 
+  // Tienda(s) real(es) de cada pedido (un pedido puede combinar Tuti + Tia + La Crayola
+  // en el mismo viaje, ya que estan a pocos metros de distancia)
+  const { data: picking } = ids.length > 0
+    ? await supabase.from('rep_picking').select('pedido_id, ol_tiendas(nombre)').in('pedido_id', ids)
+    : { data: [] }
+
+  const tiendasPorPedido: Record<string, string> = {}
+  ;(picking ?? []).forEach((row: any) => {
+    const nombre = row.ol_tiendas?.nombre
+    if (!nombre) return
+    const actuales = tiendasPorPedido[row.pedido_id]
+      ? tiendasPorPedido[row.pedido_id].split(' + ')
+      : []
+    if (!actuales.includes(nombre)) {
+      actuales.push(nombre)
+      tiendasPorPedido[row.pedido_id] = actuales.join(' + ')
+    }
+  })
+
   return (
     <PedidosClient
       repartidor={repartidor}
       asignaciones={asignaciones ?? []}
       pedidoMap={pm}
+      tiendasPorPedido={tiendasPorPedido}
     />
   )
 }
