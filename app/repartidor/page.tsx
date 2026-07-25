@@ -335,8 +335,11 @@ export default function RepartidorPage() {
     const msg = `🛒 *La Crayola - Compras en curso* \n\n¡Hola *${nombreCliente}*! Soy *${repartidor.nombre}*, tu comprador asignado de La Crayola. He recibido tu pedido *#${String(numero).padStart(4,'0')}* y voy a iniciar tus compras ahora mismo en los supermercados asociados. Te mantendré al tanto de cualquier novedad por este medio. 🧺`
     window.open(`https://wa.me/${formatWhatsApp(telefonoCliente)}?text=${encodeURIComponent(msg)}`, '_blank')
 
-    // 4. Navegar a la pantalla de picking
-    router.push(`/repartidor/picking/${pedidoId}`)
+    // 4. Navegar a la pantalla de picking completa (escaner, avance, canasta) —
+    // /picking/[id] usa el id de la ASIGNACION, no el del pedido. La otra ruta
+    // /repartidor/picking/[pedidoId] es una version vieja e incompleta, sin
+    // escaner ni barra de avance; no se debe enlazar mas.
+    router.push(`/picking/${asignacionId}`)
   }
 
   async function autotraspaso(asignacionId: string, pedidoId: string, numero: number, nombreCliente: string, telefonoCliente: string) {
@@ -627,7 +630,7 @@ export default function RepartidorPage() {
   // dentro del super, mientras menos toques mejor.
   function irAComprando() {
     if (pedidosPreparando.length === 1) {
-      router.push(`/repartidor/picking/${pedidosPreparando[0].pedido_id}`)
+      router.push(`/picking/${pedidosPreparando[0].asignacion_id}`)
     } else {
       setPestana('preparando')
     }
@@ -952,7 +955,7 @@ export default function RepartidorPage() {
                         )}
                       </button>
                     ) : (
-                      <a href={`/repartidor/picking/${p.pedido_id}`}
+                      <a href={`/picking/${p.asignacion_id}`}
                         className="w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white font-extrabold py-3.5 rounded-xl transition text-sm shadow-sm text-center">
                         🛒 Continuar compra en supermercados
                       </a>
