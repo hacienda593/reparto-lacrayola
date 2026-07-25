@@ -225,7 +225,22 @@ export default function RepartidorPage() {
           .in('estado', ['en_ruta'])
       }
 
-      const { data: asigs } = await queryAsigs
+      // 2. y 3. Pool de pedidos libres + asignaciones activas (para filtrar el pool).
+      // Ninguna de estas tres consultas depende del resultado de las otras, asi que
+      // se lanzan en paralelo en vez de una tras otra -- reduce bastante el tiempo
+      // de carga inicial, que era muy lento por hacer todo en secuencia.
+      const [{ data: asigs }, { data: pends }, { data: activeAsigs }] = await Promise.all([
+        queryAsigs,
+        supabase
+          .from('ol_pedidos')
+          .select('id, numero, nombre_cliente, telefono, direccion, ciudad, referencias, total, geo_lat, geo_lng, notas')
+          .eq('estado', 'confirmado')
+          .order('numero', { ascending: false }),
+        supabase
+          .from('rep_asignaciones')
+          .select('pedido_id')
+          .in('estado', ['asignado', 'recolectado', 'en_ruta']),
+      ])
 
       setPedidos((asigs ?? []).map((a: any) => ({
         asignacion_id:  a.id,
@@ -249,17 +264,6 @@ export default function RepartidorPage() {
         shopper_id:     a.shopper_id,
       })))
 
-      // 2. Cargar pedidos libres en cola (estado 'confirmado') y filtrar ya asignados
-      const { data: pends } = await supabase
-        .from('ol_pedidos')
-        .select('id, numero, nombre_cliente, telefono, direccion, ciudad, referencias, total, geo_lat, geo_lng, notas')
-        .eq('estado', 'confirmado')
-        .order('numero', { ascending: false })
-
-      const { data: activeAsigs } = await supabase
-        .from('rep_asignaciones')
-        .select('pedido_id')
-        .in('estado', ['asignado', 'recolectado', 'en_ruta'])
       const assignedIds = new Set((activeAsigs ?? []).map((a: any) => a.pedido_id))
 
       const filteredPends = (pends ?? []).filter(p => !assignedIds.has(p.id))
@@ -618,9 +622,20 @@ export default function RepartidorPage() {
     pestana === 'entregadasrep' ? pedidosEntregadasRep :
     pestana === 'entregadasyo'  ? pedidosEntregadasYo : []
 
+  // Menú inferior (solo modo comprador): si hay un solo pedido "Preparando", ir directo
+  // a su picking en vez de pasar por la pestaña — el celular lo va a tener en la mano
+  // dentro del super, mientras menos toques mejor.
+  function irAComprando() {
+    if (pedidosPreparando.length === 1) {
+      router.push(`/repartidor/picking/${pedidosPreparando[0].pedido_id}`)
+    } else {
+      setPestana('preparando')
+    }
+  }
+
   return (
     <>
-    <div className="min-h-screen bg-slate-50">
+    <div className={`min-h-screen bg-slate-50 ${modo === 'comprador' ? 'pb-20' : ''}`}>
       {/* Header */}
       <div className="bg-green-700 text-white px-4 pt-10 pb-4 space-y-1">
         <div className="flex items-center justify-between">
@@ -1055,6 +1070,35 @@ export default function RepartidorPage() {
           )}
         </div>
       </div>
+
+      {/* Menú inferior fijo (solo módulo comprador) */}
+      {modo === 'comprador' && (
+        <div className="fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 flex items-stretch z-[150] shadow-[0_-2px_10px_rgba(0,0,0,0.06)]">
+          {[
+            { key: 'inicio' as const,   label: 'Inicio',    emoji: '🏠', onClick: () => setPestana('inicio') },
+            { key: 'preparando' as const, label: 'Comprando', emoji: '🛒', onClick: irAComprando },
+            { key: 'porentregar' as const, label: 'A repartidor', emoji: '🛵', onClick: () => setPestana('porentregar') },
+          ].map(item => (
+            <button
+              key={item.key}
+              onClick={item.onClick}
+              className={`flex-1 flex flex-col items-center justify-center gap-0.5 py-2.5 transition-colors ${
+                pestana === item.key ? 'text-[#00b074]' : 'text-slate-400'
+              }`}
+            >
+              <span className="text-xl leading-none">{item.emoji}</span>
+              <span className="text-[10px] font-bold">{item.label}</span>
+            </button>
+          ))}
+          <a
+            href="/repartidor/perfil"
+            className="flex-1 flex flex-col items-center justify-center gap-0.5 py-2.5 text-slate-400"
+          >
+            <UserCircle size={20} />
+            <span className="text-[10px] font-bold">Perfil</span>
+          </a>
+        </div>
+      )}
 
       {/* Modal: Entregar efectivo en mano a un colega (comprador u otro repartidor) */}
       {showTraspaso && (

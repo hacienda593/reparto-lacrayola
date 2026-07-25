@@ -73,12 +73,24 @@ export default function AsignacionesPage() {
   const [direccionesCliente, setDireccionesCliente] = useState<any[]>([])
   const [direccionSeleccionada, setDireccionSeleccionada] = useState<string>('')
   const [nuevaDireccion, setNuevaDireccion] = useState({ nombre: 'Casa', lat: '', lng: '', referencias: '' })
+  const [pegarCoords, setPegarCoords] = useState('')
+
+  // Acepta lo que Google Maps copia al mantener presionado un punto ("lat, lng"),
+  // o un link completo que incluya esas mismas coordenadas en cualquier parte del texto.
+  function parsearCoordenadas(texto: string) {
+    setPegarCoords(texto)
+    const match = texto.match(/(-?\d{1,3}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)/)
+    if (match) {
+      setNuevaDireccion(prev => ({ ...prev, lat: match[1], lng: match[2] }))
+    }
+  }
   const [cargandoDirecciones, setCargandoDirecciones] = useState(false)
 
   async function abrirVerificacion(p: Pedido) {
     setModalPedido(p)
     setDireccionSeleccionada('')
     setNuevaDireccion({ nombre: 'Casa', lat: '', lng: '', referencias: p.referencias || '' })
+    setPegarCoords('')
     setCargandoDirecciones(true)
     try {
       const { data, error } = await supabase
@@ -181,34 +193,29 @@ export default function AsignacionesPage() {
     setError('')
     setMensaje('')
     try {
-      const { data: dataPed, error: errPed } = await supabase
-        .from('ol_pedidos')
-        .select('*')
-        .order('numero', { ascending: false })
-        .limit(30)
-      
-      if (errPed) throw errPed
-      setPedidos(dataPed || [])
-
-      const { data: dataRep, error: errRep } = await supabase
-        .from('rep_repartidores')
-        .select('id, nombre, estado, activo')
-        .eq('activo', true)
-        .order('nombre')
-      
-      if (errRep) throw errRep
-      setRepartidores(dataRep || [])
-
-      const { data: dataAsig, error: errAsig } = await supabase
-        .from('rep_asignaciones')
-        .select(`
+      // Estas tres consultas no dependen entre si, se piden en paralelo en vez de
+      // una tras otra para acelerar la carga inicial de la torre de control.
+      const [
+        { data: dataPed, error: errPed },
+        { data: dataRep, error: errRep },
+        { data: dataAsig, error: errAsig },
+      ] = await Promise.all([
+        supabase.from('ol_pedidos').select('*').order('numero', { ascending: false }).limit(30),
+        supabase.from('rep_repartidores').select('id, nombre, estado, activo').eq('activo', true).order('nombre'),
+        supabase.from('rep_asignaciones').select(`
           *,
           shopper:rep_repartidores!rep_asignaciones_shopper_id_fkey(nombre),
           rider:rep_repartidores!rep_asignaciones_rider_id_fkey(nombre),
           rep_repartidores!rep_asignaciones_repartidor_id_fkey(nombre)
-        `)
-        .in('estado', ['asignado', 'recolectado', 'en_ruta'])
-      
+        `).in('estado', ['asignado', 'recolectado', 'en_ruta']),
+      ])
+
+      if (errPed) throw errPed
+      setPedidos(dataPed || [])
+
+      if (errRep) throw errRep
+      setRepartidores(dataRep || [])
+
       if (errAsig) throw errAsig
       setAsignaciones((dataAsig || []) as any)
 
@@ -952,6 +959,18 @@ export default function AsignacionesPage() {
                           className="bg-green-600 hover:bg-green-550 text-white font-extrabold text-[9px] px-2.5 py-1 rounded-lg flex items-center gap-1 transition cursor-pointer">
                           <Phone size={10} /> Pedir Ubicación por WhatsApp
                         </a>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[10px] text-gray-500">Pegar coordenadas de Google Maps (lat, lng):</label>
+                        <input
+                          type="text"
+                          placeholder="ej: -0.0256, -78.8924"
+                          value={pegarCoords}
+                          onChange={e => parsearCoordenadas(e.target.value)}
+                          className="w-full bg-[#0c0f12] border border-gray-800 rounded-xl px-3 py-1.5 text-white text-xs focus:outline-none focus:border-green-500"
+                        />
+                        <p className="text-[9px] text-gray-600">Mantén presionado el punto exacto en Google Maps y copia lo que aparece — se separa solo en los campos de abajo.</p>
                       </div>
 
                       <div className="grid grid-cols-2 gap-2 text-xs">
