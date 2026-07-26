@@ -92,7 +92,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     let montado = true
 
-    supabase.auth.getSession().then(async ({ data }) => {
+    // getSession() en si mismo puede quedarse colgado en un navegador con
+    // almacenamiento local corrupto/viejo (ej. varios dias de pruebas
+    // acumuladas) -- antes esto se disimulaba porque el timeout de 6s de
+    // resolverAcceso() forzaba a la pagina a seguir adelante de todos modos.
+    // Ahora que las paginas ya no esperan a authEstado sino solo a `user`,
+    // hace falta este mismo tope aqui tambien: si getSession() no responde
+    // en 6s, se trata como sesion no encontrada en vez de colgar para
+    // siempre sin ninguna salida.
+    Promise.race([
+      supabase.auth.getSession(),
+      new Promise<{ data: { session: null } }>(res =>
+        setTimeout(() => res({ data: { session: null } }), 6000)
+      ),
+    ]).then(async ({ data }) => {
       if (!montado) return
       const u = data.session?.user ?? null
       setUser(u)
