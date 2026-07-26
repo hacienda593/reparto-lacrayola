@@ -477,10 +477,14 @@ export default function RepartidorPage() {
     // cargar(), asi que basta con que exista la sesion (user) para arrancar.
     // Esperar tambien a authEstado duplicaba la resolucion y era la causa
     // principal del lag de 20-30s al entrar como comprador/repartidor.
-    if (!user) {
-      if (authEstado === 'sin_sesion') router.replace('/login')
-      return
-    }
+    // No se redirige a /login desde aqui aunque authEstado diga 'sin_sesion':
+    // ese estado puede aparecer por un instante justo despues del login real
+    // (una carrera al confirmar la sesion en el cliente, no una sesion
+    // invalida de verdad) y forzar la redirecion en ese momento producia un
+    // rebote infinito entre /login y /repartidor. El middleware del servidor
+    // ya redirige de forma confiable a quien de verdad no tiene sesion en
+    // cada peticion -- no hace falta duplicar esa logica aqui.
+    if (!user) return
 
     // Si cambio la cuenta logueada (ej. se cerro sesion y se entro con otra para
     // probar), se limpia todo el estado de la cuenta anterior antes de recargar —
