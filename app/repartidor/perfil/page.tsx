@@ -3,7 +3,8 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '@/context/AuthContext'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
-import { Loader2, Check, ArrowLeft, Phone, MapPin, Bike, User } from 'lucide-react'
+import { Loader2, Check, ArrowLeft, Phone, MapPin, Bike, User, LogOut } from 'lucide-react'
+import { logout } from '@/actions/auth'
 
 const VEHICULOS = [
   { key: 'moto', emoji: '🛵', label: 'Moto' },
@@ -181,6 +182,13 @@ export default function PerfilRepartidorPage() {
             }
           </button>
         </div>
+
+        <form action={logout}>
+          <button type="submit"
+            className="w-full flex items-center justify-center gap-2 border border-red-200 text-red-600 hover:bg-red-50 font-bold py-3 rounded-xl transition text-sm cursor-pointer">
+            <LogOut size={16} /> Cerrar sesión
+          </button>
+        </form>
       </div>
     </div>
   )

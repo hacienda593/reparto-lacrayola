@@ -41,6 +41,9 @@ export default function RepartidorPage() {
   const router = useRouter()
   const [pedidos,    setPedidos]    = useState<PedidoAsignado[]>([])
   const [pedidosEspera, setPedidosEspera] = useState<any[]>([])
+  // Pool de entregas listas para recoger (comprador ya pago en caja, sin motorizado asignado
+  // todavia) — modulo independiente del comprador, solo visible en modo repartidor.
+  const [poolEntregas, setPoolEntregas] = useState<any[]>([])
   const [cargando,   setCargando]   = useState(true)
   const [repartidor, setRepartidor] = useState<{ id: string; nombre: string; comision_valor: number; efectivo_en_mano: number; estado: string; vehiculo: string | null; email: string | null } | null>(null)
   const [procesando, setProcesando] = useState<string | null>(null)
@@ -229,7 +232,7 @@ export default function RepartidorPage() {
       // Ninguna de estas tres consultas depende del resultado de las otras, asi que
       // se lanzan en paralelo en vez de una tras otra -- reduce bastante el tiempo
       // de carga inicial, que era muy lento por hacer todo en secuencia.
-      const [{ data: asigs }, { data: pends }, { data: activeAsigs }] = await Promise.all([
+      const [{ data: asigs }, { data: pends }, { data: activeAsigs }, { data: pool }] = await Promise.all([
         queryAsigs,
         supabase
           .from('ol_pedidos')
@@ -240,6 +243,14 @@ export default function RepartidorPage() {
           .from('rep_asignaciones')
           .select('pedido_id')
           .in('estado', ['asignado', 'recolectado', 'en_ruta']),
+        // Pool de entregas: pedidos ya pagados en caja por un comprador, sin motorizado
+        // asignado todavia. Solo se usa en modo repartidor, pero se pide siempre en el
+        // mismo Promise.all para no complicar la carga condicional.
+        supabase
+          .from('rep_asignaciones')
+          .select('id, pedido_id, ol_pedidos(numero,nombre_cliente,direccion,ciudad,total), shopper:rep_repartidores!rep_asignaciones_shopper_id_fkey(nombre,telefono)')
+          .eq('estado', 'recolectado')
+          .is('rider_id', null),
       ])
 
       setPedidos((asigs ?? []).map((a: any) => ({
@@ -268,6 +279,18 @@ export default function RepartidorPage() {
 
       const filteredPends = (pends ?? []).filter(p => !assignedIds.has(p.id))
       setPedidosEspera(filteredPends)
+
+      setPoolEntregas((pool ?? []).map((a: any) => ({
+        asignacion_id: a.id,
+        pedido_id:     a.pedido_id,
+        numero:        a.ol_pedidos?.numero,
+        nombre_cliente: a.ol_pedidos?.nombre_cliente,
+        direccion:     a.ol_pedidos?.direccion,
+        ciudad:        a.ol_pedidos?.ciudad,
+        total:         a.ol_pedidos?.total,
+        shopper_nombre: a.shopper?.nombre ?? 'Comprador',
+        shopper_telefono: a.shopper?.telefono ?? '',
+      })))
     } catch (err) {
       console.error('Error loading driver data:', err)
     } finally {
@@ -783,6 +806,58 @@ export default function RepartidorPage() {
             <Navigation size={15} />
             Ver ruta combinada ({pedidos.filter(p => p.estado === 'en_ruta' && p.geo_lat && p.geo_lng).length} paradas)
           </button>
+        </div>
+      )}
+
+      {/* Pool de entregas listas para recoger: pedidos que un comprador ya pago en caja
+          y todavia no tienen motorizado asignado. Independiente del modulo de comprador. */}
+      {modo === 'repartidor' && (
+        <div className="px-4 pt-4">
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+            📦 Listas para recoger ({poolEntregas.length})
+          </p>
+          {poolEntregas.length === 0 ? (
+            <div className="bg-white border border-slate-100 rounded-2xl p-4 text-center text-xs text-slate-400">
+              No hay entregas esperando motorizado en este momento.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {poolEntregas.map(p => (
+                <div key={p.asignacion_id} className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 space-y-2.5">
+                  <div className="flex justify-between items-center">
+                    <span className="font-bold text-slate-800 text-sm">Pedido #{String(p.numero).padStart(4, '0')}</span>
+                    <span className="font-bold text-green-700 text-sm">{fmt(p.total)}</span>
+                  </div>
+                  <div className="text-xs text-slate-600">
+                    <div className="font-semibold">{p.nombre_cliente}</div>
+                    {p.direccion && <div className="text-slate-400">{p.direccion}, {p.ciudad}</div>}
+                  </div>
+                  <div className="flex items-center justify-between bg-slate-50 rounded-xl px-3 py-2">
+                    <span className="text-[11px] text-slate-500">
+                      Comprador: <span className="font-semibold text-slate-700">{p.shopper_nombre}</span>
+                    </span>
+                    {p.shopper_telefono && (
+                      <a
+                        href={`https://wa.me/${formatWhatsApp(p.shopper_telefono)}?text=${encodeURIComponent(
+                          `Hola ${p.shopper_nombre}, soy motorizado de La Crayola. Voy a recoger el pedido #${p.numero} — ¿dónde te encuentro?`
+                        )}`}
+                        target="_blank" rel="noopener noreferrer"
+                        className="flex items-center gap-1 text-[11px] font-bold text-green-700"
+                      >
+                        <Phone size={11} /> Contactar
+                      </a>
+                    )}
+                  </div>
+                  <a
+                    href="/repartidor/escanear"
+                    className="w-full flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-xl transition text-xs text-center"
+                  >
+                    📷 Ir a escanear y recibir
+                  </a>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
