@@ -5,7 +5,7 @@ import { useAuth } from '@/context/AuthContext'
 import { supabase } from '@/lib/supabase'
 import { logout } from '@/actions/auth'
 import { useRouter } from 'next/navigation'
-import { Loader2, MapPin, CheckCircle, Package, Phone, Navigation, DollarSign, UserCircle, ArrowRightLeft, X, AlertCircle } from 'lucide-react'
+import { Loader2, MapPin, CheckCircle, Package, Phone, Navigation, DollarSign, UserCircle, ArrowRightLeft, X, AlertCircle, LogOut } from 'lucide-react'
 
 function fmt(n: number) { return '$' + (n ?? 0).toFixed(2) }
 
@@ -886,9 +886,14 @@ export default function RepartidorPage() {
                 </div>
               )}
               <Link href="/repartidor/perfil"
-                className="w-9 h-9 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center transition">
+                className="w-9 h-9 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center transition shrink-0">
                 <UserCircle size={20} />
               </Link>
+              <form action={logout} className="shrink-0">
+                <button type="submit" title="Cerrar sesión" className="w-9 h-9 bg-red-600/30 hover:bg-red-600/50 rounded-full flex items-center justify-center transition cursor-pointer text-white">
+                  <LogOut size={15} />
+                </button>
+              </form>
             </div>
           </div>
           {/* Dynamic Role Switcher (🧺 Compras / 🛵 Entregas) - Solo para rol híbrido 'comprador-repartidor' */}
