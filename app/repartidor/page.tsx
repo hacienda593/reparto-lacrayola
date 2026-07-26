@@ -453,8 +453,16 @@ export default function RepartidorPage() {
 
   const ultimoUserId = useRef<string | null>(null)
   useEffect(() => {
-    if (authEstado === 'cargando') return
-    if (!user) { router.replace('/login'); return }
+    // No se espera a que AuthContext termine de resolver el rol (resolverAcceso
+    // puede tardar hasta 6s en su carrera interna) -- esta pagina ya hace su
+    // propia verificacion autoritativa contra rep_repartidores dentro de
+    // cargar(), asi que basta con que exista la sesion (user) para arrancar.
+    // Esperar tambien a authEstado duplicaba la resolucion y era la causa
+    // principal del lag de 20-30s al entrar como comprador/repartidor.
+    if (!user) {
+      if (authEstado === 'sin_sesion') router.replace('/login')
+      return
+    }
 
     // Si cambio la cuenta logueada (ej. se cerro sesion y se entro con otra para
     // probar), se limpia todo el estado de la cuenta anterior antes de recargar —
@@ -668,7 +676,7 @@ export default function RepartidorPage() {
     }
   }
 
-  if (authEstado === 'cargando' || cargando || !modoConfirmado) return (
+  if (!user || cargando || !modoConfirmado) return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50">
       <Loader2 size={28} className="animate-spin text-green-600" />
     </div>
