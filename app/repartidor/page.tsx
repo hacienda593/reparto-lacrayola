@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAuth } from '@/context/AuthContext'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
@@ -51,6 +51,11 @@ export default function RepartidorPage() {
   
   // Selector dinámico de Rol: 'repartidor' (Entregas) o 'comprador' (Compras/Picking)
   const [modo, setModo] = useState<'repartidor' | 'comprador'>('repartidor')
+  // 'repartidor' es solo un valor inicial arbitrario -- hasta que cargar() confirma
+  // el modo real contra la base de datos, no se debe mostrar NINGUNA interfaz de rol,
+  // para evitar el parpadeo donde se ve el modulo equivocado por un instante
+  // (ej. un comprador viendo brevemente la pantalla de repartidor, o viceversa).
+  const [modoConfirmado, setModoConfirmado] = useState(false)
 
   // Si venimos redirigidos desde /caja (recien terminada una compra), aterrizar
   // directo en el modo comprador para ver el traspaso al motorizado o "Entregar yo mismo",
@@ -206,6 +211,7 @@ export default function RepartidorPage() {
       if (modo !== expectedModo) {
         setModo(expectedModo)
       }
+      setModoConfirmado(true)
 
       // 1. Cargar asignaciones vigentes del repartidor (dependiendo del modo)
       // Nota: no se filtra por fecha de asignacion — una asignacion sigue vigente
@@ -280,9 +286,31 @@ export default function RepartidorPage() {
       const filteredPends = (pends ?? []).filter(p => !assignedIds.has(p.id))
       setPedidosEspera(filteredPends)
 
+      // Tienda(s) donde recoger cada pedido del pool (puede ser mas de una: Tuti + Tia + La Crayola)
+      const poolPedidoIds = (pool ?? []).map((a: any) => a.pedido_id)
+      let tiendasPool: Record<string, { nombres: string; direccion: string | null }> = {}
+      if (poolPedidoIds.length > 0) {
+        const { data: pickingPool } = await supabase
+          .from('rep_picking')
+          .select('pedido_id, ol_tiendas(nombre, direccion)')
+          .in('pedido_id', poolPedidoIds)
+        ;(pickingPool ?? []).forEach((row: any) => {
+          const nombre = row.ol_tiendas?.nombre
+          if (!nombre) return
+          const actual = tiendasPool[row.pedido_id]
+          if (!actual) {
+            tiendasPool[row.pedido_id] = { nombres: nombre, direccion: row.ol_tiendas?.direccion ?? null }
+          } else if (!actual.nombres.includes(nombre)) {
+            actual.nombres += ' + ' + nombre
+          }
+        })
+      }
+
       setPoolEntregas((pool ?? []).map((a: any) => ({
         asignacion_id: a.id,
         pedido_id:     a.pedido_id,
+        tienda_recogida: tiendasPool[a.pedido_id]?.nombres ?? null,
+        tienda_direccion: tiendasPool[a.pedido_id]?.direccion ?? null,
         numero:        a.ol_pedidos?.numero,
         nombre_cliente: a.ol_pedidos?.nombre_cliente,
         direccion:     a.ol_pedidos?.direccion,
@@ -398,9 +426,24 @@ export default function RepartidorPage() {
     window.open(`https://wa.me/${formatWhatsApp(telefonoCliente)}?text=${encodeURIComponent(msg)}`, '_blank')
   }
 
+  const ultimoUserId = useRef<string | null>(null)
   useEffect(() => {
     if (authEstado === 'cargando') return
     if (!user) { router.replace('/login'); return }
+
+    // Si cambio la cuenta logueada (ej. se cerro sesion y se entro con otra para
+    // probar), se limpia todo el estado de la cuenta anterior antes de recargar —
+    // si no, se alcanza a ver por un instante la data/modulo de la cuenta previa.
+    if (ultimoUserId.current !== user.id) {
+      ultimoUserId.current = user.id
+      setModoConfirmado(false)
+      setCargando(true)
+      setRepartidor(null)
+      setPedidos([])
+      setPedidosEspera([])
+      setPoolEntregas([])
+    }
+
     cargar(user.id)
   }, [user, authEstado, modo, rol])
 
@@ -600,7 +643,7 @@ export default function RepartidorPage() {
     }
   }
 
-  if (authEstado === 'cargando' || cargando) return (
+  if (authEstado === 'cargando' || cargando || !modoConfirmado) return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50">
       <Loader2 size={28} className="animate-spin text-green-600" />
     </div>
@@ -828,7 +871,27 @@ export default function RepartidorPage() {
                     <span className="font-bold text-slate-800 text-sm">Pedido #{String(p.numero).padStart(4, '0')}</span>
                     <span className="font-bold text-green-700 text-sm">{fmt(p.total)}</span>
                   </div>
+                  {/* Punto de recogida — lo primero que necesita saber el motorizado */}
+                  <div className="bg-orange-50 border border-orange-200 rounded-xl px-3 py-2 flex items-start gap-2">
+                    <span className="text-orange-500 shrink-0">🏪</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[10px] font-bold text-orange-700 uppercase tracking-wide">Recoger en</div>
+                      <div className="text-xs font-semibold text-slate-700">{p.tienda_recogida ?? 'Tienda por confirmar'}</div>
+                      {p.tienda_direccion ? (
+                        <a
+                          href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(p.tienda_direccion)}`}
+                          target="_blank" rel="noopener noreferrer"
+                          className="text-[11px] text-blue-600 font-semibold underline"
+                        >
+                          Ver ubicación en Maps →
+                        </a>
+                      ) : (
+                        <div className="text-[10px] text-slate-400">Sin dirección registrada — coordina con el comprador</div>
+                      )}
+                    </div>
+                  </div>
                   <div className="text-xs text-slate-600">
+                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Destino final (cliente)</div>
                     <div className="font-semibold">{p.nombre_cliente}</div>
                     {p.direccion && <div className="text-slate-400">{p.direccion}, {p.ciudad}</div>}
                   </div>
