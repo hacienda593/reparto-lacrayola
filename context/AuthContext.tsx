@@ -46,7 +46,14 @@ async function resolverAcceso(u: User): Promise<{
         if (rolData?.activo) {
           const r = rolData.rol as Rol
           const isMobileCollab = r === 'repartidor' || r === 'comprador' || r === 'comprador-repartidor'
-          const repartidorId = isMobileCollab ? (repPorUserId?.id ?? null) : null
+          const repInfo = repPorUserId || repPorEmail
+          const repartidorId = isMobileCollab ? (repInfo?.id ?? null) : null
+
+          if (isMobileCollab && repInfo && !repPorUserId) {
+            try {
+              supabase.from('rep_repartidores').update({ user_id: u.id }).eq('id', repInfo.id).then()
+            } catch {}
+          }
           return { estado: 'autorizado' as EstadoAcceso, rol: r, repartidorId }
         }
 
