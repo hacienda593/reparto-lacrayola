@@ -703,52 +703,93 @@ export default function AsignacionesPage() {
               <Loader2 size={24} className="animate-spin text-green-500" />
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs text-left">
-                <thead>
-                  <tr className="text-gray-500 border-b border-gray-800">
-                    <th className="py-2.5 font-bold">Número</th>
-                    <th className="py-2.5 font-bold">Cliente</th>
-                    <th className="py-2.5 font-bold">Dirección / Ciudad</th>
-                    <th className="py-2.5 font-bold">Total</th>
-                    <th className="py-2.5 font-bold text-center">Asignación / Estado</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-850">
-                  {pedidos.map(p => {
-                    const asig = asignaciones.find(a => a.pedido_id === p.id)
-                    return (
-                      <tr key={p.id} onClick={() => router.push(`/pedidos/${p.id}`)} className="hover:bg-gray-800/40 cursor-pointer">
-                        <td className="py-2.5 font-mono text-green-400 font-bold">#{String(p.numero).padStart(4,'0')}</td>
-                        <td className="py-2.5 font-semibold text-white">{p.nombre_cliente}</td>
-                        <td className="py-2.5 text-gray-400">
-                          <span className="flex items-center gap-0.5 truncate max-w-xs">
-                            <MapPin size={10} className="shrink-0" />
-                            {p.direccion ? `${p.direccion}, ${p.ciudad}` : p.ciudad}
+            <>
+              {/* Celular: tarjetas apiladas, mas facil de leer y tocar con una mano */}
+              <div className="md:hidden space-y-2">
+                {pedidos.map(p => {
+                  const asig = asignaciones.find(a => a.pedido_id === p.id)
+                  return (
+                    <button
+                      key={p.id}
+                      onClick={() => router.push(`/pedidos/${p.id}`)}
+                      className="w-full text-left bg-[#0c0f12] border border-[#2d3748] rounded-2xl p-3.5 space-y-2 active:bg-gray-800/60 transition">
+                      <div className="flex justify-between items-center">
+                        <span className="font-mono text-green-400 font-bold text-xs">#{String(p.numero).padStart(4,'0')}</span>
+                        <span className="font-black text-white text-xs">{fmt(p.total)}</span>
+                      </div>
+                      <div className="font-semibold text-white text-sm">{p.nombre_cliente}</div>
+                      <div className="flex items-center gap-1 text-gray-400 text-[11px]">
+                        <MapPin size={11} className="shrink-0" />
+                        <span className="truncate">{p.direccion ? `${p.direccion}, ${p.ciudad}` : p.ciudad}</span>
+                      </div>
+                      <div>
+                        {asig ? (
+                          <span className="inline-block bg-green-500/10 text-green-400 px-2.5 py-1 rounded-full text-[10px] font-bold">
+                            👤 S: {asig.shopper?.nombre || asig.rep_repartidores?.nombre} {asig.rider?.nombre ? `· R: ${asig.rider.nombre}` : ''} ({asig.estado})
                           </span>
-                        </td>
-                        <td className="py-2.5 font-bold text-white">{fmt(p.total)}</td>
-                        <td className="py-2.5 text-center">
-                          {asig ? (
-                            <span className="bg-green-500/10 text-green-400 px-2.5 py-1 rounded-full text-[9px] font-bold">
-                              👤 S: {asig.shopper?.nombre || asig.rep_repartidores?.nombre} {asig.rider?.nombre ? `· R: ${asig.rider.nombre}` : ''} ({asig.estado})
+                        ) : p.estado === 'entregado' ? (
+                          <span className="inline-block bg-slate-800 text-slate-500 px-2.5 py-1 rounded-full text-[10px] font-semibold">
+                            Entregado
+                          </span>
+                        ) : (
+                          <span className="inline-block bg-yellow-500/10 text-yellow-400 px-2.5 py-1 rounded-full text-[10px] font-bold">
+                            En Espera
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+
+              {/* Escritorio: tabla completa */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-xs text-left">
+                  <thead>
+                    <tr className="text-gray-500 border-b border-gray-800">
+                      <th className="py-2.5 font-bold">Número</th>
+                      <th className="py-2.5 font-bold">Cliente</th>
+                      <th className="py-2.5 font-bold">Dirección / Ciudad</th>
+                      <th className="py-2.5 font-bold">Total</th>
+                      <th className="py-2.5 font-bold text-center">Asignación / Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-850">
+                    {pedidos.map(p => {
+                      const asig = asignaciones.find(a => a.pedido_id === p.id)
+                      return (
+                        <tr key={p.id} onClick={() => router.push(`/pedidos/${p.id}`)} className="hover:bg-gray-800/40 cursor-pointer">
+                          <td className="py-2.5 font-mono text-green-400 font-bold">#{String(p.numero).padStart(4,'0')}</td>
+                          <td className="py-2.5 font-semibold text-white">{p.nombre_cliente}</td>
+                          <td className="py-2.5 text-gray-400">
+                            <span className="flex items-center gap-0.5 truncate max-w-xs">
+                              <MapPin size={10} className="shrink-0" />
+                              {p.direccion ? `${p.direccion}, ${p.ciudad}` : p.ciudad}
                             </span>
-                          ) : p.estado === 'entregado' ? (
-                            <span className="bg-slate-800 text-slate-500 px-2.5 py-1 rounded-full text-[9px] font-semibold">
-                              Entregado
-                            </span>
-                          ) : (
-                            <span className="bg-yellow-500/10 text-yellow-400 px-2.5 py-1 rounded-full text-[9px] font-bold">
-                              En Espera
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
+                          </td>
+                          <td className="py-2.5 font-bold text-white">{fmt(p.total)}</td>
+                          <td className="py-2.5 text-center">
+                            {asig ? (
+                              <span className="bg-green-500/10 text-green-400 px-2.5 py-1 rounded-full text-[9px] font-bold">
+                                👤 S: {asig.shopper?.nombre || asig.rep_repartidores?.nombre} {asig.rider?.nombre ? `· R: ${asig.rider.nombre}` : ''} ({asig.estado})
+                              </span>
+                            ) : p.estado === 'entregado' ? (
+                              <span className="bg-slate-800 text-slate-500 px-2.5 py-1 rounded-full text-[9px] font-semibold">
+                                Entregado
+                              </span>
+                            ) : (
+                              <span className="bg-yellow-500/10 text-yellow-400 px-2.5 py-1 rounded-full text-[9px] font-bold">
+                                En Espera
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </div>
 

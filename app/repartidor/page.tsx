@@ -268,10 +268,21 @@ export default function RepartidorPage() {
         // mismo Promise.all para no complicar la carga condicional.
         supabase
           .from('rep_asignaciones')
-          .select('id, pedido_id, ol_pedidos(numero,nombre_cliente,direccion,ciudad,total), shopper:rep_repartidores!rep_asignaciones_shopper_id_fkey(nombre,telefono)')
+          .select('id, pedido_id, shopper_id, ol_pedidos(numero,nombre_cliente,direccion,ciudad,total)')
           .eq('estado', 'recolectado')
           .is('rider_id', null),
       ])
+
+      // El nombre/telefono del shopper se pide aparte contra la vista publica
+      // (rep_repartidores_pub) en vez de embeber la tabla completa: con RLS
+      // activado, un colaborador ya no puede leer la fila entera de OTRO
+      // colaborador (email, cedula, efectivo en mano), solo estos datos
+      // inofensivos.
+      const shopperIds = Array.from(new Set((pool ?? []).map((p: any) => p.shopper_id).filter(Boolean)))
+      const { data: shoppersPub } = shopperIds.length
+        ? await supabase.from('rep_repartidores_pub').select('id,nombre,telefono').in('id', shopperIds)
+        : { data: [] as any[] }
+      const shopperMap = new Map((shoppersPub ?? []).map((s: any) => [s.id, s]))
 
       setPedidos((asigs ?? []).map((a: any) => ({
         asignacion_id:  a.id,
@@ -330,8 +341,8 @@ export default function RepartidorPage() {
         direccion:     a.ol_pedidos?.direccion,
         ciudad:        a.ol_pedidos?.ciudad,
         total:         a.ol_pedidos?.total,
-        shopper_nombre: a.shopper?.nombre ?? 'Comprador',
-        shopper_telefono: a.shopper?.telefono ?? '',
+        shopper_nombre: shopperMap.get(a.shopper_id)?.nombre ?? 'Comprador',
+        shopper_telefono: shopperMap.get(a.shopper_id)?.telefono ?? '',
       })))
     } catch (err) {
       console.error('Error loading driver data:', err)
