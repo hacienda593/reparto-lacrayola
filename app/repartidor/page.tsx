@@ -58,6 +58,7 @@ export default function RepartidorPage() {
   // para evitar el parpadeo donde se ve el modulo equivocado por un instante
   // (ej. un comprador viendo brevemente la pantalla de repartidor, o viceversa).
   const [modoConfirmado, setModoConfirmado] = useState(false)
+  const [accesoDenegado, setAccesoDenegado] = useState<{ nombre: string; estado_registro: string; activo: boolean } | null>(null)
   // Si la pantalla de carga se queda pegada mas de 8s, se muestra una salida
   // de emergencia (cerrar sesion) -- ver uso mas abajo, antes del return.
   const [cargaAtascada, setCargaAtascada] = useState(false)
@@ -220,7 +221,13 @@ export default function RepartidorPage() {
       }
 
       if (!rep || rep.estado_registro !== 'aprobado' || !rep.activo) {
-        router.replace('/')
+        setAccesoDenegado({
+          nombre: rep?.nombre || user?.email || 'Usuario',
+          estado_registro: rep?.estado_registro || 'sin_registro',
+          activo: rep?.activo || false
+        })
+        setModoConfirmado(true)
+        setCargando(false)
         return
       }
       setRepartidor(rep as any)
@@ -713,6 +720,56 @@ export default function RepartidorPage() {
       )}
     </div>
   )
+
+  if (accesoDenegado) {
+    return (
+      <div className="min-h-screen bg-[#0c0f12] flex items-center justify-center px-4"
+        style={{ backgroundImage: 'radial-gradient(at 0% 0%, rgba(0,176,116,0.1) 0px, transparent 50%)' }}>
+        <div className="w-full max-w-md bg-[#181d24] border border-[#2d3748] rounded-3xl p-8 text-center space-y-6 shadow-2xl">
+          {accesoDenegado.estado_registro === 'pendiente' ? (
+            <>
+              <div className="w-20 h-20 bg-yellow-500/10 border border-yellow-500/20 rounded-3xl flex items-center justify-center mx-auto text-4xl animate-pulse">⏳</div>
+              <h1 className="text-xl font-bold text-white">Registro en revisión</h1>
+              <p className="text-gray-400 text-sm leading-relaxed">
+                Hola <span className="text-white font-semibold">{accesoDenegado.nombre}</span>. Tu solicitud de registro como repartidor está siendo revisada por el administrador de La Crayola.
+              </p>
+              <p className="text-yellow-500 text-xs font-semibold">
+                Te avisaremos en cuanto tu cuenta sea activada.
+              </p>
+            </>
+          ) : accesoDenegado.estado_registro === 'rechazado' ? (
+            <>
+              <div className="w-20 h-20 bg-red-500/10 border border-red-500/20 rounded-3xl flex items-center justify-center mx-auto text-4xl">❌</div>
+              <h1 className="text-xl font-bold text-white">Solicitud Rechazada</h1>
+              <p className="text-gray-400 text-sm leading-relaxed">
+                Lo sentimos, <span className="text-white font-semibold">{accesoDenegado.nombre}</span>. Tu solicitud de ingreso para el sistema de reparto fue rechazada.
+              </p>
+              <p className="text-red-400 text-xs leading-relaxed">
+                Si consideras que es un error, por favor contacta al supervisor de operaciones.
+              </p>
+            </>
+          ) : (
+            <>
+              <div className="w-20 h-20 bg-red-500/10 border border-red-500/20 rounded-3xl flex items-center justify-center mx-auto text-4xl">🔒</div>
+              <h1 className="text-xl font-bold text-white">Acceso Restringido</h1>
+              <p className="text-gray-400 text-sm leading-relaxed">
+                Esta cuenta (<span className="text-white font-semibold">{accesoDenegado.nombre}</span>) no está registrada o autorizada como repartidor/shopper activo.
+              </p>
+              <p className="text-red-400 text-xs leading-relaxed">
+                Por favor, solicita al administrador que agregue tu correo en la Consola del Administrador.
+              </p>
+            </>
+          )}
+          
+          <form action={logout}>
+            <button type="submit" className="w-full bg-[#00b074] hover:bg-[#008f5d] text-white font-bold py-3.5 rounded-2xl transition flex items-center justify-center gap-2 text-sm cursor-pointer">
+              Cerrar sesión
+            </button>
+          </form>
+        </div>
+      </div>
+    )
+  }
 
   if (repartidor && repartidor.estado === 'BLOQUEADO') {
     return (
