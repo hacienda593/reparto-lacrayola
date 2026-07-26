@@ -3,8 +3,15 @@ import { useState, useTransition } from 'react'
 import { login } from '@/actions/auth'
 import { Loader2 } from 'lucide-react'
 
+const ROLES = [
+  { key: 'admin',      emoji: '🖥️', label: 'Admin' },
+  { key: 'comprador',  emoji: '🧺', label: 'Comprador' },
+  { key: 'repartidor', emoji: '🛵', label: 'Repartidor' },
+]
+
 export default function LoginPage() {
   const [error, setError]       = useState('')
+  const [rolDeseado, setRolDeseado] = useState('comprador')
   const [pending, startTransition] = useTransition()
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -35,6 +42,29 @@ export default function LoginPage() {
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider block mb-2">
+              Entrar como
+            </label>
+            <input type="hidden" name="rolDeseado" value={rolDeseado} />
+            <div className="grid grid-cols-3 gap-2">
+              {ROLES.map(r => (
+                <button
+                  key={r.key}
+                  type="button"
+                  onClick={() => setRolDeseado(r.key)}
+                  className={`flex flex-col items-center gap-1 py-3 rounded-2xl border-2 text-xs font-semibold transition
+                    ${rolDeseado === r.key
+                      ? 'border-[#00b074] bg-[#00b074]/10 text-[#00b074]'
+                      : 'border-[#2d3748] bg-[#181d24] text-gray-400 hover:border-gray-600'}`}
+                >
+                  <span className="text-xl">{r.emoji}</span>
+                  {r.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div>
             <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider block mb-2">
               Email

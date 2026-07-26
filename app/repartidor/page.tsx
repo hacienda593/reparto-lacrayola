@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
+import Link from 'next/link'
 import { useAuth } from '@/context/AuthContext'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
@@ -57,13 +58,18 @@ export default function RepartidorPage() {
   // (ej. un comprador viendo brevemente la pantalla de repartidor, o viceversa).
   const [modoConfirmado, setModoConfirmado] = useState(false)
 
-  // Si venimos redirigidos desde /caja (recien terminada una compra), aterrizar
-  // directo en el modo comprador para ver el traspaso al motorizado o "Entregar yo mismo",
-  // en vez de caer por defecto en el modo repartidor donde esas opciones no se ven.
+  // Si el login ya pregunto el rol (admin/comprador/repartidor), o si venimos
+  // redirigidos desde /caja, el modo llega explicito por la URL — se usa
+  // directo sin adivinar por nombre/vehiculo, que era lento y parpadeaba.
+  const modoExplicitoRef = useRef<'comprador' | 'repartidor' | null>(null)
   useEffect(() => {
     if (typeof window === 'undefined') return
     const params = new URLSearchParams(window.location.search)
-    if (params.get('modo') === 'comprador') setModo('comprador')
+    const m = params.get('modo')
+    if (m === 'comprador' || m === 'repartidor') {
+      modoExplicitoRef.current = m
+      setModo(m)
+    }
   }, [])
   // Clasificacion interna del comprador (no afecta el seguimiento que ve el cliente):
   // inicio (pool sin tomar) / aceptadas (tomadas, sin iniciar) / preparando (comprando) /
@@ -201,13 +207,21 @@ export default function RepartidorPage() {
       }
       setRepartidor(rep as any)
 
-      // Determinar el modo esperado según el rol o perfil del colaborador
-      const isShopper = rol === 'comprador' || 
-                        rol === 'comprador-repartidor' ||
-                        rep.nombre?.toLowerCase().includes('shopper') || 
-                        rep.email?.toLowerCase().includes('shopper') || 
-                        rep.vehiculo === 'pie'
-      const expectedModo = isShopper ? 'comprador' : 'repartidor'
+      // Determinar el modo esperado: si el login ya lo indico explicitamente
+      // (?modo=comprador|repartidor en la URL), se usa eso directo — solo se
+      // adivina por nombre/vehiculo como respaldo si no vino explicito
+      // (ej. alguien que llega a /repartidor sin pasar por el login nuevo).
+      let expectedModo: 'comprador' | 'repartidor'
+      if (modoExplicitoRef.current) {
+        expectedModo = modoExplicitoRef.current
+      } else {
+        const isShopper = rol === 'comprador' ||
+                          rol === 'comprador-repartidor' ||
+                          rep.nombre?.toLowerCase().includes('shopper') ||
+                          rep.email?.toLowerCase().includes('shopper') ||
+                          rep.vehiculo === 'pie'
+        expectedModo = isShopper ? 'comprador' : 'repartidor'
+      }
       if (modo !== expectedModo) {
         setModo(expectedModo)
       }
@@ -728,10 +742,10 @@ export default function RepartidorPage() {
                   <div className="text-lg font-extrabold">{pedidos.length} pedidos</div>
                 </div>
               )}
-              <a href="/repartidor/perfil"
+              <Link href="/repartidor/perfil"
                 className="w-9 h-9 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center transition">
                 <UserCircle size={20} />
-              </a>
+              </Link>
             </div>
           </div>
           {/* Dynamic Role Switcher (🧺 Compras / 🛵 Entregas) - Solo para rol híbrido 'comprador-repartidor' */}
@@ -1275,13 +1289,13 @@ export default function RepartidorPage() {
               <span className="text-[10px] font-bold">{item.label}</span>
             </button>
           ))}
-          <a
+          <Link
             href="/repartidor/perfil"
             className="flex-1 flex flex-col items-center justify-center gap-0.5 py-2.5 text-slate-400"
           >
             <UserCircle size={20} />
             <span className="text-[10px] font-bold">Perfil</span>
-          </a>
+          </Link>
         </div>
       )}
 
