@@ -5,6 +5,8 @@ import { createClient } from '@/lib/supabase/client'
 import { Loader2, CheckCircle2, AlertTriangle, Navigation, Phone, MessageCircle, Truck, RotateCcw } from 'lucide-react'
 
 const EMOJIS: Record<string, string> = {}
+function fmt(n: number) { return '$' + (n ?? 0).toFixed(2) }
+
 function emojiProd(n: string) {
   const s = n.toLowerCase()
   if (/brocoli|acelga|lechuga|zanahoria|papa|cebolla|ajo|tomate|vegetal/.test(s)) return '🥦'
@@ -22,6 +24,30 @@ function emojiProd(n: string) {
   return '📦'
 }
 
+// Orden aproximado de las góndolas en un super típico (Tuti/Tía/La Crayola):
+// se recorre la tienda una sola vez en vez de ir y venir entre pasillos.
+const ORDEN_GONDOLA = [
+  'frutas', 'verduras', 'panaderia', 'panadería', 'lacteos', 'lácteos',
+  'carnes', 'embutidos', 'pescados', 'mariscos',
+  'abarrotes', 'granos', 'enlatados', 'condimentos', 'aceites',
+  'snacks', 'golosinas', 'galletas',
+  'bebidas', 'aguas',
+  'limpieza', 'hogar',
+  'cuidado personal', 'higiene', 'bebe', 'bebé',
+  'mascotas',
+  'libreria', 'librería', 'papeleria', 'papelería', 'manualidades',
+]
+
+function ordenarPorGondola<T extends { seccion: string | null }>(items: T[]): T[] {
+  function prioridad(seccion: string | null): number {
+    if (!seccion) return ORDEN_GONDOLA.length + 1
+    const s = seccion.toLowerCase()
+    const idx = ORDEN_GONDOLA.findIndex(g => s.includes(g))
+    return idx === -1 ? ORDEN_GONDOLA.length : idx
+  }
+  return [...items].sort((a, b) => prioridad(a.seccion) - prioridad(b.seccion))
+}
+
 type Tab = 'lista' | 'chat' | 'entrega'
 
 export default function PickingPage() {
@@ -37,6 +63,7 @@ export default function PickingPage() {
   const [prodActivo,  setProdActivo]  = useState<string | null>(null)
   const [agotadoOpen, setAgotadoOpen] = useState<string | null>(null)
   const [guardando,   setGuardando]   = useState(false)
+  const [expandido,   setExpandidoProd] = useState<string | null>(null)
   const [tab,         setTab]         = useState<Tab>('lista')
   const [chatMsg,     setChatMsg]     = useState('')
   const [mensajes,    setMensajes]    = useState<{ texto: string; mio: boolean }[]>([])
@@ -59,25 +86,27 @@ export default function PickingPage() {
     setPedido(ped)
     const { data: items } = await supabase.from('ol_pedido_items').select('*').eq('pedido_id', asig.pedido_id)
 
-    // Obtener imagen_url y codigo_barras de ol_productos
+    // Obtener imagen_url, marca y codigo_barras de ol_productos
     const codigos = (items ?? []).map((it: any) => it.codigo).filter(Boolean)
-    let prodMap: Record<string, { descripcion: string | null; imagen_url: string | null; codigo_barras: string | null }> = {}
+    let prodMap: Record<string, { descripcion: string | null; imagen_url: string | null; codigo_barras: string | null; marca: string | null }> = {}
     if (codigos.length > 0) {
       const { data: prods } = await supabase
         .from('ol_productos')
-        .select('codigo, descripcion, imagen_url, codigo_barras')
+        .select('codigo, descripcion, imagen_url, codigo_barras, marca')
         .in('codigo', codigos)
       if (prods) {
         prods.forEach((p: any) => {
-          prodMap[p.codigo] = { descripcion: p.descripcion, imagen_url: p.imagen_url, codigo_barras: p.codigo_barras }
+          prodMap[p.codigo] = { descripcion: p.descripcion, imagen_url: p.imagen_url, codigo_barras: p.codigo_barras, marca: p.marca }
         })
       }
     }
 
-    setProductos((items ?? []).map((it: any) => ({
+    const listaProductos = (items ?? []).map((it: any) => ({
       id: it.id,
       codigo:    it.codigo,
       nombre:    prodMap[it.codigo]?.descripcion ?? it.descripcion ?? it.nombre_producto ?? it.nombre ?? 'Producto',
+      marca:     prodMap[it.codigo]?.marca ?? null,
+      precio:    it.precio_unitario ?? null,
       cantidad:  it.cantidad ?? 1,
       seccion:   it.categoria ?? it.seccion ?? null,
       completado: it.picking_completado ?? false,
@@ -85,7 +114,9 @@ export default function PickingPage() {
       reemplazo:  it.picking_reemplazo  ?? null,
       imagen_url:    prodMap[it.codigo]?.imagen_url ?? null,
       codigo_barras: prodMap[it.codigo]?.codigo_barras ?? null,
-    })))
+    }))
+
+    setProductos(ordenarPorGondola(listaProductos))
     setCargando(false)
   }
 
@@ -522,7 +553,9 @@ export default function PickingPage() {
             )}
             <p className="text-gray-500 text-xs font-bold uppercase tracking-wider mb-3">Lista de recolección</p>
             <div className="space-y-2">
-              {productos.map(prod => (
+              {productos.map(prod => {
+                const estaExpandido = expandido === prod.id
+                return (
                 <div key={prod.id}
                   className={`bg-[#181d24] border rounded-2xl p-3.5 transition
                     ${prod.completado ? 'border-[#00b074]/30' : prod.agotado ? 'border-[#ff9f1c]/30' : 'border-[#2d3748]'}`}>
@@ -535,15 +568,26 @@ export default function PickingPage() {
                         emojiProd(prod.nombre)
                       )}
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className={`text-sm font-semibold truncate ${prod.completado ? 'text-gray-500 line-through' : 'text-white'}`}>
+                    <button
+                      type="button"
+                      onClick={() => setExpandidoProd(estaExpandido ? null : prod.id)}
+                      className="flex-1 min-w-0 text-left bg-transparent border-none p-0 cursor-pointer"
+                    >
+                      <p className={`text-sm font-semibold ${estaExpandido ? '' : 'truncate'} ${prod.completado ? 'text-gray-500 line-through' : 'text-white'}`}>
                         {prod.reemplazo === 'similar' ? `${prod.nombre} (Reemplazo)` : prod.nombre}
                       </p>
                       <div className="flex items-center gap-2 mt-0.5">
                         {prod.seccion && <span className="text-gray-600 text-[10px] uppercase tracking-wider">{prod.seccion}</span>}
                         <span className="text-gray-500 text-xs">Cant: <span className="text-gray-300">{prod.cantidad}</span></span>
                       </div>
-                    </div>
+                      {estaExpandido && (
+                        <div className="mt-2 pt-2 border-t border-[#2d3748] space-y-1 text-xs text-gray-400">
+                          {prod.marca && <div>Marca: <span className="text-gray-200">{prod.marca}</span></div>}
+                          {prod.codigo && <div>Código: <span className="text-gray-200 font-mono">{prod.codigo}</span></div>}
+                          {prod.precio != null && <div>Precio: <span className="text-[#00b074] font-bold">{fmt(prod.precio)}</span></div>}
+                        </div>
+                      )}
+                    </button>
 
                     {/* Acciones según estado */}
                     {prod.completado && (
@@ -587,7 +631,7 @@ export default function PickingPage() {
                     )}
                   </div>
                 </div>
-              ))}
+              )})}
             </div>
 
             {listo && (
