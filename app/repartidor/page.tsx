@@ -235,8 +235,8 @@ export default function RepartidorPage() {
       } else {
         const isShopper = rol === 'comprador' ||
                           rol === 'comprador-repartidor' ||
-                          rep.nombre?.toLowerCase().includes('shopper') ||
-                          rep.email?.toLowerCase().includes('shopper') ||
+                          rep.nombre?.toLowerCase()?.includes('shopper') ||
+                          rep.email?.toLowerCase()?.includes('shopper') ||
                           rep.vehiculo === 'pie'
         expectedModo = isShopper ? 'comprador' : 'repartidor'
       }
