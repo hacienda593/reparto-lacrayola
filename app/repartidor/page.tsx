@@ -47,7 +47,7 @@ export default function RepartidorPage() {
   // todavia) — modulo independiente del comprador, solo visible en modo repartidor.
   const [poolEntregas, setPoolEntregas] = useState<any[]>([])
   const [cargando,   setCargando]   = useState(true)
-  const [repartidor, setRepartidor] = useState<{ id: string; nombre: string; comision_valor: number; efectivo_en_mano: number; estado: string; vehiculo: string | null; email: string | null } | null>(null)
+  const [repartidor, setRepartidor] = useState<{ id: string; nombre: string; comision_valor: number; efectivo_en_mano: number; estado: string; vehiculo: string | null; email: string | null; conectado: boolean } | null>(null)
   const [procesando, setProcesando] = useState<string | null>(null)
   const [cobro,      setCobro]      = useState<Record<string, string>>({})
   
@@ -207,7 +207,7 @@ export default function RepartidorPage() {
     try {
       const { data: rep, error: errRep } = await supabase
         .from('rep_repartidores')
-        .select('id,nombre,email,comision_valor,efectivo_en_mano,estado,estado_registro,activo,vehiculo')
+        .select('id,nombre,email,comision_valor,efectivo_en_mano,estado,estado_registro,activo,vehiculo,conectado')
         .eq('user_id', userId)
         .single()
 
@@ -231,7 +231,10 @@ export default function RepartidorPage() {
         setCargando(false)
         return
       }
-      setRepartidor(rep as any)
+      setRepartidor({
+        ...rep,
+        conectado: rep.conectado ?? true
+      } as any)
 
       // Determinar el modo esperado: si el login ya lo indico explicitamente
       // (?modo=comprador|repartidor en la URL), se usa eso directo — solo se
@@ -376,6 +379,23 @@ export default function RepartidorPage() {
     } finally {
       setCargando(false)
     }
+  }
+
+  async function toggleConexion() {
+    if (!repartidor) return
+    const nuevoEstado = !repartidor.conectado
+    setProcesando(repartidor.id)
+    const { error } = await supabase
+      .from('rep_repartidores')
+      .update({ conectado: nuevoEstado })
+      .eq('id', repartidor.id)
+
+    if (error) {
+      alert('Error al cambiar de estado: ' + error.message)
+    } else {
+      setRepartidor(r => r ? { ...r, conectado: nuevoEstado } : null)
+    }
+    setProcesando(null)
   }
 
   async function aceptarPedido(pedidoId: string, numero: number, nombreCliente: string, telefonoCliente: string) {
@@ -872,6 +892,18 @@ export default function RepartidorPage() {
             <div>
               <p className="text-green-200 text-xs">Hola,</p>
               <h1 className="text-xl font-extrabold">{repartidor?.nombre ?? 'Repartidor'}</h1>
+              <button
+                onClick={toggleConexion}
+                disabled={procesando === repartidor?.id}
+                className={`mt-1 flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded-full border transition-all cursor-pointer active:scale-95 disabled:opacity-50 select-none ${
+                  repartidor?.conectado
+                    ? 'bg-emerald-500/20 border-emerald-400/30 text-emerald-200'
+                    : 'bg-slate-500/20 border-slate-400/30 text-slate-300'
+                }`}
+              >
+                <span className={`w-1.5 h-1.5 rounded-full ${repartidor?.conectado ? 'bg-emerald-400 animate-pulse' : 'bg-slate-400'}`} />
+                {repartidor?.conectado ? 'ON Turno Activo' : 'OFF Desconectado'}
+              </button>
             </div>
             <div className="flex items-center gap-3">
               {modo === 'repartidor' ? (
@@ -1022,9 +1054,17 @@ export default function RepartidorPage() {
       {modo === 'repartidor' && (
         <div className="px-4 pt-4">
           <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-            📦 Listas para recoger ({poolEntregas.length})
+            📦 Listas para recoger
           </p>
-          {poolEntregas.length === 0 ? (
+          {!repartidor?.conectado ? (
+            <div className="bg-white border border-slate-250/60 rounded-3xl p-8 text-center text-xs text-slate-500 space-y-2.5 shadow-xs">
+              <span className="text-3xl block">😴</span>
+              <div className="font-extrabold text-slate-700">Estás desconectado</div>
+              <p className="text-[10px] text-slate-400 max-w-xs mx-auto leading-relaxed">
+                Activa tu turno en la cabecera (haciendo clic en **OFF Desconectado**) para comenzar a recibir entregas en San Miguel de los Bancos.
+              </p>
+            </div>
+          ) : poolEntregas.length === 0 ? (
             <div className="bg-white border border-slate-100 rounded-2xl p-4 text-center text-xs text-slate-400">
               No hay entregas esperando motorizado en este momento.
             </div>
@@ -1093,7 +1133,15 @@ export default function RepartidorPage() {
       <div className="px-4 py-4 space-y-4">
         {modo === 'comprador' && pestana === 'inicio' ? (
           /* VISTA: PEDIDOS NUEVOS EN ESPERA (POOL) */
-          pedidosEspera.length === 0 ? (
+          !repartidor?.conectado ? (
+            <div className="bg-white border border-slate-200/60 rounded-3xl p-10 text-center text-xs text-slate-500 space-y-2.5 shadow-xs">
+              <span className="text-3xl block">😴</span>
+              <div className="font-extrabold text-slate-700">Estás desconectado</div>
+              <p className="text-[10px] text-slate-400 max-w-xs mx-auto leading-relaxed">
+                Activa tu turno en la cabecera (haciendo clic en **OFF Desconectado**) para comenzar a recibir pedidos de supermercado.
+              </p>
+            </div>
+          ) : pedidosEspera.length === 0 ? (
             <div className="bg-white border border-slate-100 rounded-3xl p-12 text-center text-slate-400 text-xs shadow-xs space-y-2">
               <Package size={36} className="mx-auto text-slate-300" />
               <div className="font-semibold text-slate-600">No hay pedidos nuevos disponibles</div>

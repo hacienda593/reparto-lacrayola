@@ -590,85 +590,109 @@ export default function PickingPage() {
                     <span className="text-gray-500 text-[10px]">({grupo.items.length})</span>
                   </div>
                 )}
-                <div className="space-y-2">
-                  {grupo.items.map(prod => {
-                    const estaExpandido = expandido === prod.id
-                    return (
-                    <div key={prod.id}
-                      className={`bg-[#181d24] border rounded-2xl p-3.5 transition
-                        ${prod.completado ? 'border-[#00b074]/30' : prod.agotado ? 'border-[#ff9f1c]/30' : 'border-[#2d3748]'}`}>
-                      <div className="flex items-center gap-3">
-                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-xl shrink-0 overflow-hidden
-                          ${prod.completado ? 'bg-[#00b074]/10' : prod.agotado ? 'bg-[#ff9f1c]/10' : 'bg-[#2d3748]'}`}>
-                          {prod.imagen_url ? (
-                            <img src={prod.imagen_url} alt={prod.nombre} className="w-full h-full object-contain p-0.5" />
-                          ) : (
-                            emojiProd(prod.nombre)
-                          )}
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setExpandidoProd(estaExpandido ? null : prod.id)}
-                          className="flex-1 min-w-0 text-left bg-transparent border-none p-0 cursor-pointer"
-                        >
-                          <p className={`text-sm font-semibold leading-snug line-clamp-2 ${prod.completado ? 'text-gray-500 line-through' : 'text-white'}`}>
-                            {prod.reemplazo === 'similar' ? `${prod.nombre} (Reemplazo)` : prod.nombre}
-                          </p>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            <span className="text-gray-500 text-xs">Cant: <span className="text-gray-300">{prod.cantidad}</span></span>
-                          </div>
-                          {estaExpandido && (
-                            <div className="mt-2 pt-2 border-t border-[#2d3748] space-y-1 text-xs text-gray-400">
-                              {prod.marca && <div>Marca: <span className="text-gray-200">{prod.marca}</span></div>}
-                              {prod.codigo && <div>Código: <span className="text-gray-200 font-mono">{prod.codigo}</span></div>}
-                          {prod.precio != null && <div>Precio: <span className="text-[#00b074] font-bold">{fmt(prod.precio)}</span></div>}
-                        </div>
-                      )}
-                    </button>
+                <div className="space-y-3">
+                  {(() => {
+                    const seccionesMap = new Map<string, typeof grupo.items>()
+                    grupo.items.forEach(prod => {
+                      const sec = prod.seccion ? prod.seccion.trim() : 'General'
+                      if (!seccionesMap.has(sec)) {
+                        seccionesMap.set(sec, [])
+                      }
+                      seccionesMap.get(sec)!.push(prod)
+                    })
 
-                    {/* Acciones según estado */}
-                    {prod.completado && (
-                      <button onClick={() => deshacerCompletado(prod.id)}
-                        title="Deshacer — sacar de la canasta"
-                        className="w-9 h-9 bg-[#2d3748] rounded-xl flex items-center justify-center text-gray-400 shrink-0">
-                        <RotateCcw size={14} />
-                      </button>
-                    )}
-                    {prod.agotado && !prod.completado && (
-                      <div className="flex items-center gap-1 shrink-0">
-                        <AlertTriangle size={16} className="text-[#ff9f1c]" />
-                        <button onClick={() => deshacerCompletado(prod.id)}
-                          title="Deshacer agotado"
-                          className="w-8 h-8 bg-[#2d3748] rounded-xl flex items-center justify-center text-gray-400">
-                          <RotateCcw size={13} />
-                        </button>
+                    return Array.from(seccionesMap.entries()).map(([secName, secItems]) => (
+                      <div key={secName} className="space-y-2 mt-4 first:mt-0 bg-[#12161b]/35 border border-[#2d3748]/30 rounded-3xl p-3">
+                        <div className="flex items-center justify-between px-1.5 pb-1 select-none">
+                          <span className="text-gray-300 font-extrabold text-[10px] uppercase tracking-wider">🛒 Pasillo: {secName}</span>
+                          <span className="text-gray-500 font-bold text-[9px] bg-[#2d3748]/50 px-2 py-0.5 rounded-full">
+                            {secItems.filter(p => p.completado || p.agotado).length}/{secItems.length}
+                          </span>
+                        </div>
+                        <div className="space-y-2">
+                          {secItems.map(prod => {
+                            const estaExpandido = expandido === prod.id
+                            return (
+                              <div key={prod.id}
+                                className={`bg-[#181d24] border rounded-2xl p-3.5 transition
+                                  ${prod.completado ? 'border-[#00b074]/30' : prod.agotado ? 'border-[#ff9f1c]/30' : 'border-[#2d3748]'}`}>
+                                <div className="flex items-center gap-3">
+                                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-xl shrink-0 overflow-hidden
+                                    ${prod.completado ? 'bg-[#00b074]/10' : prod.agotado ? 'bg-[#ff9f1c]/10' : 'bg-[#2d3748]'}`}>
+                                    {prod.imagen_url ? (
+                                      <img src={prod.imagen_url} alt={prod.nombre} className="w-full h-full object-contain p-0.5" />
+                                    ) : (
+                                      emojiProd(prod.nombre)
+                                    )}
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => setExpandidoProd(estaExpandido ? null : prod.id)}
+                                    className="flex-1 min-w-0 text-left bg-transparent border-none p-0 cursor-pointer"
+                                  >
+                                    <p className={`text-sm font-semibold leading-snug line-clamp-2 ${prod.completado ? 'text-gray-500 line-through' : 'text-white'}`}>
+                                      {prod.reemplazo === 'similar' ? `${prod.nombre} (Reemplazo)` : prod.nombre}
+                                    </p>
+                                    <div className="flex items-center gap-2 mt-0.5">
+                                      <span className="text-gray-500 text-xs">Cant: <span className="text-gray-300">{prod.cantidad}</span></span>
+                                    </div>
+                                    {estaExpandido && (
+                                      <div className="mt-2 pt-2 border-t border-[#2d3748] space-y-1 text-xs text-gray-400">
+                                        {prod.marca && <div>Marca: <span className="text-gray-200">{prod.marca}</span></div>}
+                                        {prod.codigo && <div>Código: <span className="text-gray-200 font-mono">{prod.codigo}</span></div>}
+                                        {prod.precio != null && <div>Precio: <span className="text-[#00b074] font-bold">{fmt(prod.precio)}</span></div>}
+                                      </div>
+                                    )}
+                                  </button>
+
+                                  {/* Acciones según estado */}
+                                  {prod.completado && (
+                                    <button onClick={() => deshacerCompletado(prod.id)}
+                                      title="Deshacer — sacar de la canasta"
+                                      className="w-9 h-9 bg-[#2d3748] rounded-xl flex items-center justify-center text-gray-400 shrink-0">
+                                      <RotateCcw size={14} />
+                                    </button>
+                                  )}
+                                  {prod.agotado && !prod.completado && (
+                                    <div className="flex items-center gap-1 shrink-0">
+                                      <AlertTriangle size={16} className="text-[#ff9f1c]" />
+                                      <button onClick={() => deshacerCompletado(prod.id)}
+                                        title="Deshacer agotado"
+                                        className="w-8 h-8 bg-[#2d3748] rounded-xl flex items-center justify-center text-gray-400">
+                                        <RotateCcw size={13} />
+                                      </button>
+                                    </div>
+                                  )}
+                                  {!prod.completado && !prod.agotado && (
+                                    <div className="flex gap-1.5 shrink-0">
+                                      {/* Escanear */}
+                                      <button onClick={() => abrirCamara(prod.id)} title="Escanear código"
+                                        className="w-9 h-9 bg-[#2d3748] rounded-xl flex items-center justify-center text-gray-400">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                          <polyline points="7 3 3 3 3 7"/><polyline points="17 3 21 3 21 7"/>
+                                          <polyline points="7 21 3 21 3 17"/><polyline points="17 21 21 21 21 17"/>
+                                        </svg>
+                                      </button>
+                                      {/* Listo */}
+                                      <button onClick={() => marcarCompletado(prod.id)} title="Añadir a canasta"
+                                        className="w-9 h-9 bg-[#00b074] rounded-xl flex items-center justify-center text-white">
+                                        <CheckCircle2 size={15} />
+                                      </button>
+                                      {/* Agotado */}
+                                      <button onClick={() => setAgotadoOpen(prod.id)} title="Sin stock"
+                                        className="w-9 h-9 bg-[#2d3748] rounded-xl flex items-center justify-center text-[#ff9f1c]">
+                                        <AlertTriangle size={15} />
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
                       </div>
-                    )}
-                    {!prod.completado && !prod.agotado && (
-                      <div className="flex gap-1.5 shrink-0">
-                        {/* Escanear */}
-                        <button onClick={() => abrirCamara(prod.id)} title="Escanear código"
-                          className="w-9 h-9 bg-[#2d3748] rounded-xl flex items-center justify-center text-gray-400">
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                            <polyline points="7 3 3 3 3 7"/><polyline points="17 3 21 3 21 7"/>
-                            <polyline points="7 21 3 21 3 17"/><polyline points="17 21 21 21 21 17"/>
-                          </svg>
-                        </button>
-                        {/* Listo */}
-                        <button onClick={() => marcarCompletado(prod.id)} title="Añadir a canasta"
-                          className="w-9 h-9 bg-[#00b074] rounded-xl flex items-center justify-center text-white">
-                          <CheckCircle2 size={15} />
-                        </button>
-                        {/* Agotado */}
-                        <button onClick={() => setAgotadoOpen(prod.id)} title="Sin stock"
-                          className="w-9 h-9 bg-[#2d3748] rounded-xl flex items-center justify-center text-[#ff9f1c]">
-                          <AlertTriangle size={15} />
-                        </button>
-                      </div>
-                    )}
-                      </div>
-                    </div>
-                  )})}
+                    ))
+                  })()}
                 </div>
               </div>
             ))}
