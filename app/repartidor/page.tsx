@@ -5,7 +5,7 @@ import { useAuth } from '@/context/AuthContext'
 import { supabase } from '@/lib/supabase'
 import { logout } from '@/actions/auth'
 import { useRouter } from 'next/navigation'
-import { Loader2, MapPin, CheckCircle, Package, Phone, Navigation, DollarSign, UserCircle, ArrowRightLeft, X } from 'lucide-react'
+import { Loader2, MapPin, CheckCircle, Package, Phone, Navigation, DollarSign, UserCircle, ArrowRightLeft, X, AlertCircle } from 'lucide-react'
 
 function fmt(n: number) { return '$' + (n ?? 0).toFixed(2) }
 
@@ -59,6 +59,7 @@ export default function RepartidorPage() {
   // (ej. un comprador viendo brevemente la pantalla de repartidor, o viceversa).
   const [modoConfirmado, setModoConfirmado] = useState(false)
   const [accesoDenegado, setAccesoDenegado] = useState<{ nombre: string; estado_registro: string; activo: boolean } | null>(null)
+  const [errorCarga, setErrorCarga] = useState<string | null>(null)
   // Si la pantalla de carga se queda pegada mas de 8s, se muestra una salida
   // de emergencia (cerrar sesion) -- ver uso mas abajo, antes del return.
   const [cargaAtascada, setCargaAtascada] = useState(false)
@@ -369,8 +370,9 @@ export default function RepartidorPage() {
         shopper_nombre: shopperMap.get(a.shopper_id)?.nombre ?? 'Comprador',
         shopper_telefono: shopperMap.get(a.shopper_id)?.telefono ?? '',
       })))
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error loading driver data:', err)
+      setErrorCarga(err?.message || String(err) || 'Error de carga desconocido')
     } finally {
       setCargando(false)
     }
@@ -703,6 +705,39 @@ export default function RepartidorPage() {
     } finally {
       setProcesando(null)
     }
+  }
+
+  if (errorCarga) {
+    return (
+      <div className="min-h-screen bg-[#0c0f12] text-white flex flex-col items-center justify-center p-6 text-center"
+        style={{ backgroundImage: 'radial-gradient(at 0% 0%, rgba(220,38,38,0.07) 0px, transparent 50%)' }}>
+        <div className="w-full max-w-md bg-[#181d24] border border-[#2d3748] rounded-3xl p-8 text-center space-y-6 shadow-2xl">
+          <div className="w-16 h-16 bg-red-500/10 border border-red-500/20 rounded-full flex items-center justify-center mx-auto text-red-500">
+            <AlertCircle size={28} />
+          </div>
+          <h1 className="text-xl font-bold text-white">Error al cargar datos</h1>
+          <p className="text-gray-400 text-sm leading-relaxed">
+            Ocurrió un error al intentar cargar los datos del repartidor desde el servidor:
+          </p>
+          <div className="bg-[#0c0f12] border border-[#2d3748] rounded-2xl p-4 text-left font-mono text-xs overflow-x-auto text-red-400 whitespace-pre-wrap max-h-48">
+            {errorCarga}
+          </div>
+          <div className="flex gap-3">
+            <button
+              onClick={() => { setErrorCarga(null); setCargando(true); setModoConfirmado(false); cargar(user!.id) }}
+              className="flex-1 bg-[#00b074] hover:bg-[#008f5d] text-white font-bold py-3.5 rounded-2xl transition text-sm cursor-pointer"
+            >
+              Reintentar
+            </button>
+            <form action={logout} className="flex-1">
+              <button type="submit" className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-3.5 rounded-2xl transition text-sm cursor-pointer">
+                Cerrar sesión
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   if (!user || cargando || !modoConfirmado) return (
