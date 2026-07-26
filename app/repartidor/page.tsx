@@ -681,8 +681,11 @@ export default function RepartidorPage() {
   const pedidosPorEntregar  = pedidos.filter(p => p.estado === 'recolectado')
   const pedidosEntregadasRep = pedidos.filter(p =>
     (p.estado === 'en_ruta' || p.estado === 'entregado') && p.rider_id && p.rider_id !== p.shopper_id)
+  // Incluye 'en_ruta' ademas de 'entregado': mientras el comprador va en camino
+  // entregando el mismo, el pedido debe seguir visible aqui (antes desaparecia
+  // de las 6 pestañas hasta quedar "entregado", como si se hubiera perdido).
   const pedidosEntregadasYo = pedidos.filter(p =>
-    p.estado === 'entregado' && p.rider_id && p.rider_id === p.shopper_id)
+    (p.estado === 'en_ruta' || p.estado === 'entregado') && p.rider_id && p.rider_id === p.shopper_id)
 
   const listaActivaComprador: PedidoAsignado[] =
     pestana === 'aceptadas'     ? pedidosAceptadas :
@@ -1098,6 +1101,16 @@ export default function RepartidorPage() {
                         🛒 Continuar compra en supermercados
                       </a>
                     )}
+                  </div>
+                )}
+
+                {/* Vista Compras - Entrega propia en curso (comprador que eligio "Entregar yo mismo") */}
+                {modo === 'comprador' && p.estado === 'en_ruta' && p.rider_id === p.shopper_id && (
+                  <div className="pt-2">
+                    <a href={`/entrega/${p.asignacion_id}`}
+                      className="w-full flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 text-white font-extrabold py-3.5 rounded-xl transition text-sm shadow-sm text-center">
+                      🛵 Continuar mi entrega
+                    </a>
                   </div>
                 )}
 
