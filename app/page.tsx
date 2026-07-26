@@ -41,9 +41,11 @@ export default async function Home() {
     )
   }
 
-  // 4. Si es un repartidor aprobado y activo, redirigir a pedidos
+  // 4. Si es un repartidor aprobado y activo, redirigir directo a /repartidor.
+  // (antes iba a /pedidos, que a su vez redirigia otra vez a /repartidor —
+  // ese doble salto era parte de la lentitud/"rebote" al iniciar sesion)
   if (rep && rep.estado_registro === 'aprobado' && rep.activo) {
-    redirect('/pedidos')
+    redirect('/repartidor')
   }
 
   // 5. En cualquier otro caso, mostrar pantalla de estado de acceso o sin autorización

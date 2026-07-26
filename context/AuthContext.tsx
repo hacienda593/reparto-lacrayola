@@ -32,29 +32,25 @@ async function resolverAcceso(u: User): Promise<{
   return Promise.race([
     (async () => {
       try {
-        const { data: rolData } = await supabase
-          .from('rep_roles')
-          .select('rol, activo')
-          .eq('user_id', u.id)
-          .single()
+        // Las tres consultas no dependen entre si para poder lanzarlas -- solo
+        // dependen de CUAL de los resultados termine usandose. Pedirlas en paralelo
+        // desde el inicio (en vez de una tras otra) reduce el tiempo de resolucion,
+        // que era la causa de que a veces se agotara el margen de 6s de abajo y
+        // sacara a un colaborador valido por lentitud, no por falta de acceso real.
+        const [{ data: rolData }, { data: repPorUserId }, { data: repPorEmail }] = await Promise.all([
+          supabase.from('rep_roles').select('rol, activo').eq('user_id', u.id).single(),
+          supabase.from('rep_repartidores').select('id').eq('user_id', u.id).single(),
+          supabase.from('rep_repartidores').select('id, estado_registro, activo').eq('email', u.email ?? '').single(),
+        ])
 
         if (rolData?.activo) {
           const r = rolData.rol as Rol
-          let repartidorId: string | null = null
           const isMobileCollab = r === 'repartidor' || r === 'comprador' || r === 'comprador-repartidor'
-          if (isMobileCollab) {
-            const { data: rep } = await supabase
-              .from('rep_repartidores').select('id').eq('user_id', u.id).single()
-            repartidorId = rep?.id ?? null
-          }
+          const repartidorId = isMobileCollab ? (repPorUserId?.id ?? null) : null
           return { estado: 'autorizado' as EstadoAcceso, rol: r, repartidorId }
         }
 
-        const { data: rep } = await supabase
-          .from('rep_repartidores')
-          .select('id, estado_registro, activo')
-          .eq('email', u.email ?? '')
-          .single()
+        const rep = repPorEmail
 
         if (!rep)                                { return { estado: 'sin_rol' as EstadoAcceso,   rol: null, repartidorId: null } }
         if (rep.estado_registro === 'rechazado') { return { estado: 'rechazado' as EstadoAcceso, rol: null, repartidorId: null } }
