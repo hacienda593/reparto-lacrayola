@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabase'
 import Sidebar from '@/components/Sidebar'
 import { Plus, X, Check, Loader2, Shield, Eye, EyeOff, AlertCircle, Trash2 } from 'lucide-react'
 
-type Rol = 'superadmin' | 'admin' | 'supervisor' | 'contador'
+type Rol = 'superadmin' | 'admin' | 'supervisor' | 'contador' | 'comprador' | 'repartidor' | 'comprador-repartidor'
 
 interface UsuarioInterno {
   user_id:   string
@@ -19,6 +19,9 @@ const ROLES: { key: Rol; label: string; desc: string; color: string }[] = [
   { key: 'admin',      label: 'Administrador', desc: 'Gestiona pedidos, repartidores y liquidaciones', color: 'text-blue-700 bg-blue-100' },
   { key: 'supervisor', label: 'Supervisor',    desc: 'Asigna pedidos y monitorea entregas', color: 'text-green-700 bg-green-100' },
   { key: 'contador',   label: 'Contador',      desc: 'Vigila caja, arqueos y reportes financieros', color: 'text-amber-700 bg-amber-100' },
+  { key: 'comprador',  label: 'Comprador (Shopper)', desc: 'Realiza picking en el super', color: 'text-indigo-700 bg-indigo-100' },
+  { key: 'repartidor', label: 'Repartidor (Motorizado)', desc: 'Realiza entregas al cliente', color: 'text-rose-700 bg-rose-100' },
+  { key: 'comprador-repartidor', label: 'Híbrido (Dual)', desc: 'Shopper/Motorizado con switch en app', color: 'text-cyan-700 bg-cyan-100' },
 ]
 
 export default function UsuariosPage() {
@@ -35,7 +38,7 @@ export default function UsuariosPage() {
     const { data } = await supabase
       .from('rep_roles')
       .select('user_id, rol, activo, created_at')
-      .in('rol', ['superadmin','admin','supervisor','contador'])
+      .in('rol', ['superadmin','admin','supervisor','contador','comprador','repartidor','comprador-repartidor'])
       .order('created_at')
     setLista((data ?? []) as UsuarioInterno[])
     setCargando(false)
