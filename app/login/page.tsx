@@ -20,7 +20,12 @@ export default function LoginPage() {
     const fd = new FormData(e.currentTarget)
     startTransition(async () => {
       const res = await login(fd)
-      if (res?.error) setError(res.error)
+      if (res?.error) { setError(res.error); return }
+      // Recarga completa (no navegacion suave del router) a proposito: se
+      // detecto que la navegacion interna de Next se puede quedar colgada
+      // especificamente al entrar como comprador/repartidor, mientras que
+      // una recarga completa de la misma URL destino siempre funciona.
+      if (res?.redirectTo) window.location.href = res.redirectTo
     })
   }
 

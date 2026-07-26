@@ -19,10 +19,30 @@ export async function login(formData: FormData) {
   // rol que el usuario selecciono al entrar -- en vez de adivinarlo despues
   // por nombre/vehiculo (lo que causaba lentitud y pantallas parpadeando
   // entre modulos mientras se resolvia).
-  const [{ data: rolData }, { data: rep }] = await Promise.all([
+  const [
+    { data: rolDataResult },
+    { data: repPorUserId },
+    { data: repPorEmail }
+  ] = await Promise.all([
     supabase.from('rep_roles').select('rol, activo').eq('user_id', user.id).single(),
     supabase.from('rep_repartidores').select('id, estado_registro, activo, vehiculo').eq('user_id', user.id).single(),
+    supabase.from('rep_repartidores').select('id, estado_registro, activo, vehiculo').eq('email', user.email ?? '').single(),
   ])
+
+  let rolData = rolDataResult
+  let rep = repPorUserId || repPorEmail
+
+  // Si existe el repartidor por correo pero no está enlazado por user_id, lo enlazamos ahora mismo
+  if (rep && !repPorUserId) {
+    try {
+      const rolAsignado = rep.vehiculo === 'pie' ? 'comprador' : 'repartidor'
+      await supabase.from('rep_roles').upsert({ user_id: user.id, rol: rolAsignado, activo: true }, { onConflict: 'user_id' })
+      await supabase.from('rep_repartidores').update({ user_id: user.id }).eq('id', rep.id)
+      rolData = { rol: rolAsignado, activo: true } as any
+    } catch (e) {
+      console.error("Error linking driver profile on login:", e)
+    }
+  }
 
   const rolReal = rolData?.activo ? rolData.rol : null
   const esAdminReal = !!rolReal && ROLES_ADMIN.includes(rolReal)
@@ -30,12 +50,19 @@ export async function login(formData: FormData) {
   const esComprador  = esRepartidorAprobado && (rolReal === 'comprador' || rolReal === 'comprador-repartidor')
   const esMotorizado = esRepartidorAprobado && (rolReal === 'repartidor' || rolReal === 'comprador-repartidor' || !rolReal)
 
+  // No se usa redirect() de Next aqui a proposito: eso navega del lado del
+  // cliente usando el router interno (RSC/soft navigation), y se detecto que
+  // esa transicion especifica se puede quedar colgada para comprador/repartidor
+  // (un refresco manual de la misma URL si funcionaba siempre, lo que aislo el
+  // problema a esa navegacion suave, no a los datos ni al servidor). En vez de
+  // eso se devuelve la URL destino y el formulario de login hace una recarga
+  // completa (window.location.href), igual que un refresco manual.
   if (rolDeseado === 'admin') {
     if (!esAdminReal) {
       await supabase.auth.signOut()
       return { error: 'Esta cuenta no tiene permiso de administrador.' }
     }
-    redirect('/asignaciones')
+    return { redirectTo: '/asignaciones' }
   }
 
   if (rolDeseado === 'comprador') {
@@ -43,7 +70,7 @@ export async function login(formData: FormData) {
       await supabase.auth.signOut()
       return { error: 'Esta cuenta no esta registrada como repartidor/comprador aprobado.' }
     }
-    redirect('/repartidor?modo=comprador')
+    return { redirectTo: '/repartidor?modo=comprador' }
   }
 
   if (rolDeseado === 'repartidor') {
@@ -51,11 +78,10 @@ export async function login(formData: FormData) {
       await supabase.auth.signOut()
       return { error: 'Esta cuenta no esta registrada como repartidor/comprador aprobado.' }
     }
-    redirect('/repartidor?modo=repartidor')
+    return { redirectTo: '/repartidor?modo=repartidor' }
   }
 
-  // Sin seleccion valida: dejar que / decida (compatibilidad)
-  redirect('/')
+  return { redirectTo: '/' }
 }
 
 export async function logout() {
