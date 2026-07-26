@@ -38,14 +38,20 @@ const ORDEN_GONDOLA = [
   'libreria', 'librería', 'papeleria', 'papelería', 'manualidades',
 ]
 
-function ordenarPorGondola<T extends { seccion: string | null }>(items: T[]): T[] {
+function ordenarPorGondola<T extends { seccion: string | null; tienda_nombre?: string }>(items: T[]): T[] {
   function prioridad(seccion: string | null): number {
     if (!seccion) return ORDEN_GONDOLA.length + 1
     const s = seccion.toLowerCase()
     const idx = ORDEN_GONDOLA.findIndex(g => s.includes(g))
     return idx === -1 ? ORDEN_GONDOLA.length : idx
   }
-  return [...items].sort((a, b) => prioridad(a.seccion) - prioridad(b.seccion))
+  // Primero se agrupa por tienda (para no cruzar de un local a otro sin querer),
+  // y dentro de cada tienda se ordena por el recorrido tipico de gondolas.
+  return [...items].sort((a, b) => {
+    const t = (a.tienda_nombre ?? '').localeCompare(b.tienda_nombre ?? '')
+    if (t !== 0) return t
+    return prioridad(a.seccion) - prioridad(b.seccion)
+  })
 }
 
 type Tab = 'lista' | 'chat' | 'entrega'
@@ -86,35 +92,48 @@ export default function PickingPage() {
     setPedido(ped)
     const { data: items } = await supabase.from('ol_pedido_items').select('*').eq('pedido_id', asig.pedido_id)
 
-    // Obtener imagen_url, marca y codigo_barras de ol_productos
+    // Obtener imagen_url, marca, codigo_barras y tienda de ol_productos
     const codigos = (items ?? []).map((it: any) => it.codigo).filter(Boolean)
-    let prodMap: Record<string, { descripcion: string | null; imagen_url: string | null; codigo_barras: string | null; marca: string | null }> = {}
+    let prodMap: Record<string, { descripcion: string | null; imagen_url: string | null; codigo_barras: string | null; marca: string | null; tienda_id: string | null }> = {}
     if (codigos.length > 0) {
       const { data: prods } = await supabase
         .from('ol_productos')
-        .select('codigo, descripcion, imagen_url, codigo_barras, marca')
+        .select('codigo, descripcion, imagen_url, codigo_barras, marca, tienda_id')
         .in('codigo', codigos)
       if (prods) {
         prods.forEach((p: any) => {
-          prodMap[p.codigo] = { descripcion: p.descripcion, imagen_url: p.imagen_url, codigo_barras: p.codigo_barras, marca: p.marca }
+          prodMap[p.codigo] = { descripcion: p.descripcion, imagen_url: p.imagen_url, codigo_barras: p.codigo_barras, marca: p.marca, tienda_id: p.tienda_id }
         })
       }
     }
 
-    const listaProductos = (items ?? []).map((it: any) => ({
-      id: it.id,
-      codigo:    it.codigo,
-      nombre:    prodMap[it.codigo]?.descripcion ?? it.descripcion ?? it.nombre_producto ?? it.nombre ?? 'Producto',
-      marca:     prodMap[it.codigo]?.marca ?? null,
-      precio:    it.precio_unitario ?? null,
-      cantidad:  it.cantidad ?? 1,
-      seccion:   it.categoria ?? it.seccion ?? null,
-      completado: it.picking_completado ?? false,
-      agotado:    it.picking_agotado    ?? false,
-      reemplazo:  it.picking_reemplazo  ?? null,
-      imagen_url:    prodMap[it.codigo]?.imagen_url ?? null,
-      codigo_barras: prodMap[it.codigo]?.codigo_barras ?? null,
-    }))
+    // Nombre de cada tienda involucrada (un pedido puede combinar Tuti + Tia + La Crayola)
+    const tiendaIds = Array.from(new Set(Object.values(prodMap).map(p => p.tienda_id).filter(Boolean))) as string[]
+    let tiendaNombreMap: Record<string, string> = {}
+    if (tiendaIds.length > 0) {
+      const { data: tiendasData } = await supabase.from('ol_tiendas').select('id, nombre').in('id', tiendaIds)
+      ;(tiendasData ?? []).forEach((t: any) => { tiendaNombreMap[t.id] = t.nombre })
+    }
+
+    const listaProductos = (items ?? []).map((it: any) => {
+      const tid = prodMap[it.codigo]?.tienda_id ?? null
+      return {
+        id: it.id,
+        codigo:    it.codigo,
+        nombre:    prodMap[it.codigo]?.descripcion ?? it.descripcion ?? it.nombre_producto ?? it.nombre ?? 'Producto',
+        marca:     prodMap[it.codigo]?.marca ?? null,
+        precio:    it.precio_unitario ?? null,
+        cantidad:  it.cantidad ?? 1,
+        seccion:   it.categoria ?? it.seccion ?? null,
+        tienda_id: tid,
+        tienda_nombre: tid ? (tiendaNombreMap[tid] ?? 'Otra tienda') : 'Sin tienda asignada',
+        completado: it.picking_completado ?? false,
+        agotado:    it.picking_agotado    ?? false,
+        reemplazo:  it.picking_reemplazo  ?? null,
+        imagen_url:    prodMap[it.codigo]?.imagen_url ?? null,
+        codigo_barras: prodMap[it.codigo]?.codigo_barras ?? null,
+      }
+    })
 
     setProductos(ordenarPorGondola(listaProductos))
     setCargando(false)
@@ -268,6 +287,16 @@ export default function PickingPage() {
   const progreso      = total > 0 ? Math.round((soloCompletos / total) * 100) : 0
   const listo         = completados === total && total > 0
   const prodActivoObj = productos.find(p => p.id === prodActivo)
+
+  const gruposPorTienda: { tienda_nombre: string; items: typeof productos }[] = []
+  productos.forEach(p => {
+    const ultimo = gruposPorTienda[gruposPorTienda.length - 1]
+    if (ultimo && ultimo.tienda_nombre === p.tienda_nombre) {
+      ultimo.items.push(p)
+    } else {
+      gruposPorTienda.push({ tienda_nombre: p.tienda_nombre, items: [p] })
+    }
+  })
   const cleanPhone = pedido?.telefono?.replace(/\D/g, '') || ''
   const formattedPhone = cleanPhone.startsWith('0')
     ? '593' + cleanPhone.slice(1)
@@ -552,38 +581,46 @@ export default function PickingPage() {
               </div>
             )}
             <p className="text-gray-500 text-xs font-bold uppercase tracking-wider mb-3">Lista de recolección</p>
-            <div className="space-y-2">
-              {productos.map(prod => {
-                const estaExpandido = expandido === prod.id
-                return (
-                <div key={prod.id}
-                  className={`bg-[#181d24] border rounded-2xl p-3.5 transition
-                    ${prod.completado ? 'border-[#00b074]/30' : prod.agotado ? 'border-[#ff9f1c]/30' : 'border-[#2d3748]'}`}>
-                  <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-xl shrink-0 overflow-hidden
-                      ${prod.completado ? 'bg-[#00b074]/10' : prod.agotado ? 'bg-[#ff9f1c]/10' : 'bg-[#2d3748]'}`}>
-                      {prod.imagen_url ? (
-                        <img src={prod.imagen_url} alt={prod.nombre} className="w-full h-full object-contain p-0.5" />
-                      ) : (
-                        emojiProd(prod.nombre)
-                      )}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setExpandidoProd(estaExpandido ? null : prod.id)}
-                      className="flex-1 min-w-0 text-left bg-transparent border-none p-0 cursor-pointer"
-                    >
-                      <p className={`text-sm font-semibold ${estaExpandido ? '' : 'truncate'} ${prod.completado ? 'text-gray-500 line-through' : 'text-white'}`}>
-                        {prod.reemplazo === 'similar' ? `${prod.nombre} (Reemplazo)` : prod.nombre}
-                      </p>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        {prod.seccion && <span className="text-gray-600 text-[10px] uppercase tracking-wider">{prod.seccion}</span>}
-                        <span className="text-gray-500 text-xs">Cant: <span className="text-gray-300">{prod.cantidad}</span></span>
-                      </div>
-                      {estaExpandido && (
-                        <div className="mt-2 pt-2 border-t border-[#2d3748] space-y-1 text-xs text-gray-400">
-                          {prod.marca && <div>Marca: <span className="text-gray-200">{prod.marca}</span></div>}
-                          {prod.codigo && <div>Código: <span className="text-gray-200 font-mono">{prod.codigo}</span></div>}
+            {gruposPorTienda.map(grupo => (
+              <div key={grupo.tienda_nombre} className="mb-4 last:mb-0">
+                {gruposPorTienda.length > 1 && (
+                  <div className="flex items-center gap-1.5 mb-2 px-0.5">
+                    <span className="text-[#00b074]">🏪</span>
+                    <span className="text-white text-xs font-extrabold uppercase tracking-wide">{grupo.tienda_nombre}</span>
+                    <span className="text-gray-500 text-[10px]">({grupo.items.length})</span>
+                  </div>
+                )}
+                <div className="space-y-2">
+                  {grupo.items.map(prod => {
+                    const estaExpandido = expandido === prod.id
+                    return (
+                    <div key={prod.id}
+                      className={`bg-[#181d24] border rounded-2xl p-3.5 transition
+                        ${prod.completado ? 'border-[#00b074]/30' : prod.agotado ? 'border-[#ff9f1c]/30' : 'border-[#2d3748]'}`}>
+                      <div className="flex items-center gap-3">
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-xl shrink-0 overflow-hidden
+                          ${prod.completado ? 'bg-[#00b074]/10' : prod.agotado ? 'bg-[#ff9f1c]/10' : 'bg-[#2d3748]'}`}>
+                          {prod.imagen_url ? (
+                            <img src={prod.imagen_url} alt={prod.nombre} className="w-full h-full object-contain p-0.5" />
+                          ) : (
+                            emojiProd(prod.nombre)
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setExpandidoProd(estaExpandido ? null : prod.id)}
+                          className="flex-1 min-w-0 text-left bg-transparent border-none p-0 cursor-pointer"
+                        >
+                          <p className={`text-sm font-semibold leading-snug line-clamp-2 ${prod.completado ? 'text-gray-500 line-through' : 'text-white'}`}>
+                            {prod.reemplazo === 'similar' ? `${prod.nombre} (Reemplazo)` : prod.nombre}
+                          </p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-gray-500 text-xs">Cant: <span className="text-gray-300">{prod.cantidad}</span></span>
+                          </div>
+                          {estaExpandido && (
+                            <div className="mt-2 pt-2 border-t border-[#2d3748] space-y-1 text-xs text-gray-400">
+                              {prod.marca && <div>Marca: <span className="text-gray-200">{prod.marca}</span></div>}
+                              {prod.codigo && <div>Código: <span className="text-gray-200 font-mono">{prod.codigo}</span></div>}
                           {prod.precio != null && <div>Precio: <span className="text-[#00b074] font-bold">{fmt(prod.precio)}</span></div>}
                         </div>
                       )}
@@ -629,10 +666,12 @@ export default function PickingPage() {
                         </button>
                       </div>
                     )}
-                  </div>
+                      </div>
+                    </div>
+                  )})}
                 </div>
-              )})}
-            </div>
+              </div>
+            ))}
 
             {listo && (
               <button onClick={() => router.push(`/caja/${id}`)}
