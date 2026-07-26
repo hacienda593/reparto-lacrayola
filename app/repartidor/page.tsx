@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useAuth } from '@/context/AuthContext'
 import { supabase } from '@/lib/supabase'
+import { logout } from '@/actions/auth'
 import { useRouter } from 'next/navigation'
 import { Loader2, MapPin, CheckCircle, Package, Phone, Navigation, DollarSign, UserCircle, ArrowRightLeft, X } from 'lucide-react'
 
@@ -57,6 +58,13 @@ export default function RepartidorPage() {
   // para evitar el parpadeo donde se ve el modulo equivocado por un instante
   // (ej. un comprador viendo brevemente la pantalla de repartidor, o viceversa).
   const [modoConfirmado, setModoConfirmado] = useState(false)
+  // Si la pantalla de carga se queda pegada mas de 8s, se muestra una salida
+  // de emergencia (cerrar sesion) -- ver uso mas abajo, antes del return.
+  const [cargaAtascada, setCargaAtascada] = useState(false)
+  useEffect(() => {
+    const t = setTimeout(() => setCargaAtascada(true), 8000)
+    return () => clearTimeout(t)
+  }, [])
 
   // Si el login ya pregunto el rol (admin/comprador/repartidor), o si venimos
   // redirigidos desde /caja, el modo llega explicito por la URL — se usa
@@ -193,13 +201,23 @@ export default function RepartidorPage() {
         : clean
   }
 
-  async function cargar(userId: string) {
+  async function cargar(userId: string, esReintento = false) {
     try {
-      const { data: rep } = await supabase
+      const { data: rep, error: errRep } = await supabase
         .from('rep_repartidores')
         .select('id,nombre,email,comision_valor,efectivo_en_mano,estado,estado_registro,activo,vehiculo')
         .eq('user_id', userId)
         .single()
+
+      // Si la consulta fallo con un ERROR (ej. una carrera de sesion justo
+      // despues del login, antes de que el token termine de propagarse) se
+      // reintenta una vez en vez de mandar al usuario de vuelta a '/' --
+      // eso era lo que producia el rebote infinito entre '/' y '/repartidor'
+      // cuando el fallo era transitorio, no un rechazo de acceso real.
+      if (errRep && !esReintento) {
+        await new Promise(res => setTimeout(res, 800))
+        return cargar(userId, true)
+      }
 
       if (!rep || rep.estado_registro !== 'aprobado' || !rep.activo) {
         router.replace('/')
@@ -677,8 +695,18 @@ export default function RepartidorPage() {
   }
 
   if (!user || cargando || !modoConfirmado) return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 gap-4">
       <Loader2 size={28} className="animate-spin text-green-600" />
+      {/* Salida de emergencia: si la carga se queda pegada (ej. problema de
+          red o de sesion), tras unos segundos aparece esta opcion para no
+          dejar a nadie sin forma de cerrar sesion e intentar de nuevo. */}
+      {cargaAtascada && (
+        <form action={logout}>
+          <button type="submit" className="text-xs text-gray-500 underline underline-offset-2">
+            Esto está tardando demasiado — Cerrar sesión e intentar de nuevo
+          </button>
+        </form>
+      )}
     </div>
   )
 

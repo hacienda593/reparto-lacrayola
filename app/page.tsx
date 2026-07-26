@@ -12,21 +12,26 @@ export default async function Home() {
     redirect('/login')
   }
 
-  // 1. Obtener rol desde rep_roles
-  const { data: rolData } = await supabase
-    .from('rep_roles')
-    .select('rol, activo')
-    .eq('user_id', user.id)
-    .single()
+  // 1 y 2. Rol y registro de repartidor. Se reintenta una vez si alguna de
+  // las dos consultas da error (ej. una carrera de sesion justo despues del
+  // login) en vez de tratar el error igual que "sin rol" -- eso era lo que
+  // producia el rebote infinito entre '/' y '/repartidor' para comprador y
+  // repartidor cuando la consulta fallaba de forma transitoria.
+  async function obtenerRolYRep() {
+    const [{ data: rolData, error: errRol }, { data: rep, error: errRep }] = await Promise.all([
+      supabase.from('rep_roles').select('rol, activo').eq('user_id', user!.id).single(),
+      supabase.from('rep_repartidores').select('id, nombre, email, estado_registro, activo, vehiculo').eq('user_id', user!.id).single(),
+    ])
+    return { rolData, rep, huboError: !!errRol || !!errRep }
+  }
+
+  let { rolData, rep, huboError } = await obtenerRolYRep()
+  if (huboError) {
+    await new Promise(res => setTimeout(res, 800))
+    ;({ rolData, rep } = await obtenerRolYRep())
+  }
 
   const rol = rolData?.activo ? rolData.rol : null
-
-  // 2. Verificar si está registrado como repartidor
-  const { data: rep } = await supabase
-    .from('rep_repartidores')
-    .select('id, nombre, email, estado_registro, activo, vehiculo')
-    .eq('user_id', user.id)
-    .single()
 
   // 3. Si es un rol administrativo, renderizar el Dashboard administrativo
   const rolesAdmin = ['superadmin', 'admin', 'supervisor', 'contador']
