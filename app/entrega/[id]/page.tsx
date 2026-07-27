@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Loader2, CheckCircle2, MapPin, Phone, Navigation, Package, Check, X } from 'lucide-react'
@@ -40,6 +40,13 @@ export default function EntregaPage() {
   const [obteniendoGps, setObteniendoGps] = useState(false)
   const [referenciaNueva, setReferenciaNueva] = useState('')
 
+  // Proof of Delivery (POD) states
+  const [entregaModalOpen, setEntregaModalOpen] = useState(false)
+  const [fotoFile, setFotoFile] = useState<File | null>(null)
+  const [guardandoEntrega, setGuardandoEntrega] = useState(false)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const isDrawingRef = useRef(false)
+
   const yaPagadoPorTransferencia = pedido?.metodo_pago === 'transferencia' && pedido?.pago_confirmado === true
 
   useEffect(() => { cargar() }, [id])
@@ -64,7 +71,10 @@ export default function EntregaPage() {
     const q = pedido?.geo_lat && pedido?.geo_lng
       ? `${pedido.geo_lat},${pedido.geo_lng}`
       : encodeURIComponent(`${pedido?.direccion ?? ''} ${pedido?.ciudad ?? ''}`)
-    window.open(`https://maps.google.com/?q=${q}`, '_blank')
+    const url = pedido?.geo_lat && pedido?.geo_lng
+      ? `https://www.google.com/maps/dir/?api=1&destination=${pedido.geo_lat},${pedido.geo_lng}`
+      : `https://maps.google.com/?q=${q}`
+    window.open(url, '_blank')
   }
 
   function capturarUbicacionActual() {
@@ -77,69 +87,197 @@ export default function EntregaPage() {
     )
   }
 
-  async function confirmarEntrega() {
-    if (!yaPagadoPorTransferencia && (!monto.trim() || isNaN(parseFloat(monto)))) {
-      setError('Ingresa el monto cobrado')
+  useEffect(() => {
+    if (!entregaModalOpen) return
+    const timer = setTimeout(() => {
+      const canvas = canvasRef.current
+      if (!canvas) return
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return
+      ctx.strokeStyle = '#0f172a'
+      ctx.lineWidth = 3
+      ctx.lineCap = 'round'
+
+      const getPos = (e: MouseEvent | TouchEvent) => {
+        const rect = canvas.getBoundingClientRect()
+        if ('touches' in e) {
+          if (e.touches.length === 0) return { x: 0, y: 0 }
+          return {
+            x: e.touches[0].clientX - rect.left,
+            y: e.touches[0].clientY - rect.top
+          }
+        }
+        return {
+          x: e.clientX - rect.left,
+          y: e.clientY - rect.top
+        }
+      }
+
+      const startDrawing = (e: MouseEvent | TouchEvent) => {
+        isDrawingRef.current = true
+        const pos = getPos(e)
+        ctx.beginPath()
+        ctx.moveTo(pos.x, pos.y)
+      }
+
+      const draw = (e: MouseEvent | TouchEvent) => {
+        if (!isDrawingRef.current) return
+        e.preventDefault()
+        const pos = getPos(e)
+        ctx.lineTo(pos.x, pos.y)
+        ctx.stroke()
+      }
+
+      const stopDrawing = () => {
+        isDrawingRef.current = false
+      }
+
+      canvas.addEventListener('mousedown', startDrawing)
+      canvas.addEventListener('mousemove', draw)
+      canvas.addEventListener('mouseup', stopDrawing)
+      canvas.addEventListener('mouseleave', stopDrawing)
+
+      canvas.addEventListener('touchstart', startDrawing, { passive: false })
+      canvas.addEventListener('touchmove', draw, { passive: false })
+      canvas.addEventListener('touchend', stopDrawing)
+    }, 150)
+
+    return () => clearTimeout(timer)
+  }, [entregaModalOpen])
+
+  const clearCanvas = () => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+  }
+
+  async function finalizarEntregaConPOD() {
+    if (!fotoFile) {
+      alert('Debes tomar una foto del pedido en la puerta como comprobante.')
       return
     }
-    if (gpsConfirmado === null) { setError('Confirma la ubicación de entrega antes de continuar'); return }
-    if (corrigiendoGps && !nuevaGeo) { setError('Captura la nueva ubicación GPS antes de continuar'); return }
 
-    setGuardando(true); setError('')
+    const canvas = canvasRef.current
+    if (!canvas) return
 
-    const geoFinal = corrigiendoGps && nuevaGeo ? nuevaGeo : { lat: pedido.geo_lat, lng: pedido.geo_lng }
-    const referenciasFinal = corrigiendoGps && referenciaNueva.trim()
-      ? [pedido.referencias, referenciaNueva.trim()].filter(Boolean).join(' · ')
-      : pedido.referencias
+    setGuardandoEntrega(true)
+    setGuardando(true)
 
-    await sb.from('rep_asignaciones').update({ estado: 'entregado', updated_at: new Date().toISOString() }).eq('id', id)
-    await sb.from('ol_pedidos').update({
-      estado: 'entregado',
-      geo_lat: geoFinal.lat,
-      geo_lng: geoFinal.lng,
-      referencias: referenciasFinal,
-    }).eq('id', pedido.id)
+    try {
+      const fotoExt = fotoFile.name.split('.').pop() || 'jpg'
+      const fotoName = `entregas/${pedido.id}_${Date.now()}.${fotoExt}`
+      const { error: errFoto } = await sb.storage
+        .from('comprobantes-proveedores')
+        .upload(fotoName, fotoFile, { upsert: true })
 
-    // Si el cliente tiene cuenta registrada, refrescar/guardar sus coordenadas para futuras entregas
-    if (pedido.user_id && corrigiendoGps && nuevaGeo) {
-      try {
-        const { data: dirs } = await sb
-          .from('ol_direcciones_cliente')
-          .select('id')
-          .eq('user_id', pedido.user_id)
-          .eq('direccion_texto', pedido.direccion)
-
-        if (dirs && dirs.length > 0) {
-          await sb.from('ol_direcciones_cliente')
-            .update({ geo_lat: nuevaGeo.lat, geo_lng: nuevaGeo.lng, referencias: referenciasFinal })
-            .eq('id', dirs[0].id)
-        }
-      } catch (e) {
-        console.error("Error al actualizar ubicación del cliente:", e)
+      if (errFoto) {
+        alert('Error al subir la foto de entrega: ' + errFoto.message)
+        setGuardandoEntrega(false)
+        setGuardando(false)
+        return
       }
-    }
 
-    const montoFinal = yaPagadoPorTransferencia ? 0 : parseFloat(monto)
+      const { data: fotoUrlData } = sb.storage
+        .from('comprobantes-proveedores')
+        .getPublicUrl(fotoName)
+      const fotoEntregaUrl = fotoUrlData?.publicUrl || ''
 
-    await sb.from('rep_entregas').insert({
-      asignacion_id: id, repartidor_id: pedido.repartidor_id, pedido_id: pedido.id,
-      entregado_at: new Date().toISOString(), monto_cobrado: montoFinal,
-      metodo_pago: yaPagadoPorTransferencia ? 'transferencia' : 'efectivo', exitosa: true,
-      geo_lat: geoFinal.lat ?? null, geo_lng: geoFinal.lng ?? null,
-    })
+      const firmaBlob = await new Promise<Blob | null>(resolve => canvas.toBlob(blob => resolve(blob), 'image/png'))
+      if (!firmaBlob) {
+        alert('Error al capturar la firma del cliente.')
+        setGuardandoEntrega(false)
+        setGuardando(false)
+        return
+      }
 
-    // Solo entra a la caja de efectivo del repartidor si realmente cobró en mano
-    if (!yaPagadoPorTransferencia && montoFinal > 0) {
-      await sb.from('rep_transacciones_caja').insert({
-        repartidor_id: pedido.repartidor_id,
-        pedido_id:     pedido.id,
-        tipo:          'ingreso_entrega',
-        monto:         montoFinal,
-        estado:        'pendiente'
+      const firmaName = `firmas/${pedido.id}_${Date.now()}.png`
+      const { error: errFirma } = await sb.storage
+        .from('comprobantes-proveedores')
+        .upload(firmaName, firmaBlob, { upsert: true })
+
+      if (errFirma) {
+        alert('Error al subir la firma del cliente: ' + errFirma.message)
+        setGuardandoEntrega(false)
+        setGuardando(false)
+        return
+      }
+
+      const { data: firmaUrlData } = sb.storage
+        .from('comprobantes-proveedores')
+        .getPublicUrl(firmaName)
+      const firmaClienteUrl = firmaUrlData?.publicUrl || ''
+
+      const geoFinal = corrigiendoGps && nuevaGeo ? nuevaGeo : { lat: pedido.geo_lat, lng: pedido.geo_lng }
+      const referenciasFinal = corrigiendoGps && referenciaNueva.trim()
+        ? [pedido.referencias, referenciaNueva.trim()].filter(Boolean).join(' · ')
+        : pedido.referencias
+
+      await sb.from('rep_asignaciones').update({ 
+        estado: 'entregado', 
+        foto_entrega_url: fotoEntregaUrl,
+        firma_cliente_url: firmaClienteUrl,
+        entrega_lat: geoFinal.lat ?? null,
+        entrega_lng: geoFinal.lng ?? null,
+        updated_at: new Date().toISOString() 
+      }).eq('id', id)
+
+      await sb.from('ol_pedidos').update({
+        estado: 'entregado',
+        geo_lat: geoFinal.lat,
+        geo_lng: geoFinal.lng,
+        referencias: referenciasFinal,
+      }).eq('id', pedido.id)
+
+      if (pedido.user_id && corrigiendoGps && nuevaGeo) {
+        try {
+          const { data: dirs } = await sb
+            .from('ol_direcciones_cliente')
+            .select('id')
+            .eq('user_id', pedido.user_id)
+            .eq('direccion_texto', pedido.direccion)
+
+          if (dirs && dirs.length > 0) {
+            await sb.from('ol_direcciones_cliente')
+              .update({ geo_lat: geoFinal.lat, geo_lng: geoFinal.lng, referencias: referenciasFinal })
+              .eq('id', dirs[0].id)
+          }
+        } catch (e) {
+          console.error("Error al actualizar ubicación del cliente:", e)
+        }
+      }
+
+      const montoFinal = yaPagadoPorTransferencia ? 0 : parseFloat(monto)
+
+      await sb.from('rep_entregas').insert({
+        asignacion_id: id, repartidor_id: pedido.repartidor_id, pedido_id: pedido.id,
+        entregado_at: new Date().toISOString(), monto_cobrado: montoFinal,
+        metodo_pago: yaPagadoPorTransferencia ? 'transferencia' : 'efectivo', exitosa: true,
+        geo_lat: geoFinal.lat ?? null, geo_lng: geoFinal.lng ?? null,
+        foto_url: fotoEntregaUrl,
+        firma_cliente: firmaClienteUrl
       })
-    }
 
-    setEntregado(true); setGuardando(false)
+      if (!yaPagadoPorTransferencia && montoFinal > 0) {
+        await sb.from('rep_transacciones_caja').insert({
+          repartidor_id: pedido.repartidor_id,
+          pedido_id:     pedido.id,
+          tipo:          'ingreso_entrega',
+          monto:         montoFinal,
+          estado:        'pendiente'
+        })
+      }
+
+      setEntregado(true)
+      setEntregaModalOpen(false)
+
+    } catch (err: any) {
+      alert('Error al guardar la entrega: ' + err.message)
+    } finally {
+      setGuardandoEntrega(false)
+      setGuardando(false)
+    }
   }
 
   async function confirmarFallo() {
@@ -419,8 +557,20 @@ export default function EntregaPage() {
       </div>
 
       <div className="fixed bottom-0 inset-x-0 px-4 pb-6 pt-3 bg-gradient-to-t from-[#0c0f12] via-[#0c0f12]/95 to-transparent space-y-2">
-        <button onClick={confirmarEntrega} disabled={guardando}
-          className="w-full bg-[#00b074] hover:bg-[#008f5d] disabled:opacity-60 text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-2 text-base shadow-lg shadow-[#00b074]/30">
+        <button 
+          onClick={() => {
+            if (!yaPagadoPorTransferencia && (!monto.trim() || isNaN(parseFloat(monto)))) {
+              setError('Ingresa el monto cobrado')
+              return
+            }
+            if (gpsConfirmado === null) { setError('Confirma la ubicación de entrega antes de continuar'); return }
+            if (corrigiendoGps && !nuevaGeo) { setError('Captura la nueva ubicación GPS antes de continuar'); return }
+            setError('')
+            setEntregaModalOpen(true)
+          }} 
+          disabled={guardando}
+          className="w-full bg-[#00b074] hover:bg-[#008f5d] disabled:opacity-60 text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-2 text-base shadow-lg shadow-[#00b074]/30 cursor-pointer"
+        >
           {guardando ? <Loader2 size={18} className="animate-spin" /> : <CheckCircle2 size={18} />}
           {guardando ? 'Registrando entrega...' : '✅ Confirmar entrega'}
         </button>
@@ -465,6 +615,101 @@ export default function EntregaPage() {
                 {guardando ? <Loader2 size={14} className="animate-spin" /> : 'Confirmar'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Confirmación de Entrega (Proof of Delivery) */}
+      {entregaModalOpen && (
+        <div className="fixed inset-0 bg-black/60 z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4 select-none">
+          <div className="bg-[#181d24] border border-[#2d3748] rounded-t-3xl sm:rounded-3xl p-5 w-full sm:max-w-sm space-y-4 max-h-[90vh] overflow-y-auto text-white">
+            <div className="flex items-center justify-between">
+              <h3 className="font-black text-white text-base flex items-center gap-1.5">
+                📦 Confirmar Entrega
+              </h3>
+              <button 
+                onClick={() => {
+                  setFotoFile(null)
+                  setEntregaModalOpen(false)
+                }} 
+                className="text-slate-400 p-1 cursor-pointer hover:text-white"
+                disabled={guardandoEntrega}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="bg-[#0c0f12] border border-[#2d3748] rounded-xl px-3 py-2.5 text-xs text-gray-300">
+              <div className="font-extrabold text-white">Pedido #{pedido?.numero}</div>
+              <div>Cliente: <span className="font-bold text-gray-200">{pedido?.nombre_cliente}</span></div>
+              <div>Total cobrado: <span className="font-bold text-[#00b074]">${yaPagadoPorTransferencia ? '0.00 (Transferencia)' : parseFloat(monto).toFixed(2)}</span></div>
+            </div>
+
+            {/* Paso 1: Foto en Puerta */}
+            <div>
+              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wide block mb-1">Paso 1: Foto del Pedido en Puerta *</label>
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={e => {
+                  if (e.target.files && e.target.files[0]) {
+                    setFotoFile(e.target.files[0])
+                  }
+                }}
+                className="hidden"
+                id="foto-entrega-hybrid"
+                disabled={guardandoEntrega}
+              />
+              <label 
+                htmlFor="foto-entrega-hybrid" 
+                className={`flex flex-col items-center justify-center border-2 border-dashed rounded-2xl p-4 cursor-pointer hover:bg-white/5 transition ${
+                  fotoFile ? 'border-emerald-500 bg-emerald-500/10' : 'border-[#2d3748] bg-[#0c0f12]'
+                }`}
+              >
+                {fotoFile ? (
+                  <div className="text-center space-y-0.5">
+                    <span className="text-xs text-emerald-400 font-bold">✓ Foto del pedido cargada</span>
+                    <p className="text-[9px] text-gray-400 truncate max-w-[200px]">{fotoFile.name}</p>
+                  </div>
+                ) : (
+                  <div className="text-center space-y-1 text-gray-400">
+                    <span className="text-xs font-bold text-white">📸 Tomar foto de las bolsas en puerta</span>
+                    <p className="text-[9px] text-gray-500">Presiona para abrir la cámara de tu celular</p>
+                  </div>
+                )}
+              </label>
+            </div>
+
+            {/* Paso 2: Firma del Cliente */}
+            <div>
+              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wide block mb-1">Paso 2: Firma del Cliente *</label>
+              <div className="relative border border-[#2d3748] rounded-2xl overflow-hidden bg-white">
+                <canvas 
+                  ref={canvasRef} 
+                  width={340} 
+                  height={150} 
+                  className="w-full h-[150px] touch-none block bg-transparent cursor-crosshair"
+                />
+                <button
+                  type="button"
+                  onClick={clearCanvas}
+                  disabled={guardandoEntrega}
+                  className="absolute bottom-2 right-2 bg-slate-200/90 hover:bg-slate-300 text-slate-800 font-bold px-2.5 py-1 rounded-lg text-[9px] transition-colors cursor-pointer select-none"
+                >
+                  Limpiar lienzo
+                </button>
+              </div>
+            </div>
+
+            <button
+              onClick={finalizarEntregaConPOD}
+              disabled={guardandoEntrega}
+              className="w-full bg-[#00b074] hover:bg-[#008f5d] disabled:opacity-60 text-white font-bold py-3.5 rounded-2xl text-xs flex items-center justify-center gap-2 cursor-pointer shadow-md transition-all active:scale-95"
+            >
+              {guardandoEntrega ? <Loader2 size={16} className="animate-spin" /> : null}
+              {guardandoEntrega ? 'Subiendo firmas y fotos...' : 'Finalizar Entrega (Guardar POD)'}
+            </button>
           </div>
         </div>
       )}
