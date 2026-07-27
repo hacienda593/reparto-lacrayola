@@ -4,6 +4,24 @@ import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Loader2, CheckCircle2, MapPin, Phone, Navigation, Package, Check, X } from 'lucide-react'
 
+function sonDireccionesSimilares(dir1: string | null | undefined, dir2: string | null | undefined): boolean {
+  if (!dir1 || !dir2) return false
+  const clean = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
+  const c1 = clean(dir1)
+  const c2 = clean(dir2)
+  if (c1 === c2) return true
+  if (c1.length > 8 && c2.length > 8 && (c1.includes(c2) || c2.includes(c1))) return true
+  
+  const palabras1 = dir1.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(w => w.length > 3)
+  const palabras2 = dir2.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(w => w.length > 3)
+  
+  if (palabras1.length === 0 || palabras2.length === 0) return false
+  
+  const coincidentes = palabras1.filter(p => palabras2.includes(p))
+  const ratio = coincidentes.length / Math.min(palabras1.length, palabras2.length)
+  return ratio >= 0.5
+}
+
 export default function EntregaPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
@@ -63,14 +81,37 @@ export default function EntregaPage() {
     if (!asig) { router.replace('/pedidos'); return }
     const { data: ped }  = await sb.from('ol_pedidos').select('*').eq('id', asig.pedido_id).single()
     const { data: its }  = await sb.from('ol_pedido_items').select('*').eq('pedido_id', asig.pedido_id)
-    setPedido({ ...ped, repartidor_id: asig.repartidor_id })
+
+    // Fallback de dirección verified GPS para el número de teléfono
+    let geoLatFallback = ped?.geo_lat
+    let geoLngFallback = ped?.geo_lng
+    if (!geoLatFallback && ped?.telefono) {
+      const { data: verifiedDirs } = await sb
+        .from('rep_clientes_direcciones')
+        .select('direccion, geo_lat, geo_lng')
+        .eq('telefono', ped.telefono)
+      const matchDir = (verifiedDirs ?? []).find((d: any) => sonDireccionesSimilares(d.direccion, ped.direccion))
+      if (matchDir) {
+        geoLatFallback = matchDir.geo_lat
+        geoLngFallback = matchDir.geo_lng
+      }
+    }
+
+    const pedidoConFallback = { 
+      ...ped, 
+      repartidor_id: asig.repartidor_id,
+      geo_lat: geoLatFallback,
+      geo_lng: geoLngFallback
+    }
+
+    setPedido(pedidoConFallback)
     setItems(its ?? [])
     setMonto((ped?.total ?? 0).toFixed(2))
     sb.from('rep_configuracion').select('valor').eq('clave', 'admin_whatsapp').maybeSingle()
       .then(({ data }) => setAdminWhatsapp(data?.valor ?? null))
     // URL del mapa estático
-    const q = ped?.geo_lat && ped?.geo_lng
-      ? `${ped.geo_lat},${ped.geo_lng}`
+    const q = geoLatFallback && geoLngFallback
+      ? `${geoLatFallback},${geoLngFallback}`
       : encodeURIComponent(`${ped?.direccion ?? ''} ${ped?.ciudad ?? ''}`)
     setMapUrl(`https://maps.google.com/maps?q=${q}&z=16&output=embed`)
     setCargando(false)
@@ -254,6 +295,42 @@ export default function EntregaPage() {
           }
         } catch (e) {
           console.error("Error al actualizar ubicación del cliente:", e)
+        }
+      }
+
+      // Guardar también en rep_clientes_direcciones para la agenda del número de teléfono
+      if (pedido.telefono && geoFinal.lat && geoFinal.lng) {
+        try {
+          const { data: extDir } = await sb
+            .from('rep_clientes_direcciones')
+            .select('id, direccion')
+            .eq('telefono', pedido.telefono)
+
+          const matchDir = (extDir ?? []).find((d: any) => sonDireccionesSimilares(d.direccion, pedido.direccion))
+          if (matchDir) {
+            await sb.from('rep_clientes_direcciones')
+              .update({
+                geo_lat: geoFinal.lat,
+                geo_lng: geoFinal.lng,
+                verificada: true,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', matchDir.id)
+          } else {
+            await sb.from('rep_clientes_direcciones')
+              .insert({
+                telefono: pedido.telefono,
+                nombre_direccion: pedido.direccion ? pedido.direccion.slice(0, 15) : 'Nueva Dirección',
+                direccion: pedido.direccion || 'Dirección de Entrega',
+                ciudad: pedido.ciudad || 'Ciudad',
+                referencias: referenciasFinal || pedido.referencias || '',
+                geo_lat: geoFinal.lat,
+                geo_lng: geoFinal.lng,
+                verificada: true
+              })
+          }
+        } catch (e) {
+          console.error("Error al guardar en rep_clientes_direcciones:", e)
         }
       }
 

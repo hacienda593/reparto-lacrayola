@@ -11,6 +11,24 @@ import { Loader2, MapPin, CheckCircle, Package, Phone, Navigation, DollarSign, U
 
 function fmt(n: number) { return '$' + (n ?? 0).toFixed(2) }
 
+function sonDireccionesSimilares(dir1: string | null | undefined, dir2: string | null | undefined): boolean {
+  if (!dir1 || !dir2) return false
+  const clean = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
+  const c1 = clean(dir1)
+  const c2 = clean(dir2)
+  if (c1 === c2) return true
+  if (c1.length > 8 && c2.length > 8 && (c1.includes(c2) || c2.includes(c1))) return true
+  
+  const palabras1 = dir1.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(w => w.length > 3)
+  const palabras2 = dir2.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(w => w.length > 3)
+  
+  if (palabras1.length === 0 || palabras2.length === 0) return false
+  
+  const coincidentes = palabras1.filter(p => palabras2.includes(p))
+  const ratio = coincidentes.length / Math.min(palabras1.length, palabras2.length)
+  return ratio >= 0.5
+}
+
 interface PedidoAsignado {
   asignacion_id:  string
   estado:         string
@@ -335,11 +353,17 @@ export default function RepartidorPage() {
       const { data: verifiedDirs } = activePhones.length
         ? await supabase
             .from('rep_clientes_direcciones')
-            .select('telefono, geo_lat, geo_lng')
+            .select('telefono, direccion, geo_lat, geo_lng')
             .in('telefono', activePhones)
         : { data: [] as any[] }
 
-      const dirMap = new Map((verifiedDirs ?? []).map((d: any) => [d.telefono, d]))
+      // Agrupar direcciones verificadas por teléfono en un Map de arreglos
+      const dirMap = new Map<string, any[]>()
+      ;(verifiedDirs ?? []).forEach((d: any) => {
+        const list = dirMap.get(d.telefono) || []
+        list.push(d)
+        dirMap.set(d.telefono, list)
+      })
 
       // Contador de entregas de hoy (exitosas/fallidas), solo relevante en modo repartidor
       if (expectedModo === 'repartidor') {
@@ -368,7 +392,10 @@ export default function RepartidorPage() {
 
       setPedidos((asigs ?? []).map((a: any) => {
         const tel = a.ol_pedidos?.telefono
-        const vDir = tel ? dirMap.get(tel) : null
+        const listDirs = tel ? dirMap.get(tel) : null
+        
+        // Buscar si entre las direcciones guardadas hay alguna similar a la del pedido actual
+        const matchDir = listDirs?.find((d: any) => sonDireccionesSimilares(d.direccion, a.ol_pedidos?.direccion))
         
         const notasLower = (a.ol_pedidos?.notas || '').toLowerCase()
         const esTransferencia = a.ol_pedidos?.metodo_pago === 'transferencia' || notasLower.includes('pago: transferencia') || notasLower.includes('transferencia bancaria')
@@ -385,8 +412,8 @@ export default function RepartidorPage() {
           ciudad:         a.ol_pedidos?.ciudad,
           referencias:    a.ol_pedidos?.referencias,
           total:          a.ol_pedidos?.total,
-          geo_lat:        a.ol_pedidos?.geo_lat || vDir?.geo_lat || null,
-          geo_lng:        a.ol_pedidos?.geo_lng || vDir?.geo_lng || null,
+          geo_lat:        a.ol_pedidos?.geo_lat || matchDir?.geo_lat || null,
+          geo_lng:        a.ol_pedidos?.geo_lng || matchDir?.geo_lng || null,
           notas:          a.ol_pedidos?.notas,
           metodo_pago:     esTransferencia ? 'transferencia' : (a.ol_pedidos?.metodo_pago || 'efectivo'),
           pago_confirmado: a.ol_pedidos?.pago_confirmado,
@@ -423,7 +450,8 @@ export default function RepartidorPage() {
 
       setPoolEntregas((pool ?? []).map((a: any) => {
         const tel = a.ol_pedidos?.telefono
-        const vDir = tel ? dirMap.get(tel) : null
+        const listDirs = tel ? dirMap.get(tel) : null
+        const matchDir = listDirs?.find((d: any) => sonDireccionesSimilares(d.direccion, a.ol_pedidos?.direccion))
         
         const notasLower = (a.ol_pedidos?.notas || '').toLowerCase()
         const esTransferencia = a.ol_pedidos?.metodo_pago === 'transferencia' || notasLower.includes('pago: transferencia') || notasLower.includes('transferencia bancaria')
@@ -439,8 +467,8 @@ export default function RepartidorPage() {
           ciudad:        a.ol_pedidos?.ciudad,
           total:         a.ol_pedidos?.total,
           telefono:      tel,
-          geo_lat:       a.ol_pedidos?.geo_lat || vDir?.geo_lat || null,
-          geo_lng:       a.ol_pedidos?.geo_lng || vDir?.geo_lng || null,
+          geo_lat:       a.ol_pedidos?.geo_lat || matchDir?.geo_lat || null,
+          geo_lng:       a.ol_pedidos?.geo_lng || matchDir?.geo_lng || null,
           metodo_pago:   esTransferencia ? 'transferencia' : (a.ol_pedidos?.metodo_pago || 'efectivo'),
           shopper_nombre: shopperMap.get(a.shopper_id)?.nombre ?? 'Comprador',
           shopper_telefono: shopperMap.get(a.shopper_id)?.telefono ?? '',
@@ -998,11 +1026,12 @@ export default function RepartidorPage() {
       // 2. Buscar si ya existe la dirección en rep_clientes_direcciones por teléfono
       const { data: extDir } = await supabase
         .from('rep_clientes_direcciones')
-        .select('id')
+        .select('id, direccion')
         .eq('telefono', p.telefono)
-        .limit(1)
 
-      if (extDir && extDir.length > 0) {
+      const matchDir = (extDir ?? []).find((d: any) => sonDireccionesSimilares(d.direccion, p.direccion))
+
+      if (matchDir) {
         // Actualizar la dirección existente con las coordenadas definitivas de la puerta
         await supabase.from('rep_clientes_direcciones')
           .update({
@@ -1011,13 +1040,13 @@ export default function RepartidorPage() {
             verificada: true,
             updated_at: new Date().toISOString()
           })
-          .eq('id', extDir[0].id)
+          .eq('id', matchDir.id)
       } else {
         // Insertar un nuevo registro de dirección para este cliente
         await supabase.from('rep_clientes_direcciones')
           .insert({
             telefono: p.telefono,
-            nombre_direccion: 'Entrega Definitiva',
+            nombre_direccion: p.direccion ? p.direccion.slice(0, 15) : 'Nueva Dirección',
             direccion: p.direccion || 'Dirección de Entrega',
             ciudad: p.ciudad || 'Ciudad',
             referencias: p.referencias || '',
