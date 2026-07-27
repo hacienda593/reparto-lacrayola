@@ -49,6 +49,11 @@ export default function EntregaPage() {
 
   const yaPagadoPorTransferencia = pedido?.metodo_pago === 'transferencia' && pedido?.pago_confirmado === true
 
+  // Numero de WhatsApp del admin para el boton de incidente -- se carga desde
+  // rep_configuracion (clave 'admin_whatsapp') en vez de venir escrito en el
+  // codigo, porque todavia no se definio cual es el numero real.
+  const [adminWhatsapp, setAdminWhatsapp] = useState<string | null>(null)
+
   useEffect(() => { cargar() }, [id])
 
   async function cargar() {
@@ -59,6 +64,8 @@ export default function EntregaPage() {
     setPedido({ ...ped, repartidor_id: asig.repartidor_id })
     setItems(its ?? [])
     setMonto((ped?.total ?? 0).toFixed(2))
+    sb.from('rep_configuracion').select('valor').eq('clave', 'admin_whatsapp').maybeSingle()
+      .then(({ data }) => setAdminWhatsapp(data?.valor ?? null))
     // URL del mapa estático
     const q = ped?.geo_lat && ped?.geo_lng
       ? `${ped.geo_lat},${ped.geo_lng}`

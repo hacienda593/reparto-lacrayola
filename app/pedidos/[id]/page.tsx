@@ -78,8 +78,8 @@ export default async function PedidoDetallePage({ params }: { params: Promise<{ 
             <p className="text-gray-400 text-xs">{pedido.ciudad}</p>
             {pedido.referencias && <p className="text-gray-500 text-xs italic">{pedido.referencias}</p>}
             {pedido.geo_lat && pedido.geo_lng && (
-              <a href={`https://maps.google.com/?q=${pedido.geo_lat},${pedido.geo_lng}`} target="_blank" rel="noopener noreferrer"
-                className="text-[#00b074] text-xs font-semibold hover:underline inline-block">Ver en Google Maps →</a>
+              <a href={`https://www.google.com/maps/dir/?api=1&destination=${pedido.geo_lat},${pedido.geo_lng}`} target="_blank" rel="noopener noreferrer"
+                className="text-[#00b074] text-xs font-semibold hover:underline inline-block">Ver ruta en Google Maps →</a>
             )}
           </div>
 

@@ -1,5 +1,7 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
+import dynamic from 'next/dynamic'
+const MapaRuta = dynamic(() => import('@/components/MapaRuta'), { ssr: false })
 import Link from 'next/link'
 import { useAuth } from '@/context/AuthContext'
 import { supabase } from '@/lib/supabase'
@@ -101,6 +103,17 @@ export default function RepartidorPage() {
   const [guardandoEntrega, setGuardandoEntrega] = useState(false)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const isDrawingRef = useRef(false)
+
+  // Envíos Flex states
+  const [vistaRepartidor, setVistaRepartidor] = useState<'listado' | 'mapa'>('listado')
+  const [paradaActivaId, setParadaActivaId] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('paradaActivaId')
+      if (saved) setParadaActivaId(saved)
+    }
+  }, [])
   const [colegas, setColegas] = useState<{ id: string; nombre: string }[]>([])
   const [destinoTraspaso, setDestinoTraspaso] = useState('')
   const [montoTraspaso, setMontoTraspaso] = useState('')
@@ -601,6 +614,44 @@ export default function RepartidorPage() {
     router.push(`/entrega/${asignacionId}`)
   }
 
+  const activarParada = async (p: any) => {
+    if (!repartidor) return
+    setParadaActivaId(p.asignacion_id)
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('paradaActivaId', p.asignacion_id)
+    }
+    
+    if (p.estado === 'asignado') {
+      setProcesando(p.asignacion_id)
+      try {
+        await supabase.from('rep_asignaciones').update({
+          rider_id:   repartidor.id,
+          estado:     'en_ruta',
+          updated_at: new Date().toISOString()
+        }).eq('id', p.asignacion_id)
+        
+        await supabase.from('ol_pedidos').update({ estado: 'enviado' }).eq('id', p.pedido_id)
+        
+        await supabase.from('rep_entregas').insert({
+          asignacion_id: p.asignacion_id,
+          repartidor_id: repartidor.id,
+          pedido_id:     p.pedido_id,
+          salida_at:     new Date().toISOString(),
+          exitosa:       true,
+        })
+        await cargar(user!.id)
+      } catch (err) {
+        console.error("Error al activar parada:", err)
+      } finally {
+        setProcesando(null)
+      }
+    }
+
+    if (p.geo_lat && p.geo_lng) {
+      window.open(`https://www.google.com/maps/dir/?api=1&destination=${p.geo_lat},${p.geo_lng}`, '_blank')
+    }
+  }
+
   async function confirmarRetiroCliente(asignacionId: string, pedidoId: string) {
     setProcesando(asignacionId)
     await supabase.from('rep_asignaciones').update({
@@ -869,6 +920,10 @@ export default function RepartidorPage() {
 
       setFotoFile(null)
       setEntregaModal(null)
+      setParadaActivaId(null)
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('paradaActivaId')
+      }
       await cargar(user!.id)
 
     } catch (err: any) {
@@ -944,6 +999,168 @@ export default function RepartidorPage() {
     } finally {
       setProcesando(null)
     }
+  }
+
+  const renderCardRepartidor = (p: any, isActive: boolean) => {
+    const numPedido = String(p.numero).padStart(4, '0')
+    return (
+      <div key={p.asignacion_id} className={`bg-white rounded-3xl border transition-all ${
+        isActive 
+          ? 'border-red-500 shadow-md ring-2 ring-red-500/10' 
+          : 'border-slate-200/80 shadow-sm opacity-95'
+      } overflow-hidden`}>
+        {/* Cabecera del pedido */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50/50">
+          <div className="flex items-center gap-2">
+            <span className="w-5 h-5 rounded-full bg-slate-800 text-white text-[10px] font-extrabold flex items-center justify-center shrink-0">
+              {pedidos.filter(x => x.estado === 'en_ruta' || x.estado === 'asignado').findIndex(x => x.asignacion_id === p.asignacion_id) + 1}
+            </span>
+            <Package size={15} className="text-slate-400" />
+            <span className="font-bold text-slate-800 text-xs">Pedido #{numPedido}</span>
+            <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${EST_COLOR[p.estado] ?? 'bg-slate-100 text-slate-600'}`}>
+              {p.estado === 'en_ruta' ? 'En camino' : 'Asignado'}
+            </span>
+          </div>
+          <span className="font-bold text-green-700 text-xs">{fmt(p.total)}</span>
+        </div>
+
+        {/* Banner de Pago Destacado */}
+        {p.metodo_pago === 'transferencia' && p.pago_confirmado === true && (
+          <div className="bg-emerald-500 text-white font-extrabold text-[10px] py-2 text-center shadow-inner">
+            💳 PAGADO POR TRANSFERENCIA (Confirmado)
+          </div>
+        )}
+        {p.metodo_pago === 'transferencia' && p.pago_confirmado !== true && (
+          <div className="bg-yellow-500 text-slate-900 font-extrabold text-[10px] py-2 text-center shadow-inner animate-pulse">
+            ⚠️ TRANSFERENCIA POR CONFIRMAR: {fmt(p.total)}
+          </div>
+        )}
+        {(!p.metodo_pago || p.metodo_pago === 'efectivo') && (
+          <div className="bg-orange-600 text-white font-extrabold text-[10px] py-2 text-center shadow-inner">
+            💵 COBRAR EN EFECTIVO: {fmt(p.total)}
+          </div>
+        )}
+
+        {/* Datos cliente */}
+        <div className="px-4 py-3 space-y-2.5">
+          <div className="flex items-start gap-2">
+            <div className="w-8 h-8 bg-green-50 rounded-lg flex items-center justify-center shrink-0">
+              <span className="text-xs font-bold text-green-700">{p.nombre_cliente?.[0]}</span>
+            </div>
+            <div>
+              <div className="font-bold text-slate-800 text-xs">{p.nombre_cliente}</div>
+              <a href={`tel:${p.telefono}`} className="flex items-center gap-1 text-[11px] text-green-600 font-semibold">
+                <Phone size={10} /> {p.telefono}
+              </a>
+            </div>
+          </div>
+
+          {p.direccion && (
+            <div className="flex items-start gap-2 text-xs text-slate-500">
+              <MapPin size={12} className="shrink-0 mt-0.5 text-slate-400" />
+              <div>
+                <div className="font-medium">{p.direccion}, {p.ciudad}</div>
+                {p.referencias && <div className="text-[10px] text-slate-400 mt-0.5">{p.referencias}</div>}
+              </div>
+            </div>
+          )}
+
+          {p.notas && (
+            <div className="bg-yellow-50 border border-yellow-100 rounded-lg px-2.5 py-1.5 text-[10px] text-yellow-800">
+              📝 {p.notas}
+            </div>
+          )}
+        </div>
+
+        {/* Acciones */}
+        <div className="px-4 pb-4 space-y-2">
+          {isActive ? (
+            /* SI ES LA PARADA ACTIVA: Mostrar todos los controles de cobro, mapa y POD */
+            <div className="space-y-3 pt-2 border-t border-slate-100">
+              {p.geo_lat && p.geo_lng && (
+                <a
+                  href={`https://www.google.com/maps/dir/?api=1&destination=${p.geo_lat},${p.geo_lng}`}
+                  target="_blank" rel="noopener noreferrer"
+                  className="w-full flex items-center justify-center gap-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-extrabold py-2.5 rounded-xl text-xs shadow-sm border border-blue-200"
+                >
+                  <Navigation size={12} /> Navegar con GPS (Google Maps)
+                </a>
+              )}
+
+              {p.estado === 'en_ruta' && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <DollarSign size={14} className="text-slate-400 shrink-0" />
+                    <input
+                      type="number" step="0.01" min="0"
+                      placeholder={`Monto a cobrar (total: ${fmt(p.total)})`}
+                      value={cobro[p.asignacion_id] ?? ''}
+                      onChange={e => setCobro(c => ({ ...c, [p.asignacion_id]: e.target.value }))}
+                      className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-green-500"
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => confirmarGpsEntrega(p)}
+                    disabled={procesando !== null}
+                    className="w-full flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold py-2.5 rounded-xl transition text-xs shadow-sm cursor-pointer">
+                    {procesando === p.asignacion_id ? <Loader2 size={12} className="animate-spin" /> : <MapPin size={12} />}
+                    Confirmar GPS de Entrega (en puerta)
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      const valCobro = cobro[p.asignacion_id] || ''
+                      setMontoCobradoModal(valCobro)
+                      setFotoFile(null)
+                      setEntregaModal(p)
+                    }}
+                    disabled={procesando !== null}
+                    className="w-full flex items-center justify-center gap-1.5 bg-[#00b074] hover:bg-[#008f5d] disabled:opacity-60 text-white font-bold py-3 rounded-xl transition text-xs cursor-pointer shadow-md"
+                  >
+                    <CheckCircle size={14} />
+                    Confirmar entrega (Foto y Firma)
+                  </button>
+                </div>
+              )}
+
+              {/* Plantillas de WhatsApp */}
+              <div className="pt-2.5 border-t border-slate-100 mt-2 space-y-2 text-left">
+                <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">💬 WhatsApp rápido:</div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <a
+                    href={`https://wa.me/${formatWhatsApp(p.telefono)}?text=${encodeURIComponent(
+                      "Hola " + p.nombre_cliente + ", te saluda " + (repartidor?.nombre || "tu Repartidor") + " de La Crayola. Tu pedido #" + p.numero + " va en camino a tu domicilio. Por favor estar atento."
+                    )}`}
+                    target="_blank" rel="noopener noreferrer"
+                    className="bg-green-50 hover:bg-green-100 border border-green-200 text-green-700 text-[10px] font-bold py-2 rounded-xl text-center flex items-center justify-center gap-1"
+                  >
+                    🛵 En Camino
+                  </a>
+                  <a
+                    href={`https://wa.me/${formatWhatsApp(p.telefono)}`}
+                    target="_blank" rel="noopener noreferrer"
+                    className="border border-slate-200 hover:bg-slate-50 text-slate-600 text-[10px] font-bold py-2 rounded-xl text-center flex items-center justify-center gap-1"
+                  >
+                    💬 Chat Directo
+                  </a>
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* SI NO ES LA PARADA ACTIVA: Mostrar solo botón de activación Voy para allá */
+            <button
+              onClick={() => activarParada(p)}
+              disabled={procesando !== null}
+              className="w-full bg-[#00b074] hover:bg-[#008f5d] disabled:opacity-50 text-white font-extrabold py-3 rounded-xl transition text-xs flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
+            >
+              {procesando === p.asignacion_id ? <Loader2 size={13} className="animate-spin" /> : <span>🛵 Voy para allá →</span>}
+            </button>
+          )}
+        </div>
+      </div>
+    )
   }
 
   if (errorCarga) {
@@ -1440,11 +1657,40 @@ export default function RepartidorPage() {
               </span>
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Hoy</span>
             </div>
-            <div className="flex items-center gap-3 text-[11px] font-semibold">
-              <span className="text-green-700">✓ {entregasHoy.exitosas} entregadas</span>
-              {entregasHoy.fallidas > 0 && <span className="text-red-500">✕ {entregasHoy.fallidas} fallidas</span>}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3 text-[11px] font-semibold">
+                <span className="text-green-700">✓ {entregasHoy.exitosas} entregadas</span>
+                {entregasHoy.fallidas > 0 && <span className="text-red-500">✕ {entregasHoy.fallidas} fallidas</span>}
+              </div>
+              <span className="text-xs font-black text-green-700">
+                Ganado: {fmt(entregasHoy.exitosas * (repartidor?.comision_valor ?? 1))}
+              </span>
             </div>
           </div>
+        </div>
+      )}
+      {modo === 'repartidor' && (
+        <div className="px-4 pt-3 flex gap-2">
+          <button
+            onClick={() => setVistaRepartidor('listado')}
+            className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all text-center border cursor-pointer ${
+              vistaRepartidor === 'listado'
+                ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+            }`}
+          >
+            📋 Listado Paradas
+          </button>
+          <button
+            onClick={() => setVistaRepartidor('mapa')}
+            className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all text-center border cursor-pointer ${
+              vistaRepartidor === 'mapa'
+                ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+            }`}
+          >
+            🗺️ Ver Mapa
+          </button>
         </div>
       )}
 
@@ -1497,292 +1743,153 @@ export default function RepartidorPage() {
             ))
           )
         ) : (
-          /* VISTA: MIS PEDIDOS (segun pestaña, o todas si es modo repartidor) */
-          (modo === 'comprador' ? listaActivaComprador : pedidos).length === 0 ? (
-            <div className="text-center py-16 space-y-3 bg-white rounded-3xl border border-slate-100 p-5 shadow-xs">
-              <CheckCircle size={48} className="text-green-300 mx-auto" />
-              <p className="font-semibold text-slate-600">Sin pedidos en esta pestaña</p>
-              <p className="text-sm text-slate-400">
-                {modo === 'comprador'
-                  ? 'Ve a la pestaña "Inicio" para auto-asignarte un pedido.'
-                  : 'Cuando te asignen entregas aparecerán aquí.'}
-              </p>
-            </div>
-          ) : (
-            (modo === 'comprador' ? listaActivaComprador : pedidos).map(p => (
-              <div key={p.asignacion_id} className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-                {/* Cabecera del pedido */}
-                <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
-                  <div className="flex items-center gap-2">
-                    {modo === 'repartidor' && p.estado === 'en_ruta' && (
-                      <span className="w-6 h-6 rounded-full bg-slate-800 text-white text-[11px] font-extrabold flex items-center justify-center shrink-0">
-                        {pedidos.filter(x => x.estado === 'en_ruta').findIndex(x => x.asignacion_id === p.asignacion_id) + 1}
-                      </span>
-                    )}
-                    <Package size={16} className="text-slate-400" />
-                    <span className="font-bold text-slate-800">Pedido #{String(p.numero).padStart(4,'0')}</span>
-                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${EST_COLOR[p.estado] ?? 'bg-slate-100 text-slate-600'}`}>
-                      {(p.estado ?? '').replace('_',' ')}
-                    </span>
-                  </div>
-                  <span className="font-bold text-green-700">{fmt(p.total)}</span>
-                </div>
-
-                {/* Banner de Pago Destacado */}
-                {p.metodo_pago === 'transferencia' && p.pago_confirmado === true && (
-                  <div className="bg-emerald-500 text-white font-extrabold text-xs px-4 py-3 text-center flex items-center justify-center gap-1.5 shadow-inner">
-                    <span>💳 PAGADO POR TRANSFERENCIA (Confirmado)</span>
-                  </div>
-                )}
-                {p.metodo_pago === 'transferencia' && p.pago_confirmado !== true && (
-                  <div className="bg-yellow-500 text-slate-900 font-extrabold text-xs px-4 py-3 text-center flex items-center justify-center gap-1.5 shadow-inner animate-pulse">
-                    <span>⚠️ TRANSFERENCIA POR CONFIRMAR: {fmt(p.total)}</span>
-                  </div>
-                )}
-                {(!p.metodo_pago || p.metodo_pago === 'efectivo') && (
-                  <div className="bg-orange-600 text-white font-extrabold text-xs px-4 py-3 text-center flex items-center justify-center gap-1.5 shadow-inner">
-                    <span>💵 COBRAR EN EFECTIVO: {fmt(p.total)}</span>
-                  </div>
-                )}
-
-              {/* Datos cliente */}
-              <div className="px-4 py-3 space-y-2">
-                <div className="flex items-start gap-2">
-                  <div className="w-8 h-8 bg-green-50 rounded-lg flex items-center justify-center shrink-0">
-                    <span className="text-sm font-bold text-green-700">{p.nombre_cliente?.[0]}</span>
-                  </div>
-                  <div>
-                    <div className="font-semibold text-slate-800 text-sm">{p.nombre_cliente}</div>
-                    <a href={`tel:${p.telefono}`}
-                      className="flex items-center gap-1 text-xs text-green-600 font-medium">
-                      <Phone size={11} /> {p.telefono}
-                    </a>
-                  </div>
-                </div>
-
-                {p.direccion && (
-                  <div className="flex items-start gap-2 text-xs text-slate-500">
-                    <MapPin size={13} className="shrink-0 mt-0.5 text-slate-400" />
-                    <div>
-                      <div>{p.direccion}, {p.ciudad}</div>
-                      {p.referencias && <div className="text-slate-400">{p.referencias}</div>}
-                    </div>
-                  </div>
-                )}
-
-                {p.notas && (
-                  <div className="bg-yellow-50 border border-yellow-100 rounded-lg px-3 py-2 text-xs text-yellow-800">
-                    📝 {p.notas}
-                  </div>
-                )}
-
-                {/* Vista Compras - Traspaso o Híbrido (si ya está recolectado) */}
-                {modo === 'comprador' && p.estado === 'recolectado' && (
-                  <div className="pt-3 border-t border-slate-100 mt-2 space-y-2">
-                    {p.direccion === 'RETIRO EN TIENDA' ? (
-                      <>
-                        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3 text-center text-xs text-yellow-800 font-semibold mb-2">
-                          🛍️ Pedido de Retiro en Tienda. Está listo para que el cliente lo retire.
-                        </div>
-                        <button
-                          onClick={() => confirmarRetiroCliente(p.asignacion_id, p.pedido_id)}
-                          disabled={procesando !== null}
-                          className="w-full flex items-center justify-center gap-1.5 bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-xl transition text-xs shadow-xs">
-                          🛍️ Entregar al Cliente (Confirmar Retiro)
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <div className="bg-green-50 border border-green-200 rounded-xl p-3 text-center text-xs text-green-800 font-semibold mb-2">
-                          🎉 ¡Compras completadas! Realiza el traspaso al motorizado.
-                        </div>
-                        <div className="flex gap-2">
-                          <a href={`/repartidor/traspaso/${p.asignacion_id}`}
-                            className="flex-1 flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition text-xs shadow-xs text-center">
-                            📲 Traspasar por QR
-                          </a>
-                          <button
-                            onClick={() => autotraspaso(p.asignacion_id, p.pedido_id, p.numero, p.nombre_cliente, p.telefono)}
-                            disabled={procesando !== null}
-                            className="flex-1 flex items-center justify-center gap-1.5 bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-xl transition text-xs shadow-xs">
-                            🛵 Entregar yo mismo
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                )}
-
-                {/* Vista Compras (Picking - solo si está en estado asignado) */}
-                {modo === 'comprador' && p.estado === 'asignado' && (
-                  <div className="pt-2">
-                    {!p.compra_iniciada_at ? (
-                      <button
-                        type="button"
-                        onClick={() => iniciarCompra(p.asignacion_id, p.pedido_id, p.numero, p.nombre_cliente, p.telefono)}
-                        disabled={procesando !== null}
-                        className="w-full flex items-center justify-center gap-2 bg-[#00b074] hover:bg-[#008f5d] disabled:opacity-50 text-white font-extrabold py-3.5 rounded-xl transition text-sm shadow-sm cursor-pointer"
-                      >
-                        {procesando === p.pedido_id ? (
-                          <Loader2 size={16} className="animate-spin" />
-                        ) : (
-                          <span>▶️ Iniciar compra en supermercados</span>
-                        )}
-                      </button>
-                    ) : (
-                      <a href={`/picking/${p.asignacion_id}`}
-                        className="w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white font-extrabold py-3.5 rounded-xl transition text-sm shadow-sm text-center">
-                        🛒 Continuar compra en supermercados
-                      </a>
-                    )}
-                  </div>
-                )}
-
-                {/* Vista Compras - Entrega propia en curso (comprador que eligio "Entregar yo mismo") */}
-                {modo === 'comprador' && p.estado === 'en_ruta' && p.rider_id === p.shopper_id && (
-                  <div className="pt-2">
-                    <a href={`/entrega/${p.asignacion_id}`}
-                      className="w-full flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 text-white font-extrabold py-3.5 rounded-xl transition text-sm shadow-sm text-center">
-                      🛵 Continuar mi entrega
-                    </a>
-                  </div>
-                )}
-
-                {/* Vista Entregas (Ruta) */}
-                {modo === 'repartidor' && p.geo_lat && p.geo_lng && (
-                  <a
-                    href={`https://www.google.com/maps/dir/?api=1&destination=${p.geo_lat},${p.geo_lng}`}
-                    target="_blank" rel="noopener noreferrer"
-                    className="flex items-center gap-1.5 text-xs text-blue-605 font-extrabold pt-1 cursor-pointer"
-                  >
-                    <Navigation size={12} /> Voy para allí (Calcular ruta GPS)
-                  </a>
-                )}
+          modo === 'comprador' ? (
+            /* VISTA: MIS PEDIDOS (COMPRADOR) */
+            listaActivaComprador.length === 0 ? (
+              <div className="text-center py-16 space-y-3 bg-white rounded-3xl border border-slate-100 p-5 shadow-xs">
+                <CheckCircle size={48} className="text-green-300 mx-auto" />
+                <p className="font-semibold text-slate-600">Sin pedidos en esta pestaña</p>
+                <p className="text-sm text-slate-400">Ve a la pestaña "Inicio" para auto-asignarte un pedido.</p>
               </div>
+            ) : (
+              listaActivaComprador.map(p => (
+                <div key={p.asignacion_id} className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden text-left">
+                  {/* Cabecera del pedido */}
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50/50">
+                    <div className="flex items-center gap-2">
+                      <Package size={16} className="text-slate-400" />
+                      <span className="font-bold text-slate-800">Pedido #{String(p.numero).padStart(4,'0')}</span>
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${EST_COLOR[p.estado] ?? 'bg-slate-100 text-slate-600'}`}>
+                        {(p.estado ?? '').replace('_',' ')}
+                      </span>
+                    </div>
+                    <span className="font-bold text-green-700">{fmt(p.total)}</span>
+                  </div>
 
-              {/* Acciones */}
-              {modo === 'repartidor' && (
-                <div className="px-4 pb-4 space-y-2">
-                  {p.estado === 'asignado' && (
-                    <button
-                      onClick={() => enRuta(p.asignacion_id, p.pedido_id)}
-                      disabled={procesando === p.asignacion_id}
-                      className="w-full flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-60 text-white font-bold py-3 rounded-xl transition text-sm">
-                      {procesando === p.asignacion_id
-                        ? <Loader2 size={16} className="animate-spin" />
-                        : <Navigation size={16} />
-                      }
-                      Salir a entregar
-                    </button>
-                  )}
-
-                  {p.estado === 'en_ruta' && (
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <DollarSign size={15} className="text-slate-400 shrink-0" />
-                        <input
-                          type="number" step="0.01" min="0"
-                          placeholder={`Monto a cobrar (total: ${fmt(p.total)})`}
-                          value={cobro[p.asignacion_id] ?? ''}
-                          onChange={e => setCobro(c => ({ ...c, [p.asignacion_id]: e.target.value }))}
-                          className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-green-500"
-                        />
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => confirmarGpsEntrega(p)}
-                        disabled={procesando !== null}
-                        className="w-full flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold py-2.5 rounded-xl transition text-xs shadow-sm mb-1.5 cursor-pointer">
-                        {procesando === p.asignacion_id ? <Loader2 size={12} className="animate-spin" /> : <MapPin size={12} />}
-                        Confirmar GPS de Entrega (en puerta)
-                      </button>
-                      <button
-                        onClick={() => {
-                          const valCobro = cobro[p.asignacion_id] || ''
-                          setMontoCobradoModal(valCobro)
-                          setFotoFile(null)
-                          setEntregaModal(p)
-                        }}
-                        disabled={procesando !== null}
-                        className="w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white font-bold py-3 rounded-xl transition text-sm cursor-pointer"
-                      >
-                        <CheckCircle size={16} />
-                        Confirmar entrega
-                      </button>
+                  {/* Banner de Pago Destacado */}
+                  {p.metodo_pago === 'transferencia' && p.pago_confirmado === true && (
+                    <div className="bg-emerald-500 text-white font-extrabold text-xs px-4 py-3 text-center flex items-center justify-center gap-1.5 shadow-inner">
+                      <span>💳 PAGADO POR TRANSFERENCIA (Confirmado)</span>
                     </div>
                   )}
-                </div>
-              )}
-                  {modo === 'comprador' && (
-                    <div className="pt-3 border-t border-slate-100 mt-2 space-y-2 text-left">
-                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">💬 Notificar Hito al Cliente (WhatsApp):</div>
-                      <div className="grid grid-cols-3 gap-1">
-                        <a
-                          href={`https://wa.me/${formatWhatsApp(p.telefono)}?text=${encodeURIComponent(
-                            "Hola " + p.nombre_cliente + ", te saluda " + (repartidor?.nombre || "tu Shopper") + " de La Crayola. He aceptado tu pedido #" + p.numero + " y estoy listo para procesarlo."
-                          )}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="bg-green-50 hover:bg-green-100 border border-green-200 text-green-700 text-[10px] font-bold py-2 rounded-xl text-center flex items-center justify-center"
-                        >
-                          🤝 Aceptado
-                        </a>
-                        <a
-                          href={`https://wa.me/${formatWhatsApp(p.telefono)}?text=${encodeURIComponent(
-                            "He iniciado la compra de tu pedido #" + p.numero + ". Te mantendré al tanto de cualquier novedad con tus productos."
-                          )}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="bg-green-50 hover:bg-green-100 border border-green-200 text-green-700 text-[10px] font-bold py-2 rounded-xl text-center flex items-center justify-center"
-                        >
-                          🛒 En Compra
-                        </a>
-                        <a
-                          href={`https://wa.me/${formatWhatsApp(p.telefono)}?text=${encodeURIComponent(
-                            "Tu pedido #" + p.numero + " ha sido facturado y entregado al repartidor. ¡Va en camino!"
-                          )}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="bg-green-50 hover:bg-green-100 border border-green-200 text-green-700 text-[10px] font-bold py-2 rounded-xl text-center flex items-center justify-center"
-                        >
-                          🛵 Despachado
-                        </a>
-                      </div>
+                  {p.metodo_pago === 'transferencia' && p.pago_confirmado !== true && (
+                    <div className="bg-yellow-500 text-slate-900 font-extrabold text-xs px-4 py-3 text-center flex items-center justify-center gap-1.5 shadow-inner animate-pulse">
+                      <span>⚠️ TRANSFERENCIA POR CONFIRMAR: {fmt(p.total)}</span>
+                    </div>
+                  )}
+                  {(!p.metodo_pago || p.metodo_pago === 'efectivo') && (
+                    <div className="bg-orange-600 text-white font-extrabold text-xs px-4 py-3 text-center flex items-center justify-center gap-1.5 shadow-inner">
+                      <span>💵 COBRAR EN EFECTIVO: {fmt(p.total)}</span>
                     </div>
                   )}
 
-                  {/* Plantillas de WhatsApp para Repartidores */}
-                  {modo === 'repartidor' && p.estado === 'en_ruta' && (
-                    <div className="pt-3 border-t border-slate-100 mt-2 space-y-2 text-left">
-                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">💬 Notificar Hito al Cliente (WhatsApp):</div>
-                      <div className="grid grid-cols-2 gap-1.5">
-                        <a
-                          href={`https://wa.me/${formatWhatsApp(p.telefono)}?text=${encodeURIComponent(
-                            "Hola " + p.nombre_cliente + ", te saluda " + (repartidor?.nombre || "tu Repartidor") + " de La Crayola. Tu pedido #" + p.numero + " va en camino a tu domicilio. Por favor estar atento."
-                          )}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="bg-green-50 hover:bg-green-100 border border-green-200 text-green-700 text-[10px] font-bold py-2.5 rounded-xl text-center flex items-center justify-center gap-1"
-                        >
-                          🛵 En Camino
-                        </a>
-                        <a
-                          href={`https://wa.me/${formatWhatsApp(p.telefono)}?text=${encodeURIComponent(
-                            "Voy en camino con tu pedido #" + p.numero + ". Puedes ver mi ubicación compartida en tiempo real por aquí por los siguientes 15 minutos."
-                          )}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="bg-green-50 hover:bg-green-100 border border-green-200 text-green-700 text-[10px] font-bold py-2.5 rounded-xl text-center flex items-center justify-center gap-1"
-                        >
-                          📍 Compartir GPS
+                  {/* Datos cliente */}
+                  <div className="px-4 py-3 space-y-2">
+                    <div className="flex items-start gap-2">
+                      <div className="w-8 h-8 bg-green-55/10 rounded-lg flex items-center justify-center shrink-0">
+                        <span className="text-sm font-bold text-green-700">{p.nombre_cliente?.[0]}</span>
+                      </div>
+                      <div>
+                        <div className="font-semibold text-slate-800 text-sm">{p.nombre_cliente}</div>
+                        <a href={`tel:${p.telefono}`}
+                          className="flex items-center gap-1 text-xs text-green-600 font-medium">
+                          <Phone size={11} /> {p.telefono}
                         </a>
                       </div>
                     </div>
-                  )}
 
-                  <div className="px-4 pb-4 pt-2">
+                    {p.direccion && (
+                      <div className="flex items-start gap-2 text-xs text-slate-500">
+                        <MapPin size={13} className="shrink-0 mt-0.5 text-slate-400" />
+                        <div>
+                          <div>{p.direccion}, {p.ciudad}</div>
+                          {p.referencias && <div className="text-slate-400">{p.referencias}</div>}
+                        </div>
+                      </div>
+                    )}
+
+                    {p.notas && (
+                      <div className="bg-yellow-50 border border-yellow-100 rounded-lg px-3 py-2 text-xs text-yellow-800">
+                        📝 {p.notas}
+                      </div>
+                    )}
+
+                    {/* Vista Compras - Traspaso o Híbrido */}
+                    {p.estado === 'recolectado' && (
+                      <div className="pt-3 border-t border-slate-100 mt-2 space-y-2">
+                        {p.direccion === 'RETIRO EN TIENDA' ? (
+                          <>
+                            <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3 text-center text-xs text-yellow-800 font-semibold mb-2">
+                              🛍️ Pedido de Retiro en Tienda. Está listo para que el cliente lo retire.
+                            </div>
+                            <button
+                              onClick={() => confirmarRetiroCliente(p.asignacion_id, p.pedido_id)}
+                              disabled={procesando !== null}
+                              className="w-full flex items-center justify-center gap-1.5 bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-xl transition text-xs shadow-xs">
+                              🛍️ Entregar al Cliente (Confirmar Retiro)
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <div className="bg-green-50 border border-green-200 rounded-xl p-3 text-center text-xs text-green-800 font-semibold mb-2">
+                              🎉 ¡Compras completadas! Realiza el traspaso al motorizado.
+                            </div>
+                            <div className="flex gap-2">
+                              <a href={`/repartidor/traspaso/${p.asignacion_id}`}
+                                className="flex-1 flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition text-xs shadow-xs text-center">
+                                📲 Traspasar por QR
+                              </a>
+                              <button
+                                onClick={() => autotraspaso(p.asignacion_id, p.pedido_id, p.numero, p.nombre_cliente, p.telefono)}
+                                disabled={procesando !== null}
+                                className="flex-1 flex items-center justify-center gap-1.5 bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-xl transition text-xs shadow-xs">
+                                🛵 Entregar yo mismo
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Vista Compras (Picking - solo si está en estado asignado) */}
+                    {p.estado === 'asignado' && (
+                      <div className="pt-2">
+                        {!p.compra_iniciada_at ? (
+                          <button
+                            type="button"
+                            onClick={() => iniciarCompra(p.asignacion_id, p.pedido_id, p.numero, p.nombre_cliente, p.telefono)}
+                            disabled={procesando !== null}
+                            className="w-full flex items-center justify-center gap-2 bg-[#00b074] hover:bg-[#008f5d] disabled:opacity-50 text-white font-extrabold py-3.5 rounded-xl transition text-sm shadow-sm cursor-pointer"
+                          >
+                            {procesando === p.pedido_id ? (
+                              <Loader2 size={16} className="animate-spin" />
+                            ) : (
+                              <span>▶️ Iniciar compra en supermercados</span>
+                            )}
+                          </button>
+                        ) : (
+                          <a href={`/picking/${p.asignacion_id}`}
+                            className="w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white font-extrabold py-3.5 rounded-xl transition text-sm shadow-sm text-center">
+                            🛒 Continuar compra en supermercados
+                          </a>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Vista Compras - Entrega propia en curso */}
+                    {p.estado === 'en_ruta' && p.rider_id === p.shopper_id && (
+                      <div className="pt-2">
+                        <a href={`/entrega/${p.asignacion_id}`}
+                          className="w-full flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 text-white font-extrabold py-3.5 rounded-xl transition text-sm shadow-sm text-center">
+                          🛵 Continuar mi entrega
+                        </a>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="px-4 pb-4 pt-2 border-t border-slate-100">
                     <a href={`https://wa.me/${formatWhatsApp(p.telefono)}`} target="_blank" rel="noopener noreferrer"
-                      className="w-full flex items-center justify-center gap-2 border border-slate-200 hover:bg-slate-50 text-slate-600 font-semibold py-2 rounded-xl transition text-sm">
+                      className="w-full flex items-center justify-center gap-2 border border-slate-200 hover:bg-slate-50 text-slate-655 font-semibold py-2 rounded-xl transition text-sm">
                       <svg className="w-3.5 h-3.5 fill-green-500" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
                       Chat Directo WhatsApp
                     </a>
@@ -1790,8 +1897,69 @@ export default function RepartidorPage() {
                 </div>
               ))
             )
-          )}
-        </div>
+          ) : (
+            /* VISTA: MIS PEDIDOS (REPARTIDOR) - Listado/Mapa estilo Envíos Flex */
+            vistaRepartidor === 'mapa' ? (
+              <div className="px-1 py-1">
+                <MapaRuta 
+                  paradas={pedidos.filter(p => p.estado === 'asignado' || p.estado === 'en_ruta').map(p => ({
+                    asignacion_id: p.asignacion_id,
+                    numero: p.numero,
+                    nombre_cliente: p.nombre_cliente,
+                    direccion: p.direccion,
+                    total: p.total,
+                    geo_lat: p.geo_lat,
+                    geo_lng: p.geo_lng
+                  }))} 
+                  onSelectParada={activarParada}
+                  paradaActivaId={paradaActivaId} 
+                />
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {/* 📌 SECCIÓN: PRÓXIMA PARADA / EN CAMINO */}
+                {(() => {
+                  const activeStop = pedidos.find(p => p.asignacion_id === paradaActivaId && (p.estado === 'asignado' || p.estado === 'en_ruta'))
+                  if (!activeStop) return null
+                  return (
+                    <div className="space-y-2">
+                      <div className="text-[10px] font-black text-red-500 uppercase tracking-widest px-1 flex items-center gap-1.5 animate-pulse text-left">
+                        🚨 Próxima Parada (En Camino)
+                      </div>
+                      {renderCardRepartidor(activeStop, true)}
+                    </div>
+                  )
+                })()}
+
+                {/* 📋 SECCIÓN: OTRAS PARADAS PENDIENTES */}
+                {(() => {
+                  const pendingStops = pedidos.filter(p => p.asignacion_id !== paradaActivaId && (p.estado === 'asignado' || p.estado === 'en_ruta'))
+                  if (pendingStops.length === 0) {
+                    const hasActive = pedidos.some(p => p.asignacion_id === paradaActivaId && (p.estado === 'asignado' || p.estado === 'en_ruta'))
+                    if (!hasActive) {
+                      return (
+                        <div className="text-center py-16 space-y-3 bg-white rounded-3xl border border-slate-100 p-5 shadow-xs">
+                          <CheckCircle size={48} className="text-green-300 mx-auto" />
+                          <p className="font-semibold text-slate-600">Sin paradas activas</p>
+                          <p className="text-sm text-slate-400">Cuando te asignen entregas aparecerán aquí.</p>
+                        </div>
+                      )
+                    }
+                    return null
+                  }
+                  return (
+                    <div className="space-y-3">
+                      <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1 text-left">
+                        📋 Paradas Pendientes ({pendingStops.length})
+                      </div>
+                      {pendingStops.map(p => renderCardRepartidor(p, false))}
+                    </div>
+                  )
+                })()}
+              </div>
+            )
+          )
+        )}
       </div>
 
       {/* Menú inferior fijo (solo módulo comprador) */}
@@ -1822,6 +1990,8 @@ export default function RepartidorPage() {
           </Link>
         </div>
       )}
+
+    </div>
 
       {/* Modal: Entregar efectivo en mano a un colega (comprador u otro repartidor) */}
       {showTraspaso && (
