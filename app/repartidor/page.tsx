@@ -321,10 +321,25 @@ export default function RepartidorPage() {
         // mismo Promise.all para no complicar la carga condicional.
         supabase
           .from('rep_asignaciones')
-          .select('id, pedido_id, shopper_id, ol_pedidos(numero,nombre_cliente,direccion,ciudad,total)')
+          .select('id, pedido_id, shopper_id, ol_pedidos(numero,nombre_cliente,direccion,ciudad,total,telefono,geo_lat,geo_lng,metodo_pago,pago_confirmado,notas)')
           .eq('estado', 'recolectado')
           .is('rider_id', null),
       ])
+
+      // Obtener coordenadas de direcciones verificadas para todos los teléfonos cargados
+      const activePhones = Array.from(new Set([
+        ...(asigs ?? []).map((a: any) => a.ol_pedidos?.telefono),
+        ...(pool ?? []).map((p: any) => p.ol_pedidos?.telefono)
+      ].filter(Boolean)))
+
+      const { data: verifiedDirs } = activePhones.length
+        ? await supabase
+            .from('rep_clientes_direcciones')
+            .select('telefono, geo_lat, geo_lng')
+            .in('telefono', activePhones)
+        : { data: [] as any[] }
+
+      const dirMap = new Map((verifiedDirs ?? []).map((d: any) => [d.telefono, d]))
 
       // Contador de entregas de hoy (exitosas/fallidas), solo relevante en modo repartidor
       if (expectedModo === 'repartidor') {
@@ -351,27 +366,35 @@ export default function RepartidorPage() {
         : { data: [] as any[] }
       const shopperMap = new Map((shoppersPub ?? []).map((s: any) => [s.id, s]))
 
-      setPedidos((asigs ?? []).map((a: any) => ({
-        asignacion_id:  a.id,
-        estado:         a.estado,
-        pedido_estado:  a.ol_pedidos?.estado,
-        pedido_id:      a.pedido_id,
-        numero:         a.ol_pedidos?.numero,
-        nombre_cliente: a.ol_pedidos?.nombre_cliente,
-        telefono:       a.ol_pedidos?.telefono,
-        direccion:      a.ol_pedidos?.direccion,
-        ciudad:         a.ol_pedidos?.ciudad,
-        referencias:    a.ol_pedidos?.referencias,
-        total:          a.ol_pedidos?.total,
-        geo_lat:        a.ol_pedidos?.geo_lat,
-        geo_lng:        a.ol_pedidos?.geo_lng,
-        notas:          a.ol_pedidos?.notas,
-        metodo_pago:     a.ol_pedidos?.metodo_pago,
-        pago_confirmado: a.ol_pedidos?.pago_confirmado,
-        compra_iniciada_at: a.compra_iniciada_at,
-        rider_id:       a.rider_id,
-        shopper_id:     a.shopper_id,
-      })))
+      setPedidos((asigs ?? []).map((a: any) => {
+        const tel = a.ol_pedidos?.telefono
+        const vDir = tel ? dirMap.get(tel) : null
+        
+        const notasLower = (a.ol_pedidos?.notas || '').toLowerCase()
+        const esTransferencia = a.ol_pedidos?.metodo_pago === 'transferencia' || notasLower.includes('pago: transferencia') || notasLower.includes('transferencia bancaria')
+
+        return {
+          asignacion_id:  a.id,
+          estado:         a.estado,
+          pedido_estado:  a.ol_pedidos?.estado,
+          pedido_id:      a.pedido_id,
+          numero:         a.ol_pedidos?.numero,
+          nombre_cliente: a.ol_pedidos?.nombre_cliente,
+          telefono:       tel,
+          direccion:      a.ol_pedidos?.direccion,
+          ciudad:         a.ol_pedidos?.ciudad,
+          referencias:    a.ol_pedidos?.referencias,
+          total:          a.ol_pedidos?.total,
+          geo_lat:        a.ol_pedidos?.geo_lat || vDir?.geo_lat || null,
+          geo_lng:        a.ol_pedidos?.geo_lng || vDir?.geo_lng || null,
+          notas:          a.ol_pedidos?.notas,
+          metodo_pago:     esTransferencia ? 'transferencia' : (a.ol_pedidos?.metodo_pago || 'efectivo'),
+          pago_confirmado: a.ol_pedidos?.pago_confirmado,
+          compra_iniciada_at: a.compra_iniciada_at,
+          rider_id:       a.rider_id,
+          shopper_id:     a.shopper_id,
+        }
+      }))
 
       const assignedIds = new Set((activeAsigs ?? []).map((a: any) => a.pedido_id))
 
@@ -398,19 +421,31 @@ export default function RepartidorPage() {
         })
       }
 
-      setPoolEntregas((pool ?? []).map((a: any) => ({
-        asignacion_id: a.id,
-        pedido_id:     a.pedido_id,
-        tienda_recogida: tiendasPool[a.pedido_id]?.nombres ?? null,
-        tienda_direccion: tiendasPool[a.pedido_id]?.direccion ?? null,
-        numero:        a.ol_pedidos?.numero,
-        nombre_cliente: a.ol_pedidos?.nombre_cliente,
-        direccion:     a.ol_pedidos?.direccion,
-        ciudad:        a.ol_pedidos?.ciudad,
-        total:         a.ol_pedidos?.total,
-        shopper_nombre: shopperMap.get(a.shopper_id)?.nombre ?? 'Comprador',
-        shopper_telefono: shopperMap.get(a.shopper_id)?.telefono ?? '',
-      })))
+      setPoolEntregas((pool ?? []).map((a: any) => {
+        const tel = a.ol_pedidos?.telefono
+        const vDir = tel ? dirMap.get(tel) : null
+        
+        const notasLower = (a.ol_pedidos?.notas || '').toLowerCase()
+        const esTransferencia = a.ol_pedidos?.metodo_pago === 'transferencia' || notasLower.includes('pago: transferencia') || notasLower.includes('transferencia bancaria')
+
+        return {
+          asignacion_id: a.id,
+          pedido_id:     a.pedido_id,
+          tienda_recogida: tiendasPool[a.pedido_id]?.nombres ?? null,
+          tienda_direccion: tiendasPool[a.pedido_id]?.direccion ?? null,
+          numero:        a.ol_pedidos?.numero,
+          nombre_cliente: a.ol_pedidos?.nombre_cliente,
+          direccion:     a.ol_pedidos?.direccion,
+          ciudad:        a.ol_pedidos?.ciudad,
+          total:         a.ol_pedidos?.total,
+          telefono:      tel,
+          geo_lat:       a.ol_pedidos?.geo_lat || vDir?.geo_lat || null,
+          geo_lng:       a.ol_pedidos?.geo_lng || vDir?.geo_lng || null,
+          metodo_pago:   esTransferencia ? 'transferencia' : (a.ol_pedidos?.metodo_pago || 'efectivo'),
+          shopper_nombre: shopperMap.get(a.shopper_id)?.nombre ?? 'Comprador',
+          shopper_telefono: shopperMap.get(a.shopper_id)?.telefono ?? '',
+        }
+      }))
     } catch (err: any) {
       console.error('Error loading driver data:', err)
       setErrorCarga(err?.message || String(err) || 'Error de carga desconocido')

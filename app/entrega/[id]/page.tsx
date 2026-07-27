@@ -47,7 +47,9 @@ export default function EntregaPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const isDrawingRef = useRef(false)
 
-  const yaPagadoPorTransferencia = pedido?.metodo_pago === 'transferencia' && pedido?.pago_confirmado === true
+  const notasLower = (pedido?.notas || '').toLowerCase()
+  const esTransferencia = pedido?.metodo_pago === 'transferencia' || notasLower.includes('pago: transferencia') || notasLower.includes('transferencia bancaria')
+  const yaPagadoPorTransferencia = esTransferencia && pedido?.pago_confirmado === true
 
   // Numero de WhatsApp del admin para el boton de incidente -- se carga desde
   // rep_configuracion (clave 'admin_whatsapp') en vez de venir escrito en el
@@ -255,18 +257,18 @@ export default function EntregaPage() {
         }
       }
 
-      const montoFinal = yaPagadoPorTransferencia ? 0 : parseFloat(monto)
+      const montoFinal = esTransferencia ? 0 : parseFloat(monto)
 
       await sb.from('rep_entregas').insert({
         asignacion_id: id, repartidor_id: pedido.repartidor_id, pedido_id: pedido.id,
         entregado_at: new Date().toISOString(), monto_cobrado: montoFinal,
-        metodo_pago: yaPagadoPorTransferencia ? 'transferencia' : 'efectivo', exitosa: true,
+        metodo_pago: esTransferencia ? 'transferencia' : 'efectivo', exitosa: true,
         geo_lat: geoFinal.lat ?? null, geo_lng: geoFinal.lng ?? null,
         foto_url: fotoEntregaUrl,
         firma_cliente: firmaClienteUrl
       })
 
-      if (!yaPagadoPorTransferencia && montoFinal > 0) {
+      if (!esTransferencia && montoFinal > 0) {
         await sb.from('rep_transacciones_caja').insert({
           repartidor_id: pedido.repartidor_id,
           pedido_id:     pedido.id,
@@ -327,8 +329,8 @@ export default function EntregaPage() {
           <span className="text-white font-semibold">{items.filter((i: any) => i.picking_completado).length} items</span>
         </div>
         <div className="flex justify-between text-sm">
-          <span className="text-gray-400">{yaPagadoPorTransferencia ? 'Pago' : 'Total cobrado en efectivo'}</span>
-          <span className="text-white font-semibold">{yaPagadoPorTransferencia ? 'Ya pagado por transferencia' : `$${parseFloat(monto).toFixed(2)}`}</span>
+          <span className="text-gray-400">{esTransferencia ? 'Método de Pago' : 'Total cobrado en efectivo'}</span>
+          <span className="text-white font-semibold">{esTransferencia ? (pedido?.pago_confirmado === true ? 'Transferencia (Confirmada)' : 'Transferencia (Por confirmar)') : `$${parseFloat(monto).toFixed(2)}`}</span>
         </div>
         <div className="border-t border-[#2d3748] pt-3 flex justify-between text-sm font-bold">
           <span className="text-white">Total del pedido</span>
@@ -532,15 +534,21 @@ export default function EntregaPage() {
           <div className="flex items-center gap-2">
             <Package size={14} className="text-gray-400" />
             <p className="text-gray-400 text-xs font-semibold uppercase tracking-wider">
-              {yaPagadoPorTransferencia ? 'Estado del pago' : 'Confirmar cobro en efectivo'}
+              {esTransferencia ? 'Estado del pago' : 'Confirmar cobro en efectivo'}
             </p>
           </div>
 
-          {yaPagadoPorTransferencia ? (
-            <div className="bg-[#00b074]/10 border border-[#00b074]/30 rounded-xl px-3 py-3 flex items-center gap-2">
-              <CheckCircle2 size={16} className="text-[#00b074] shrink-0" />
-              <p className="text-[#00b074] text-xs font-semibold">
-                Este pedido ya fue pagado por transferencia y confirmado por administración. No cobres efectivo al cliente.
+          {esTransferencia ? (
+            <div className={`border rounded-xl px-3 py-3 flex items-center gap-2 ${
+              pedido?.pago_confirmado === true 
+                ? 'bg-[#00b074]/10 border-[#00b074]/30 text-[#00b074]' 
+                : 'bg-amber-500/10 border-amber-500/30 text-amber-500'
+            }`}>
+              <CheckCircle2 size={16} className="shrink-0" />
+              <p className="text-xs font-semibold">
+                {pedido?.pago_confirmado === true
+                  ? 'Este pedido ya fue pagado por transferencia y confirmado por administración. No cobres efectivo al cliente.'
+                  : 'Este pedido es de Transferencia (Por Confirmar). Valida el comprobante antes de entregar. No cobres efectivo.'}
               </p>
             </div>
           ) : (
@@ -566,7 +574,7 @@ export default function EntregaPage() {
       <div className="fixed bottom-0 inset-x-0 px-4 pb-6 pt-3 bg-gradient-to-t from-[#0c0f12] via-[#0c0f12]/95 to-transparent space-y-2">
         <button 
           onClick={() => {
-            if (!yaPagadoPorTransferencia && (!monto.trim() || isNaN(parseFloat(monto)))) {
+            if (!esTransferencia && (!monto.trim() || isNaN(parseFloat(monto)))) {
               setError('Ingresa el monto cobrado')
               return
             }
