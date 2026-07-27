@@ -46,6 +46,9 @@ export default function RepartidorPage() {
   // Pool de entregas listas para recoger (comprador ya pago en caja, sin motorizado asignado
   // todavia) — modulo independiente del comprador, solo visible en modo repartidor.
   const [poolEntregas, setPoolEntregas] = useState<any[]>([])
+  // Contador de entregas de HOY (exitosas/fallidas) para el repartidor -- antes
+  // no habia forma de ver el avance del dia sin preguntarle al admin.
+  const [entregasHoy, setEntregasHoy] = useState({ exitosas: 0, fallidas: 0 })
   const [cargando,   setCargando]   = useState(true)
   const [repartidor, setRepartidor] = useState<{ id: string; nombre: string; comision_valor: number; efectivo_en_mano: number; estado: string; vehiculo: string | null; email: string | null; conectado: boolean } | null>(null)
   const [procesando, setProcesando] = useState<string | null>(null)
@@ -301,6 +304,20 @@ export default function RepartidorPage() {
           .eq('estado', 'recolectado')
           .is('rider_id', null),
       ])
+
+      // Contador de entregas de hoy (exitosas/fallidas), solo relevante en modo repartidor
+      if (expectedModo === 'repartidor') {
+        const inicioHoy = new Date(); inicioHoy.setHours(0,0,0,0)
+        const { data: entHoy } = await supabase
+          .from('rep_entregas')
+          .select('exitosa')
+          .eq('repartidor_id', rep.id)
+          .gte('entregado_at', inicioHoy.toISOString())
+        setEntregasHoy({
+          exitosas: (entHoy ?? []).filter(e => e.exitosa).length,
+          fallidas: (entHoy ?? []).filter(e => !e.exitosa).length,
+        })
+      }
 
       // El nombre/telefono del shopper se pide aparte contra la vista publica
       // (rep_repartidores_pub) en vez de embeber la tabla completa: con RLS
@@ -1129,6 +1146,25 @@ export default function RepartidorPage() {
         </div>
       )}
 
+      {/* Cabecera de ruta al estilo "lista numerada de paquetes" (inspirado en apps
+          de logistica de paquetes): cuantas entregas hay en camino ahora mismo. */}
+      {modo === 'repartidor' && (pedidos.filter(p => p.estado === 'en_ruta').length > 0 || entregasHoy.exitosas + entregasHoy.fallidas > 0) && (
+        <div className="px-4 pt-4">
+          <div className="bg-white border border-slate-100 rounded-2xl px-4 py-3 shadow-xs space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-extrabold text-slate-800">
+                {pedidos.filter(p => p.estado === 'en_ruta').length} en camino
+              </span>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Hoy</span>
+            </div>
+            <div className="flex items-center gap-3 text-[11px] font-semibold">
+              <span className="text-green-700">✓ {entregasHoy.exitosas} entregadas</span>
+              {entregasHoy.fallidas > 0 && <span className="text-red-500">✕ {entregasHoy.fallidas} fallidas</span>}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Pedidos Container */}
       <div className="px-4 py-4 space-y-4">
         {modo === 'comprador' && pestana === 'inicio' ? (
@@ -1195,6 +1231,11 @@ export default function RepartidorPage() {
                 {/* Cabecera del pedido */}
                 <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
                   <div className="flex items-center gap-2">
+                    {modo === 'repartidor' && p.estado === 'en_ruta' && (
+                      <span className="w-6 h-6 rounded-full bg-slate-800 text-white text-[11px] font-extrabold flex items-center justify-center shrink-0">
+                        {pedidos.filter(x => x.estado === 'en_ruta').findIndex(x => x.asignacion_id === p.asignacion_id) + 1}
+                      </span>
+                    )}
                     <Package size={16} className="text-slate-400" />
                     <span className="font-bold text-slate-800">Pedido #{String(p.numero).padStart(4,'0')}</span>
                     <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${EST_COLOR[p.estado] ?? 'bg-slate-100 text-slate-600'}`}>
@@ -1329,8 +1370,8 @@ export default function RepartidorPage() {
                   <a
                     href={`https://maps.google.com/?q=${p.geo_lat},${p.geo_lng}`}
                     target="_blank" rel="noopener noreferrer"
-                    className="flex items-center gap-1.5 text-xs text-blue-600 font-medium pt-1">
-                    <Navigation size={12} /> Ver ubicación exacta en Google Maps
+                    className="flex items-center gap-1.5 text-xs text-blue-600 font-bold pt-1">
+                    <Navigation size={12} /> Voy para allí
                   </a>
                 )}
               </div>

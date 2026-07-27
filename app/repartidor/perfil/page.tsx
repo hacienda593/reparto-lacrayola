@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '@/context/AuthContext'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
-import { Loader2, Check, ArrowLeft, Phone, MapPin, Bike, User, LogOut } from 'lucide-react'
+import { Loader2, Check, ArrowLeft, Phone, MapPin, Bike, User, LogOut, PackageCheck, PackageX } from 'lucide-react'
 import { logout } from '@/actions/auth'
 
 const VEHICULOS = [
@@ -24,6 +24,7 @@ export default function PerfilRepartidorPage() {
   const [guardando, setGuardando] = useState(false)
   const [guardado,  setGuardado]  = useState(false)
   const [error,     setError]     = useState('')
+  const [entregas,  setEntregas]  = useState<any[]>([])
 
   useEffect(() => {
     if (authEstado === 'cargando') return
@@ -46,6 +47,16 @@ export default function PerfilRepartidorPage() {
         })
         setCargando(false)
       })
+
+    // Historial propio de entregas -- antes no habia forma de ver cuanto
+    // habia entregado/cobrado sin pedirselo al admin.
+    supabase
+      .from('rep_entregas')
+      .select('id,pedido_id,entregado_at,monto_cobrado,exitosa,motivo_fallo,ol_pedidos(numero,nombre_cliente)')
+      .eq('repartidor_id', repartidorId)
+      .order('entregado_at', { ascending: false })
+      .limit(20)
+      .then(({ data }) => setEntregas(data ?? []))
   }, [user, authEstado, repartidorId])
 
   function set(k: string, v: string) { setForm(f => ({ ...f, [k]: v })) }
@@ -181,6 +192,36 @@ export default function PerfilRepartidorPage() {
                 : <><Check size={16} /> Guardar cambios</>
             }
           </button>
+        </div>
+
+        {/* Historial de mis entregas */}
+        <div className="bg-white rounded-2xl border border-slate-100 p-4 space-y-3 shadow-sm">
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Mis últimas entregas</p>
+          {entregas.length === 0 ? (
+            <p className="text-xs text-slate-400 text-center py-4">Aún no tienes entregas registradas.</p>
+          ) : (
+            <div className="space-y-2">
+              {entregas.map(e => (
+                <div key={e.id} className="flex items-center gap-3 border-b border-slate-50 last:border-0 pb-2 last:pb-0">
+                  {e.exitosa
+                    ? <PackageCheck size={16} className="text-green-600 shrink-0" />
+                    : <PackageX size={16} className="text-red-500 shrink-0" />}
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-bold text-slate-700">
+                      Pedido #{String(e.ol_pedidos?.numero ?? 0).padStart(4,'0')} · {e.ol_pedidos?.nombre_cliente ?? 'Cliente'}
+                    </div>
+                    <div className="text-[10px] text-slate-400">
+                      {e.entregado_at ? new Date(e.entregado_at).toLocaleString('es-EC', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }) : '—'}
+                      {!e.exitosa && e.motivo_fallo ? ` · ${e.motivo_fallo}` : ''}
+                    </div>
+                  </div>
+                  {e.exitosa && e.monto_cobrado > 0 && (
+                    <span className="text-xs font-bold text-green-700">${Number(e.monto_cobrado).toFixed(2)}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <form action={logout}>

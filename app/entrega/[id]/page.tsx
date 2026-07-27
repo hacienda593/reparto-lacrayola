@@ -18,6 +18,21 @@ export default function EntregaPage() {
   const [error,      setError]      = useState('')
   const [mapUrl,     setMapUrl]     = useState('')
 
+  // "No pude entregar": motivo estructurado en vez de solo resolverlo por
+  // WhatsApp sin dejar rastro -- las columnas motivo_fallo/exitosa ya
+  // existian en rep_entregas, no se usaban desde ninguna pantalla.
+  const [mostrarFallo, setMostrarFallo] = useState(false)
+  const [motivoFallo,  setMotivoFallo]  = useState('')
+  const [notasFallo,   setNotasFallo]   = useState('')
+  const [noEntregado,  setNoEntregado]  = useState(false)
+  const MOTIVOS_FALLO = [
+    'Cliente no contesta',
+    'Dirección incorrecta o inaccesible',
+    'Cliente rechazó el pedido',
+    'Cliente pidió reprogramar',
+    'Otro',
+  ]
+
   // Confirmación explícita de ubicación de entrega
   const [gpsConfirmado, setGpsConfirmado] = useState<boolean | null>(null)
   const [corrigiendoGps, setCorrigiendoGps] = useState(false)
@@ -127,6 +142,22 @@ export default function EntregaPage() {
     setEntregado(true); setGuardando(false)
   }
 
+  async function confirmarFallo() {
+    if (!motivoFallo) { setError('Selecciona un motivo'); return }
+    setGuardando(true); setError('')
+
+    await sb.from('rep_asignaciones').update({ estado: 'devuelto', updated_at: new Date().toISOString() }).eq('id', id)
+
+    await sb.from('rep_entregas').insert({
+      asignacion_id: id, repartidor_id: pedido.repartidor_id, pedido_id: pedido.id,
+      entregado_at: new Date().toISOString(), monto_cobrado: 0,
+      exitosa: false, motivo_fallo: motivoFallo + (notasFallo.trim() ? ` — ${notasFallo.trim()}` : ''),
+      geo_lat: pedido.geo_lat ?? null, geo_lng: pedido.geo_lng ?? null,
+    })
+
+    setGuardando(false); setMostrarFallo(false); setNoEntregado(true)
+  }
+
   if (cargando) return (
     <div className="min-h-screen bg-[#0c0f12] flex items-center justify-center">
       <Loader2 size={28} className="animate-spin text-[#00b074]" />
@@ -158,6 +189,24 @@ export default function EntregaPage() {
           <span className="text-white">Total del pedido</span>
           <span className="text-[#00b074] text-lg">${(pedido?.total ?? 0).toFixed(2)}</span>
         </div>
+      </div>
+      <button onClick={() => router.push('/pedidos')}
+        className="w-full bg-[#181d24] border border-[#2d3748] text-white font-bold py-4 rounded-2xl">
+        Volver a Pedidos
+      </button>
+    </div>
+  )
+
+  if (noEntregado) return (
+    <div className="min-h-screen bg-[#0c0f12] flex flex-col items-center justify-center px-6 text-center space-y-5">
+      <div className="w-28 h-28 bg-red-500/15 border-2 border-red-500/30 rounded-full flex items-center justify-center">
+        <X size={52} className="text-red-400" />
+      </div>
+      <div>
+        <h1 className="text-white font-bold text-2xl">Entrega no completada</h1>
+        <p className="text-gray-400 text-sm mt-1">
+          Se registró que el pedido de <span className="text-white">{pedido?.nombre_cliente}</span> no se pudo entregar. El administrador ya puede verlo y reasignarlo.
+        </p>
       </div>
       <button onClick={() => router.push('/pedidos')}
         className="w-full bg-[#181d24] border border-[#2d3748] text-white font-bold py-4 rounded-2xl">
@@ -369,13 +418,56 @@ export default function EntregaPage() {
         </div>
       </div>
 
-      <div className="fixed bottom-0 inset-x-0 px-4 pb-6 pt-3 bg-gradient-to-t from-[#0c0f12] via-[#0c0f12]/95 to-transparent">
+      <div className="fixed bottom-0 inset-x-0 px-4 pb-6 pt-3 bg-gradient-to-t from-[#0c0f12] via-[#0c0f12]/95 to-transparent space-y-2">
         <button onClick={confirmarEntrega} disabled={guardando}
           className="w-full bg-[#00b074] hover:bg-[#008f5d] disabled:opacity-60 text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-2 text-base shadow-lg shadow-[#00b074]/30">
           {guardando ? <Loader2 size={18} className="animate-spin" /> : <CheckCircle2 size={18} />}
           {guardando ? 'Registrando entrega...' : '✅ Confirmar entrega'}
         </button>
+        <button onClick={() => setMostrarFallo(true)} disabled={guardando}
+          className="w-full text-red-400 font-semibold py-2 text-xs">
+          No pude entregar este pedido
+        </button>
       </div>
+
+      {/* Modal: reportar fallo de entrega con motivo estructurado */}
+      {mostrarFallo && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
+          <div className="bg-[#181d24] border border-[#2d3748] rounded-3xl w-full max-w-md p-5 space-y-4">
+            <h3 className="text-white font-bold text-base">¿Por qué no se pudo entregar?</h3>
+            <div className="space-y-2">
+              {MOTIVOS_FALLO.map(m => (
+                <button key={m} onClick={() => setMotivoFallo(m)}
+                  className={`w-full text-left px-4 py-2.5 rounded-xl text-sm font-semibold border transition ${
+                    motivoFallo === m
+                      ? 'bg-red-500/15 border-red-500/40 text-red-300'
+                      : 'bg-[#0c0f12] border-[#2d3748] text-gray-400'
+                  }`}>
+                  {m}
+                </button>
+              ))}
+            </div>
+            <textarea
+              value={notasFallo}
+              onChange={e => setNotasFallo(e.target.value)}
+              placeholder="Detalle adicional (opcional)"
+              rows={2}
+              className="w-full bg-[#0c0f12] border border-[#2d3748] text-white rounded-xl px-3 py-2.5 text-xs placeholder-gray-600 focus:outline-none focus:border-red-400"
+            />
+            {error && <p className="text-red-400 text-xs text-center">{error}</p>}
+            <div className="flex gap-2 pt-1">
+              <button onClick={() => { setMostrarFallo(false); setError('') }}
+                className="flex-1 bg-gray-800 text-gray-300 font-bold py-3 rounded-xl text-sm">
+                Cancelar
+              </button>
+              <button onClick={confirmarFallo} disabled={guardando}
+                className="flex-1 bg-red-600 hover:bg-red-500 disabled:opacity-60 text-white font-bold py-3 rounded-xl text-sm flex items-center justify-center gap-2">
+                {guardando ? <Loader2 size={14} className="animate-spin" /> : 'Confirmar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
