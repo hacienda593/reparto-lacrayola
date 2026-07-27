@@ -93,6 +93,14 @@ export default function RepartidorPage() {
 
   // Traspaso de efectivo en mano a otro colaborador (ej: repartidor entrega el COD cobrado al comprador)
   const [showTraspaso, setShowTraspaso] = useState(false)
+
+  // Proof of Delivery (POD) states
+  const [entregaModal, setEntregaModal] = useState<any>(null)
+  const [fotoFile, setFotoFile] = useState<File | null>(null)
+  const [montoCobradoModal, setMontoCobradoModal] = useState<string>('')
+  const [guardandoEntrega, setGuardandoEntrega] = useState(false)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const isDrawingRef = useRef(false)
   const [colegas, setColegas] = useState<{ id: string; nombre: string }[]>([])
   const [destinoTraspaso, setDestinoTraspaso] = useState('')
   const [montoTraspaso, setMontoTraspaso] = useState('')
@@ -675,6 +683,200 @@ export default function RepartidorPage() {
 
     await cargar(user!.id)
     setProcesando(null)
+  }
+
+  useEffect(() => {
+    if (!entregaModal) return
+    const timer = setTimeout(() => {
+      const canvas = canvasRef.current
+      if (!canvas) return
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return
+      ctx.strokeStyle = '#0f172a'
+      ctx.lineWidth = 3
+      ctx.lineCap = 'round'
+
+      const getPos = (e: MouseEvent | TouchEvent) => {
+        const rect = canvas.getBoundingClientRect()
+        if ('touches' in e) {
+          if (e.touches.length === 0) return { x: 0, y: 0 }
+          return {
+            x: e.touches[0].clientX - rect.left,
+            y: e.touches[0].clientY - rect.top
+          }
+        }
+        return {
+          x: e.clientX - rect.left,
+          y: e.clientY - rect.top
+        }
+      }
+
+      const startDrawing = (e: MouseEvent | TouchEvent) => {
+        isDrawingRef.current = true
+        const pos = getPos(e)
+        ctx.beginPath()
+        ctx.moveTo(pos.x, pos.y)
+      }
+
+      const draw = (e: MouseEvent | TouchEvent) => {
+        if (!isDrawingRef.current) return
+        e.preventDefault()
+        const pos = getPos(e)
+        ctx.lineTo(pos.x, pos.y)
+        ctx.stroke()
+      }
+
+      const stopDrawing = () => {
+        isDrawingRef.current = false
+      }
+
+      canvas.addEventListener('mousedown', startDrawing)
+      canvas.addEventListener('mousemove', draw)
+      canvas.addEventListener('mouseup', stopDrawing)
+      canvas.addEventListener('mouseleave', stopDrawing)
+
+      canvas.addEventListener('touchstart', startDrawing, { passive: false })
+      canvas.addEventListener('touchmove', draw, { passive: false })
+      canvas.addEventListener('touchend', stopDrawing)
+    }, 150)
+
+    return () => clearTimeout(timer)
+  }, [entregaModal])
+
+  const clearCanvas = () => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+  }
+
+  async function finalizarEntregaConPOD() {
+    if (!entregaModal) return
+    const asignacionId = entregaModal.asignacion_id
+    const pedidoId = entregaModal.pedido_id
+
+    if (!fotoFile) {
+      alert('Debes tomar una foto del pedido en la puerta como comprobante.')
+      return
+    }
+
+    const canvas = canvasRef.current
+    if (!canvas) return
+
+    setGuardandoEntrega(true)
+    setProcesando(asignacionId)
+
+    try {
+      const fotoExt = fotoFile.name.split('.').pop() || 'jpg'
+      const fotoName = `entregas/${pedidoId}_${Date.now()}.${fotoExt}`
+      const { error: errFoto } = await supabase.storage
+        .from('comprobantes-proveedores')
+        .upload(fotoName, fotoFile, { upsert: true })
+
+      if (errFoto) {
+        alert('Error al subir la foto de entrega: ' + errFoto.message)
+        setGuardandoEntrega(false)
+        setProcesando(null)
+        return
+      }
+
+      const { data: fotoUrlData } = supabase.storage
+        .from('comprobantes-proveedores')
+        .getPublicUrl(fotoName)
+      const fotoEntregaUrl = fotoUrlData?.publicUrl || ''
+
+      const firmaBlob = await new Promise<Blob | null>(resolve => canvas.toBlob(blob => resolve(blob), 'image/png'))
+      if (!firmaBlob) {
+        alert('Error al capturar la firma del cliente.')
+        setGuardandoEntrega(false)
+        setProcesando(null)
+        return
+      }
+
+      const firmaName = `firmas/${pedidoId}_${Date.now()}.png`
+      const { error: errFirma } = await supabase.storage
+        .from('comprobantes-proveedores')
+        .upload(firmaName, firmaBlob, { upsert: true })
+
+      if (errFirma) {
+        alert('Error al subir la firma del cliente: ' + errFirma.message)
+        setGuardandoEntrega(false)
+        setProcesando(null)
+        return
+      }
+
+      const { data: firmaUrlData } = supabase.storage
+        .from('comprobantes-proveedores')
+        .getPublicUrl(firmaName)
+      const firmaClienteUrl = firmaUrlData?.publicUrl || ''
+
+      const geo = await new Promise<{ lat: number; lng: number } | null>(res => {
+        if (typeof window === 'undefined' || !navigator?.geolocation) {
+          res(null)
+          return
+        }
+        navigator.geolocation.getCurrentPosition(
+          p => res({ lat: p.coords.latitude, lng: p.coords.longitude }),
+          () => res(null),
+          { timeout: 5000, enableHighAccuracy: true }
+        )
+      })
+
+      const monto = parseFloat(montoCobradoModal || '0')
+
+      await supabase.from('rep_asignaciones').update({
+        estado: 'entregado',
+        foto_entrega_url: fotoEntregaUrl,
+        firma_cliente_url: firmaClienteUrl,
+        entrega_lat: geo?.lat || null,
+        entrega_lng: geo?.lng || null,
+        updated_at: new Date().toISOString()
+      }).eq('id', asignacionId)
+
+      await supabase.from('ol_pedidos').update({ estado: 'entregado' }).eq('id', pedidoId)
+
+      await supabase.from('rep_entregas').update({
+        entregado_at:  new Date().toISOString(),
+        monto_cobrado: monto,
+        metodo_pago:   'efectivo',
+        geo_lat:       geo?.lat,
+        geo_lng:       geo?.lng,
+        foto_url:      fotoEntregaUrl,
+        firma_cliente: firmaClienteUrl
+      }).eq('asignacion_id', asignacionId)
+
+      if (repartidor) {
+        await supabase.from('rep_cuentas_cobrar').insert({
+          pedido_id:     pedidoId,
+          asignacion_id: asignacionId,
+          repartidor_id: repartidor.id,
+          monto_pedido:  entregaModal.total ?? 0,
+          monto_cobrado: monto,
+          metodo_pago:   'efectivo',
+          estado:        'cobrado',
+          cobrado_at:    new Date().toISOString(),
+        })
+
+        await supabase.from('rep_transacciones_caja').insert({
+          repartidor_id: repartidor.id,
+          pedido_id:     pedidoId,
+          tipo:          'ingreso_entrega',
+          monto:         monto,
+          estado:        'pendiente'
+        })
+      }
+
+      setFotoFile(null)
+      setEntregaModal(null)
+      await cargar(user!.id)
+
+    } catch (err: any) {
+      alert('Error al procesar la entrega: ' + err.message)
+    } finally {
+      setGuardandoEntrega(false)
+      setProcesando(null)
+    }
   }
 
   async function confirmarGpsEntrega(p: PedidoAsignado) {
@@ -1368,10 +1570,11 @@ export default function RepartidorPage() {
                 {/* Vista Entregas (Ruta) */}
                 {modo === 'repartidor' && p.geo_lat && p.geo_lng && (
                   <a
-                    href={`https://maps.google.com/?q=${p.geo_lat},${p.geo_lng}`}
+                    href={`https://www.google.com/maps/dir/?api=1&destination=${p.geo_lat},${p.geo_lng}`}
                     target="_blank" rel="noopener noreferrer"
-                    className="flex items-center gap-1.5 text-xs text-blue-600 font-bold pt-1">
-                    <Navigation size={12} /> Voy para allí
+                    className="flex items-center gap-1.5 text-xs text-blue-605 font-extrabold pt-1 cursor-pointer"
+                  >
+                    <Navigation size={12} /> Voy para allí (Calcular ruta GPS)
                   </a>
                 )}
               </div>
@@ -1413,13 +1616,16 @@ export default function RepartidorPage() {
                         Confirmar GPS de Entrega (en puerta)
                       </button>
                       <button
-                        onClick={() => entregar(p.asignacion_id, p.pedido_id)}
-                        disabled={procesando === p.asignacion_id}
-                        className="w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white font-bold py-3 rounded-xl transition text-sm">
-                        {procesando === p.asignacion_id
-                          ? <Loader2 size={16} className="animate-spin" />
-                          : <CheckCircle size={16} />
-                        }
+                        onClick={() => {
+                          const valCobro = cobro[p.asignacion_id] || ''
+                          setMontoCobradoModal(valCobro)
+                          setFotoFile(null)
+                          setEntregaModal(p)
+                        }}
+                        disabled={procesando !== null}
+                        className="w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white font-bold py-3 rounded-xl transition text-sm cursor-pointer"
+                      >
+                        <CheckCircle size={16} />
                         Confirmar entrega
                       </button>
                     </div>
@@ -1600,6 +1806,117 @@ export default function RepartidorPage() {
             >
               {procesandoTraspaso ? <Loader2 size={16} className="animate-spin" /> : <ArrowRightLeft size={15} />}
               {procesandoTraspaso ? 'Registrando...' : 'Confirmar entrega de efectivo'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Confirmación de Entrega (Proof of Delivery) */}
+      {entregaModal && (
+        <div className="fixed inset-0 bg-black/60 z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4 select-none">
+          <div className="bg-white rounded-t-3xl sm:rounded-3xl p-5 w-full sm:max-w-sm space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <h3 className="font-black text-slate-800 text-base flex items-center gap-1.5">
+                📦 Confirmar Entrega
+              </h3>
+              <button 
+                onClick={() => {
+                  setFotoFile(null)
+                  setEntregaModal(null)
+                }} 
+                className="text-slate-400 p-1 cursor-pointer"
+                disabled={guardandoEntrega}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="bg-slate-50 border border-slate-100 rounded-xl px-3 py-2 text-xs text-slate-600">
+              <div className="font-extrabold text-slate-800">Pedido #{entregaModal.numero}</div>
+              <div>Cliente: <span className="font-bold text-slate-700">{entregaModal.nombre_cliente}</span></div>
+              <div>Total pedido: <span className="font-bold text-green-700">{fmt(entregaModal.total)}</span></div>
+            </div>
+
+            {/* Paso 1: Foto en Puerta */}
+            <div>
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide block mb-1">Paso 1: Foto del Pedido en Puerta *</label>
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={e => {
+                  if (e.target.files && e.target.files[0]) {
+                    setFotoFile(e.target.files[0])
+                  }
+                }}
+                className="hidden"
+                id="foto-entrega"
+                disabled={guardandoEntrega}
+              />
+              <label 
+                htmlFor="foto-entrega" 
+                className={`flex flex-col items-center justify-center border-2 border-dashed rounded-2xl p-4 cursor-pointer hover:bg-slate-50 transition ${
+                  fotoFile ? 'border-emerald-300 bg-emerald-50/20' : 'border-slate-300'
+                }`}
+              >
+                {fotoFile ? (
+                  <div className="text-center space-y-0.5">
+                    <span className="text-xs text-emerald-600 font-bold">✓ Foto del pedido cargada</span>
+                    <p className="text-[9px] text-slate-400 truncate max-w-[200px]">{fotoFile.name}</p>
+                  </div>
+                ) : (
+                  <div className="text-center space-y-1 text-slate-500">
+                    <span className="text-xs font-bold">📸 Tomar foto de las bolsas en puerta</span>
+                    <p className="text-[9px] text-slate-400">Presiona para abrir la cámara de tu celular</p>
+                  </div>
+                )}
+              </label>
+            </div>
+
+            {/* Paso 2: Firma del Cliente */}
+            <div>
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide block mb-1">Paso 2: Firma del Cliente *</label>
+              <div className="relative border border-slate-200 rounded-2xl overflow-hidden bg-slate-50">
+                <canvas 
+                  ref={canvasRef} 
+                  width={340} 
+                  height={150} 
+                  className="w-full h-[150px] touch-none block bg-transparent cursor-crosshair"
+                />
+                <button
+                  type="button"
+                  onClick={clearCanvas}
+                  disabled={guardandoEntrega}
+                  className="absolute bottom-2 right-2 bg-slate-200/80 hover:bg-slate-300/80 text-slate-700 font-bold px-2.5 py-1 rounded-lg text-[9px] transition-colors cursor-pointer select-none"
+                >
+                  Limpiar lienzo
+                </button>
+              </div>
+            </div>
+
+            {/* Paso 3: Monto Cobrado (si aplica) */}
+            <div>
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Paso 3: Monto cobrado en efectivo</label>
+              <div className="relative mt-1">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">$</span>
+                <input
+                  type="number" step="0.01" min="0"
+                  value={montoCobradoModal}
+                  onChange={e => setMontoCobradoModal(e.target.value)}
+                  placeholder={entregaModal.total.toFixed(2)}
+                  disabled={guardandoEntrega}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-7 pr-3 py-2.5 text-sm font-bold text-slate-800 focus:outline-none focus:border-green-500"
+                />
+              </div>
+            </div>
+
+            <button
+              onClick={finalizarEntregaConPOD}
+              disabled={guardandoEntrega}
+              className="w-full bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white font-bold py-3.5 rounded-2xl text-xs flex items-center justify-center gap-2 cursor-pointer shadow-md transition-all active:scale-95"
+            >
+              {guardandoEntrega ? <Loader2 size={16} className="animate-spin" /> : null}
+              {guardandoEntrega ? 'Subiendo firmas y fotos...' : 'Finalizar Entrega (Guardar POD)'}
             </button>
           </div>
         </div>
