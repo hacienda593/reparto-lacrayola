@@ -1045,25 +1045,106 @@ export default function RepartidorPage() {
     )
   }
 
-  if (repartidor && repartidor.estado === 'BLOQUEADO') {
+  if (repartidor && (repartidor.estado === 'BLOQUEADO' || (modo === 'repartidor' && (repartidor.efectivo_en_mano ?? 0) > 100))) {
     return (
-      <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-6 text-center">
-        <div className="w-16 h-16 bg-red-500/10 border border-red-500/20 rounded-full flex items-center justify-center mb-6 animate-pulse text-red-500">
-          <Loader2 size={28} className="animate-spin" />
+      <div className="min-h-screen bg-[#0c0f12] text-white flex flex-col items-center justify-center p-6 text-center select-none"
+        style={{ backgroundImage: 'radial-gradient(at 0% 0%, rgba(239,68,68,0.1) 0px, transparent 50%)' }}>
+        <div className="w-16 h-16 bg-red-500/10 border border-red-500/20 rounded-2xl flex items-center justify-center mb-6 text-red-500 animate-pulse text-2xl">
+          🔒
         </div>
-        <h1 className="text-xl font-black text-red-500 mb-2">CUENTA BLOQUEADA</h1>
+        <h1 className="text-xl font-black text-red-500 mb-2">BILLETERA BLOQUEADA</h1>
         <p className="text-slate-400 text-xs max-w-xs mb-6 leading-relaxed">
-          Has superado el límite permitido de efectivo en mano (**$40.00**). Por favor, acércate a la oficina central de La Crayola o realiza un depósito para liquidar tu billetera y continuar recibiendo pedidos.
+          Has superado el límite de efectivo permitido en mano (**$100.00**). Debes liquidar tu saldo para continuar recibiendo pedidos.
         </p>
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 w-full max-w-xs mb-6">
           <div className="text-[10px] text-slate-400 mb-1 uppercase tracking-wider font-semibold">Efectivo en mano actual</div>
           <div className="text-3xl font-black text-white">{fmt(repartidor.efectivo_en_mano)}</div>
         </div>
-        <button
-          onClick={() => cargar(user!.id)}
-          className="bg-red-600 hover:bg-red-700 active:scale-95 text-white font-bold px-6 py-3 rounded-xl transition text-xs flex items-center gap-2">
-          Verificar liquidación
-        </button>
+
+        <div className="flex flex-col gap-2.5 w-full max-w-xs">
+          <button
+            onClick={() => setShowTraspaso(true)}
+            className="w-full bg-[#00b074] hover:bg-[#008f5d] text-white font-bold py-3.5 rounded-xl transition text-xs cursor-pointer shadow-md"
+          >
+            🤝 Traspasar efectivo a colega
+          </button>
+          
+          <button
+            onClick={() => cargar(user!.id)}
+            className="w-full bg-slate-800 hover:bg-slate-700 text-slate-355 font-bold py-3.5 rounded-xl transition text-xs cursor-pointer"
+          >
+            🔄 Verificar liquidación
+          </button>
+        </div>
+
+        {/* Modal: Entregar efectivo en mano */}
+        {showTraspaso && (
+          <div className="fixed inset-0 bg-black/60 z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4 text-left">
+            <div className="bg-white rounded-t-3xl sm:rounded-3xl p-5 w-full sm:max-w-sm space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="font-black text-slate-800 text-base flex items-center gap-1.5">
+                  <ArrowRightLeft size={16} className="text-green-600" /> Entregar efectivo
+                </h3>
+                <button onClick={() => setShowTraspaso(false)} className="text-slate-400 p-1 cursor-pointer"><X size={18} /></button>
+              </div>
+
+              <div className="bg-slate-50 border border-slate-100 rounded-xl px-3 py-2.5 text-xs text-slate-500">
+                Tienes <span className="font-black text-slate-800">{fmt(repartidor?.efectivo_en_mano ?? 0)}</span> en mano.
+                Registra a quién se lo entregas físicamente (otro colaborador, no la oficina).
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">¿A quién se lo entregas?</label>
+                <select
+                  value={destinoTraspaso}
+                  onChange={e => setDestinoTraspaso(e.target.value)}
+                  className="w-full mt-1 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:border-green-500"
+                >
+                  <option value="">-- Selecciona --</option>
+                  {colegas.map(c => (
+                    <option key={c.id} value={c.id}>{c.nombre}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Monto a entregar</label>
+                <div className="relative mt-1">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-green-600 font-bold text-sm">$</span>
+                  <input
+                    type="number" step="0.01" min="0"
+                    value={montoTraspaso}
+                    onChange={e => setMontoTraspaso(e.target.value)}
+                    placeholder={(repartidor?.efectivo_en_mano ?? 0).toFixed(2)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-7 pr-3 py-2.5 text-sm font-bold text-slate-800 focus:outline-none focus:border-green-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Notas (opcional)</label>
+                <input
+                  type="text"
+                  value={notasTraspaso}
+                  onChange={e => setNotasTraspaso(e.target.value)}
+                  placeholder="Ej: entregado en caja de Tuti"
+                  className="w-full mt-1 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-green-500"
+                />
+              </div>
+
+              {errorTraspaso && <p className="text-red-500 text-xs text-center">{errorTraspaso}</p>}
+
+              <button
+                onClick={confirmarTraspaso}
+                disabled={procesandoTraspaso}
+                className="w-full bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white font-bold py-3 rounded-xl text-sm flex items-center justify-center gap-2 cursor-pointer"
+              >
+                {procesandoTraspaso ? <Loader2 size={16} className="animate-spin" /> : <ArrowRightLeft size={15} />}
+                {procesandoTraspaso ? 'Registrando...' : 'Confirmar entrega de efectivo'}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     )
   }
