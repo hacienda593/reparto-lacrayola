@@ -75,6 +75,16 @@ export default function AsignacionesPage() {
   const [direccionSeleccionada, setDireccionSeleccionada] = useState<string>('')
   const [nuevaDireccion, setNuevaDireccion] = useState({ nombre: 'Casa', lat: '', lng: '', referencias: '' })
   const [pegarCoords, setPegarCoords] = useState('')
+  const [copiadoRef, setCopiadoRef] = useState(false)
+
+  const isTransferencia = modalPedido 
+    ? (modalPedido.metodo_pago === 'transferencia' || 
+       modalPedido.notas?.toLowerCase().includes('transferencia') ||
+       modalPedido.notas?.toLowerCase().includes('[pago: transferencia'))
+    : false
+
+  const refMatch = modalPedido?.notas?.match(/Ref:\s*([a-zA-Z0-9]+)/i) || modalPedido?.notas?.match(/Referencia:\s*([a-zA-Z0-9]+)/i)
+  const refNumber = refMatch ? refMatch[1].trim() : ''
 
   // Acepta lo que Google Maps copia al mantener presionado un punto ("lat, lng"),
   // o un link completo que incluya esas mismas coordenadas en cualquier parte del texto.
@@ -859,327 +869,353 @@ export default function AsignacionesPage() {
 
         {/* MODAL DE VALIDACIÓN DE PAGO Y DIRECCIÓN GPS */}
         {modalPedido && (
-          <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-[#181d24] border border-[#2d3748] rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl animate-in fade-in zoom-in duration-200">
-              {/* Header */}
-              <div className="px-6 py-4 border-b border-gray-800 flex justify-between items-center bg-[#0c0f12]/50">
-                <div>
-                  <h3 className="font-bold text-white text-base">Validación de Pedido #{String(modalPedido.numero).padStart(4, '0')}</h3>
-                  <p className="text-xs text-gray-400">Verificación obligatoria de pago y localización GPS</p>
-                </div>
-                <button
-                  onClick={() => setModalPedido(null)}
-                  className="text-gray-450 hover:text-white text-lg font-bold">
-                  &times;
-                </button>
-              </div>
-
-              {/* Body */}
-              <div className="p-6 space-y-5 overflow-y-auto max-h-[70vh]">
-                {/* 1. Datos Generales */}
-                <div className="bg-[#0c0f12]/50 rounded-2xl p-4 border border-[#2d3748] space-y-2 text-xs text-left">
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Cliente:</span>
-                    <span className="font-bold text-white">{modalPedido.nombre_cliente}</span>
+            <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="bg-[#11161d] border border-[#2d3748] rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl animate-in fade-in zoom-in duration-200 flex flex-col max-h-[90vh]">
+                {/* Header */}
+                <div className="px-6 py-4 border-b border-gray-800 flex justify-between items-center bg-[#080b0e]">
+                  <div>
+                    <h3 className="font-bold text-white text-base">Validación de Pedido #{String(modalPedido.numero).padStart(4, '0')}</h3>
+                    <p className="text-xs text-gray-400">Verificación obligatoria de pago y localización GPS</p>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Teléfono:</span>
-                    <span className="font-bold text-white flex items-center gap-1">
-                      <Phone size={11} className="text-green-500" />
-                      {modalPedido.telefono}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Dirección:</span>
-                    <span className="font-bold text-white text-right max-w-[240px] truncate">{modalPedido.direccion || 'Sin dirección'}</span>
-                  </div>
-                  
-                  {modalPedido.referencias && (
-                    <div className="flex justify-between items-start">
-                      <span className="text-gray-400 shrink-0">Referencias:</span>
-                      <span className="font-bold text-gray-300 text-right max-w-[220px] break-words">{modalPedido.referencias}</span>
-                    </div>
-                  )}
-
-                  {modalPedido.notas && (
-                    <div className="bg-yellow-500/5 p-2.5 rounded-xl border border-yellow-500/10 mt-1 space-y-1">
-                      <div className="text-[10px] text-yellow-500 font-bold uppercase tracking-wider">Notas / Transferencia (Doble clic para copiar):</div>
-                      <div className="font-mono text-xs text-white break-words select-all bg-black/40 p-1.5 rounded border border-gray-800/40">
-                        {modalPedido.notas}
-                      </div>
-                    </div>
-                  )}
-
-                  {modalPedido.geo_lat && modalPedido.geo_lng && (
-                    <div className="pt-1.5">
-                      <a
-                        href={"https://www.google.com/maps/search/?api=1&query=" + modalPedido.geo_lat + "," + modalPedido.geo_lng}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-400 hover:text-blue-300 font-bold underline flex items-center gap-1 hover:underline">
-                        🗺️ Ver Coordenadas del Pedido en Google Maps
-                      </a>
-                    </div>
-                  )}
-
-                  <div className="flex justify-between border-t border-gray-800 pt-2 font-bold">
-                    <span className="text-gray-400">Total a Cobrar:</span>
-                    <span className="text-green-400 text-sm">{fmt(modalPedido.total)}</span>
-                  </div>
+                  <button
+                    onClick={() => setModalPedido(null)}
+                    className="text-gray-400 hover:text-white text-xl font-bold p-1 cursor-pointer transition">
+                    &times;
+                  </button>
                 </div>
 
-                {/* 2. Sección de Pago */}
-                <div className="space-y-2 text-left">
-                  <h4 className="text-xs font-bold text-gray-200 uppercase tracking-wider">💳 Control de Pago</h4>
+                {/* Body */}
+                <div className="p-6 space-y-5 overflow-y-auto flex-1 text-left">
                   
-                  {modalPedido.metodo_pago === 'transferencia' ? (
-                    <div className={`rounded-2xl p-4 border flex flex-col gap-3 ${
-                      modalPedido.pago_confirmado 
-                        ? 'bg-green-500/5 border-green-500/20' 
-                        : 'bg-orange-500/5 border-orange-500/20'
-                    }`}>
-                      <div className="flex justify-between items-center text-xs">
-                        <span className="text-gray-300 font-semibold flex items-center gap-1.5">
-                          🏦 Pago por Transferencia Bancaria
-                        </span>
-                        <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
-                          modalPedido.pago_confirmado ? 'bg-green-500/10 text-green-400' : 'bg-orange-500/10 text-orange-400 animate-pulse'
-                        }`}>
-                          {modalPedido.pago_confirmado ? 'PAGO CONFIRMADO' : 'PENDIENTE DE VALIDAR'}
+                  {/* PASO 1: DATOS DE ENTREGA */}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-1.5 text-[10px] font-black text-gray-450 uppercase tracking-wider">
+                      <span className="w-4 h-4 rounded-full bg-[#1e2630] flex items-center justify-center text-white text-[9px] font-black">1</span>
+                      <span>Datos del Destinatario</span>
+                    </div>
+                    
+                    <div className="bg-[#181f29] rounded-2xl p-4 border border-[#2d3748] space-y-2.5 text-xs">
+                      <div className="flex justify-between items-baseline gap-2">
+                        <span className="text-gray-400">Cliente:</span>
+                        <span className="font-bold text-white text-right">{modalPedido.nombre_cliente}</span>
+                      </div>
+                      <div className="flex justify-between items-baseline gap-2">
+                        <span className="text-gray-400">Teléfono:</span>
+                        <span className="font-bold text-white flex items-center gap-1">
+                          <Phone size={11} className="text-green-500" />
+                          {modalPedido.telefono}
                         </span>
                       </div>
-                      
-                      {!modalPedido.pago_confirmado ? (
-                        <button
-                          onClick={() => confirmarPagoPedido(modalPedido.id)}
-                          disabled={procesando}
-                          className="w-full bg-orange-600 hover:bg-orange-500 text-white font-extrabold text-xs py-2 rounded-xl transition cursor-pointer flex items-center justify-center gap-1">
-                          {procesando ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
-                          Validar Depósito / Pago Recibido
-                        </button>
-                      ) : (
-                        <div className="text-[10px] text-green-400/90 font-medium flex items-center gap-1 bg-green-500/5 p-2 rounded-lg">
-                          ✓ Depósito bancario verificado por el Administrador. Pago conciliado con éxito.
+                      <div className="flex justify-between items-start gap-2">
+                        <span className="text-gray-400 shrink-0">Dirección:</span>
+                        <span className="font-bold text-white text-right max-w-[240px] break-words">{modalPedido.direccion || 'Sin dirección'}</span>
+                      </div>
+                      {modalPedido.referencias && (
+                        <div className="flex justify-between items-start gap-2 border-t border-gray-800/60 pt-2">
+                          <span className="text-gray-400 shrink-0">Referencias:</span>
+                          <span className="font-bold text-gray-300 text-right max-w-[220px] break-words">{modalPedido.referencias}</span>
                         </div>
                       )}
+                      <div className="flex justify-between items-center border-t border-gray-800/60 pt-2 font-bold text-sm">
+                        <span className="text-gray-400 text-xs">Total a Cobrar:</span>
+                        <span className="text-green-400 font-black">{fmt(modalPedido.total)}</span>
+                      </div>
                     </div>
-                  ) : (
-                    <div className="bg-blue-500/5 border border-blue-500/20 rounded-2xl p-4 flex justify-between items-center text-xs">
-                      <span className="text-gray-300 font-semibold flex items-center gap-1.5">
-                        💵 Método: Pago Contra-Entrega (Efectivo / Puerta)
-                      </span>
-                      <span className="bg-blue-500/10 text-blue-400 text-[10px] font-extrabold px-2 py-0.5 rounded-full">
-                        PAGO AL ENTREGAR
-                      </span>
+                  </div>
+
+                  {/* PASO 2: CONCILIACIÓN DE PAGO */}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-1.5 text-[10px] font-black text-gray-450 uppercase tracking-wider">
+                      <span className="w-4 h-4 rounded-full bg-[#1e2630] flex items-center justify-center text-white text-[9px] font-black">2</span>
+                      <span>Verificación del Pago</span>
                     </div>
-                  )}
-                </div>
 
-                {/* 3. Sección de Ubicación GPS */}
-                <div className="space-y-2.5 text-left">
-                  <h4 className="text-xs font-bold text-gray-200 uppercase tracking-wider flex justify-between items-center">
-                    <span>📍 Localización GPS</span>
-                    {cargandoDirecciones && <Loader2 size={12} className="animate-spin text-green-500" />}
-                  </h4>
-
-                  {/* Direcciones guardadas y de pedido */}
-                  {(direccionesCliente.length > 0 || (modalPedido.geo_lat && modalPedido.geo_lng)) ? (
-                    <div className="space-y-2">
-                      <label className="text-[10px] text-gray-400 font-semibold">Seleccionar una ubicación del historial o del pedido:</label>
-                      <div className="grid grid-cols-1 gap-2">
-                        {/* 1. Coordenadas del Pedido (si el cliente usó el mapa en el Checkout) */}
-                        {modalPedido.geo_lat && modalPedido.geo_lng && (
-                          <label
-                            className={`flex items-start gap-3 p-3 rounded-2xl border text-xs cursor-pointer transition ${
-                              direccionSeleccionada === 'pedido' 
-                                ? 'bg-green-500/5 border-green-500/40 text-white font-semibold' 
-                                : 'bg-[#0c0f12]/30 border-gray-800 text-gray-400 hover:border-gray-700'
-                            }`}>
-                            <input
-                              type="radio"
-                              name="direccion_seleccionada"
-                              checked={direccionSeleccionada === 'pedido'}
-                              onChange={() => setDireccionSeleccionada('pedido')}
-                              className="mt-0.5 accent-green-500"
-                            />
-                            <div className="flex-1 min-w-0">
-                              <div className="font-bold flex items-center justify-between text-gray-200">
-                                <span className="text-green-450">📍 Ubicación de este Pedido (Mapa Tienda)</span>
-                                <a
-                                  href={"https://www.google.com/maps/search/?api=1&query=" + modalPedido.geo_lat + "," + modalPedido.geo_lng}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-blue-400 hover:text-blue-300 font-bold text-[9px] underline">
-                                  🗺️ Ver en Mapa
-                                </a>
-                              </div>
-                              <div className="text-[10px] truncate">{modalPedido.direccion}</div>
-                              <div className="text-[9px] text-gray-500 mt-0.5">Coords: {modalPedido.geo_lat}, {modalPedido.geo_lng}</div>
-                            </div>
-                          </label>
-                        )}
-
-                        {/* 2. Direcciones del historial (rep_clientes_direcciones y ol_direcciones_cliente) */}
-                        {direccionesCliente.map(d => (
-                          <label
-                            key={d.id}
-                            className={`flex items-start gap-3 p-3 rounded-2xl border text-xs cursor-pointer transition ${
-                              direccionSeleccionada === d.id 
-                                ? 'bg-green-500/5 border-green-500/40 text-white font-semibold' 
-                                : 'bg-[#0c0f12]/30 border-gray-800 text-gray-400 hover:border-gray-700'
-                            }`}>
-                            <input
-                              type="radio"
-                              name="direccion_seleccionada"
-                              checked={direccionSeleccionada === d.id}
-                              onChange={() => {
-                                setDireccionSeleccionada(d.id)
-                              }}
-                              className="mt-0.5 accent-green-500"
-                            />
-                            <div className="flex-1 min-w-0">
-                              <div className="font-bold flex items-center justify-between text-gray-200">
-                                <div className="flex items-center gap-1">
-                                  <span>{d.nombre_direccion}</span>
-                                  {d.verificada && <span className="bg-green-500/10 text-green-400 text-[8px] font-extrabold px-1.5 py-0.2 rounded">GPS Verificado</span>}
-                                </div>
-                                <a
-                                  href={"https://www.google.com/maps/search/?api=1&query=" + d.geo_lat + "," + d.geo_lng}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-blue-400 hover:text-blue-300 font-bold text-[9px] underline">
-                                  🗺️ Ver en Mapa
-                                </a>
-                              </div>
-                              <div className="text-[10px] truncate">{d.direccion}</div>
-                              <div className="text-[9px] text-gray-500 mt-0.5">Coords: {d.geo_lat}, {d.geo_lng}</div>
-                            </div>
-                          </label>
-                        ))}
-                        
-                        <label
-                          className={`flex items-start gap-3 p-3 rounded-2xl border text-xs cursor-pointer transition ${
-                            direccionSeleccionada === '' 
-                              ? 'bg-green-500/5 border-green-500/40 text-white font-semibold' 
-                              : 'bg-[#0c0f12]/30 border-gray-800 text-gray-400 hover:border-gray-700'
+                    {isTransferencia ? (
+                      <div className={`rounded-2xl p-4 border flex flex-col gap-3.5 ${
+                        modalPedido.pago_confirmado 
+                          ? 'bg-[#1b2721] border-[#10b981]/30' 
+                          : 'bg-[#292018] border-orange-500/20'
+                      }`}>
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="text-orange-400 font-bold flex items-center gap-1.5">
+                            🏦 Pago por Transferencia
+                          </span>
+                          <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full ${
+                            modalPedido.pago_confirmado 
+                              ? 'bg-[#10b981]/15 text-[#10b981] border border-[#10b981]/30' 
+                              : 'bg-orange-500/15 text-orange-400 border border-orange-500/30 animate-pulse'
                           }`}>
-                          <input
-                            type="radio"
-                            name="direccion_seleccionada"
-                            checked={direccionSeleccionada === ''}
-                            onChange={() => setDireccionSeleccionada('')}
-                            className="mt-0.5 accent-green-500"
-                          />
-                          <div className="flex-1">
-                            <span className="font-bold text-gray-200">Nueva ubicación / Dirección personalizada</span>
+                            {modalPedido.pago_confirmado ? 'PAGO CONCILIADO' : 'PENDIENTE DE VALIDACIÓN'}
+                          </span>
+                        </div>
+
+                        {/* Caja del comprobante */}
+                        {refNumber ? (
+                          <div className="bg-[#181f29] border border-gray-800 rounded-xl p-3 flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <span className="text-[9px] text-gray-405 uppercase font-black tracking-wide block">Nro. de Comprobante</span>
+                              <span className="font-mono text-sm font-black text-white tracking-wider select-all">{refNumber}</span>
+                            </div>
+                            <button
+                              onClick={() => {
+                                navigator.clipboard.writeText(refNumber)
+                                setCopiadoRef(true)
+                                setTimeout(() => setCopiadoRef(false), 2000)
+                              }}
+                              className="bg-gray-800 hover:bg-gray-700 active:scale-95 text-gray-300 font-bold text-[10px] px-3 py-1.5 rounded-lg transition flex items-center gap-1 shrink-0 cursor-pointer">
+                              {copiadoRef ? '✓ ¡Copiado!' : '📋 Copiar Código'}
+                            </button>
                           </div>
-                        </label>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="bg-rose-500/5 border border-rose-500/20 rounded-2xl p-4 text-xs text-rose-400 flex items-center gap-2">
-                      <AlertCircle size={14} className="shrink-0" />
-                      <span><strong>Cliente Nuevo:</strong> No tiene ubicaciones GPS registradas en su historial.</span>
-                    </div>
-                  )}
+                        ) : (
+                          <div className="bg-yellow-500/5 p-3 rounded-xl border border-yellow-500/10 text-xs text-yellow-500 font-medium">
+                            ⚠️ El cliente seleccionó transferencia pero no ingresó un código de referencia (comprobante antiguo).
+                          </div>
+                        )}
 
-                  {/* Crear/Configurar Nueva Dirección */}
-                  {direccionSeleccionada === '' && (
-                    <div className="bg-[#0c0f12]/50 border border-gray-800 rounded-2xl p-4 space-y-3">
-                      <div className="flex justify-between items-center flex-wrap gap-2">
-                        <label className="text-[10px] text-gray-400 font-bold uppercase">Registrar Coordenadas GPS</label>
-                        <a
-                          href={"https://wa.me/593" + (modalPedido.telefono.startsWith('0') ? modalPedido.telefono.slice(1) : modalPedido.telefono) + "?text=" + encodeURIComponent(
-                            "Hola " + modalPedido.nombre_cliente + ", te saluda La Crayola. Para poder entregar tu pedido #" + modalPedido.numero + " sin contratiempos, ¿serías tan amable de compartirnos tu ubicación GPS exacta por este medio? ¡Muchas gracias!"
-                          )}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="bg-green-600 hover:bg-green-550 text-white font-extrabold text-[9px] px-2.5 py-1 rounded-lg flex items-center gap-1 transition cursor-pointer">
-                          <Phone size={10} /> Pedir Ubicación por WhatsApp
-                        </a>
-                      </div>
+                        {modalPedido.notas && (
+                          <div className="text-[10px] text-gray-450 bg-black/20 p-2 rounded-lg border border-gray-850">
+                            <strong>Notas completas:</strong> {modalPedido.notas}
+                          </div>
+                        )}
 
-                      <div className="space-y-1">
-                        <label className="text-[10px] text-gray-500">Pegar coordenadas de Google Maps (lat, lng):</label>
-                        <input
-                          type="text"
-                          placeholder="ej: -0.0256, -78.8924"
-                          value={pegarCoords}
-                          onChange={e => parsearCoordenadas(e.target.value)}
-                          className="w-full bg-[#0c0f12] border border-gray-800 rounded-xl px-3 py-1.5 text-white text-xs focus:outline-none focus:border-green-500"
-                        />
-                        <p className="text-[9px] text-gray-600">Mantén presionado el punto exacto en Google Maps y copia lo que aparece — se separa solo en los campos de abajo.</p>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-2 text-xs">
-                        <div className="space-y-1 col-span-2">
-                          <label className="text-[10px] text-gray-500">Etiqueta de la dirección (ej: Casa, Trabajo):</label>
-                          <input
-                            type="text"
-                            value={nuevaDireccion.nombre}
-                            onChange={e => setNuevaDireccion(prev => ({ ...prev, nombre: e.target.value }))}
-                            className="w-full bg-[#0c0f12] border border-gray-800 rounded-xl px-3 py-1.5 text-white focus:outline-none focus:border-green-500"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-[10px] text-gray-500">Latitud:</label>
-                          <input
-                            type="text"
-                            placeholder="ej: -0.1806"
-                            value={nuevaDireccion.lat}
-                            onChange={e => setNuevaDireccion(prev => ({ ...prev, lat: e.target.value }))}
-                            className="w-full bg-[#0c0f12] border border-gray-800 rounded-xl px-3 py-1.5 text-white focus:outline-none focus:border-green-500"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-[10px] text-gray-500">Longitud:</label>
-                          <input
-                            type="text"
-                            placeholder="ej: -78.4658"
-                            value={nuevaDireccion.lng}
-                            onChange={e => setNuevaDireccion(prev => ({ ...prev, lng: e.target.value }))}
-                            className="w-full bg-[#0c0f12] border border-gray-800 rounded-xl px-3 py-1.5 text-white focus:outline-none focus:border-green-500"
-                          />
-                        </div>
-                        {nuevaDireccion.lat && nuevaDireccion.lng && (
-                          <div className="col-span-2 pt-1">
-                            <a
-                              href={"https://www.google.com/maps/search/?api=1&query=" + nuevaDireccion.lat + "," + nuevaDireccion.lng}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-blue-400 hover:text-blue-300 font-bold underline text-[10px] flex items-center gap-1">
-                              🗺️ Previsualizar Ubicación Manual en Google Maps
-                            </a>
+                        {!modalPedido.pago_confirmado ? (
+                          <button
+                            onClick={() => confirmarPagoPedido(modalPedido.id)}
+                            disabled={procesando}
+                            className="w-full bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white font-black text-xs py-2.5 rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 shadow-md">
+                            {procesando ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+                            Confirmar Depósito Recibido
+                          </button>
+                        ) : (
+                          <div className="text-[10px] text-green-400 font-bold flex items-center justify-center gap-1 bg-green-500/10 p-2 rounded-xl border border-green-500/20">
+                            ✓ Depósito bancario verificado por Administración. Pedido conciliado.
                           </div>
                         )}
                       </div>
+                    ) : (
+                      <div className="bg-blue-500/5 border border-blue-500/20 rounded-2xl p-4 flex justify-between items-center text-xs">
+                        <span className="text-gray-300 font-bold flex items-center gap-1.5">
+                          💵 Pago Contra-Entrega (Efectivo)
+                        </span>
+                        <span className="bg-blue-500/15 text-blue-400 text-[9px] font-extrabold px-2 py-0.5 rounded-full border border-blue-500/30">
+                          PAGO AL ENTREGAR
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* PASO 3: LOCALIZACIÓN GPS */}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-1.5 text-[10px] font-black text-gray-450 uppercase tracking-wider flex justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-4 h-4 rounded-full bg-[#1e2630] flex items-center justify-center text-white text-[9px] font-black">3</span>
+                        <span>Asignación de Puerta GPS</span>
+                      </div>
+                      {cargandoDirecciones && <Loader2 size={11} className="animate-spin text-green-500" />}
                     </div>
-                  )}
+
+                    {/* Direcciones guardadas y de pedido */}
+                    {(direccionesCliente.length > 0 || (modalPedido.geo_lat && modalPedido.geo_lng)) ? (
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-1 gap-2.5">
+                          {/* 1. Coordenadas del Pedido (si el cliente usó el mapa en el Checkout) */}
+                          {modalPedido.geo_lat && modalPedido.geo_lng && (
+                            <label
+                              className={`flex items-start gap-3.5 p-3.5 rounded-2xl border text-xs cursor-pointer transition-all duration-150 ${
+                                direccionSeleccionada === 'pedido' 
+                                  ? 'bg-[#1b2721] border-[#10b981] text-white shadow-sm ring-1 ring-[#10b981]/30' 
+                                  : 'bg-[#181f29] border-gray-800 text-gray-400 hover:border-gray-700'
+                              }`}>
+                              <input
+                                type="radio"
+                                name="direccion_seleccionada"
+                                checked={direccionSeleccionada === 'pedido'}
+                                onChange={() => setDireccionSeleccionada('pedido')}
+                                className="mt-0.5 accent-[#10b981] w-4 h-4"
+                              />
+                              <div className="flex-1 min-w-0">
+                                <div className="font-bold flex items-center justify-between text-white">
+                                  <span className="text-[#10b981] flex items-center gap-1 font-semibold">
+                                    ⭐ Ubicación de este Pedido (Mapa Tienda)
+                                  </span>
+                                  <a
+                                    href={"https://www.google.com/maps/search/?api=1&query=" + modalPedido.geo_lat + "," + modalPedido.geo_lng}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    onClick={e => e.stopPropagation()}
+                                    className="text-blue-400 hover:text-blue-300 font-black text-[9px] underline bg-blue-500/5 px-2 py-0.5 rounded border border-blue-500/10 shrink-0">
+                                    🗺️ Ver Mapa
+                                  </a>
+                                </div>
+                                <div className="text-[10px] text-gray-300 mt-1 truncate">{modalPedido.direccion}</div>
+                                <div className="text-[9px] text-gray-500 mt-0.5">Coords: {modalPedido.geo_lat}, {modalPedido.geo_lng}</div>
+                              </div>
+                            </label>
+                          )}
+
+                          {/* 2. Direcciones del historial (rep_clientes_direcciones y ol_direcciones_cliente) */}
+                          {direccionesCliente.map(d => (
+                            <label
+                              key={d.id}
+                              className={`flex items-start gap-3.5 p-3.5 rounded-2xl border text-xs cursor-pointer transition-all duration-150 ${
+                                direccionSeleccionada === d.id 
+                                  ? 'bg-[#1b2721] border-[#10b981] text-white shadow-sm ring-1 ring-[#10b981]/30' 
+                                  : 'bg-[#181f29] border-gray-800 text-gray-400 hover:border-gray-700'
+                              }`}>
+                              <input
+                                type="radio"
+                                name="direccion_seleccionada"
+                                checked={direccionSeleccionada === d.id}
+                                onChange={() => setDireccionSeleccionada(d.id)}
+                                className="mt-0.5 accent-[#10b981] w-4 h-4"
+                              />
+                              <div className="flex-1 min-w-0">
+                                <div className="font-bold flex items-center justify-between text-white">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span>{d.nombre_direccion}</span>
+                                    {d.verificada && <span className="bg-[#10b981]/15 text-[#10b981] text-[8px] font-black px-1.5 py-0.2 rounded border border-[#10b981]/25">GPS Verificado</span>}
+                                  </div>
+                                  <a
+                                    href={"https://www.google.com/maps/search/?api=1&query=" + d.geo_lat + "," + d.geo_lng}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    onClick={e => e.stopPropagation()}
+                                    className="text-blue-400 hover:text-blue-300 font-black text-[9px] underline bg-blue-500/5 px-2 py-0.5 rounded border border-blue-500/10 shrink-0">
+                                    🗺️ Ver Mapa
+                                  </a>
+                                </div>
+                                <div className="text-[10px] text-gray-300 mt-1 truncate">{d.direccion}</div>
+                                <div className="text-[9px] text-gray-500 mt-0.5">Coords: {d.geo_lat}, {d.geo_lng}</div>
+                              </div>
+                            </label>
+                          ))}
+                          
+                          {/* 3. Opción de Nueva Dirección personalizada */}
+                          <label
+                            className={`flex items-start gap-3.5 p-3.5 rounded-2xl border text-xs cursor-pointer transition-all duration-150 ${
+                              direccionSeleccionada === '' 
+                                ? 'bg-[#1b2721] border-[#10b981] text-white shadow-sm ring-1 ring-[#10b981]/30' 
+                                : 'bg-[#181f29] border-gray-800 text-gray-400 hover:border-gray-700'
+                            }`}>
+                            <input
+                              type="radio"
+                              name="direccion_seleccionada"
+                              checked={direccionSeleccionada === ''}
+                              onChange={() => setDireccionSeleccionada('')}
+                              className="mt-0.5 accent-[#10b981] w-4 h-4"
+                            />
+                            <div className="flex-1">
+                              <span className="font-bold text-white flex items-center gap-1.5">
+                                🔧 Nueva ubicación / Crear otra etiqueta
+                              </span>
+                            </div>
+                          </label>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="bg-rose-500/5 border border-rose-500/20 rounded-2xl p-4 text-xs text-rose-400 flex items-center gap-2">
+                        <AlertCircle size={14} className="shrink-0" />
+                        <span><strong>Cliente Nuevo:</strong> No tiene ubicaciones GPS registradas en su historial.</span>
+                      </div>
+                    )}
+
+                    {/* Crear/Configurar Nueva Dirección */}
+                    {direccionSeleccionada === '' && (
+                      <div className="bg-[#181f29] border border-gray-800 rounded-2xl p-4 space-y-3">
+                        <div className="flex justify-between items-center flex-wrap gap-2">
+                          <label className="text-[9px] text-gray-400 font-bold uppercase tracking-wider">Registrar Coordenadas GPS</label>
+                          <a
+                            href={"https://wa.me/593" + (modalPedido.telefono.startsWith('0') ? modalPedido.telefono.slice(1) : modalPedido.telefono) + "?text=" + encodeURIComponent(
+                              "Hola " + modalPedido.nombre_cliente + ", te saluda La Crayola. Para poder entregar tu pedido #" + modalPedido.numero + " sin contratiempos, ¿serías tan amable de compartirnos tu ubicación GPS exacta por este medio? ¡Muchas gracias!"
+                            )}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="bg-green-600 hover:bg-green-555 text-white font-extrabold text-[9px] px-2.5 py-1 rounded-lg flex items-center gap-1 transition cursor-pointer">
+                            <Phone size={10} /> Pedir Ubicación por WhatsApp
+                          </a>
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[10px] text-gray-400">Pegar coordenadas de Google Maps (lat, lng):</label>
+                          <input
+                            type="text"
+                            placeholder="ej: -0.0256, -78.8924"
+                            value={pegarCoords}
+                            onChange={e => parsearCoordenadas(e.target.value)}
+                            className="w-full bg-[#0c0f12] border border-gray-800 rounded-xl px-3.5 py-2 text-white text-xs focus:outline-none focus:border-green-500"
+                          />
+                          <p className="text-[9px] text-gray-550 leading-relaxed">Mantén presionado el punto exacto en Google Maps y copia el código de coordenadas. Al pegarlo aquí, se autocompletará abajo.</p>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                          <div className="space-y-1 col-span-2">
+                            <label className="text-[10px] text-gray-400">Etiqueta de la dirección (ej: Casa, Trabajo):</label>
+                            <input
+                              type="text"
+                              value={nuevaDireccion.nombre}
+                              onChange={e => setNuevaDireccion(prev => ({ ...prev, nombre: e.target.value }))}
+                              className="w-full bg-[#0c0f12] border border-gray-800 rounded-xl px-3.5 py-2 text-white focus:outline-none focus:border-green-500"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[10px] text-gray-400">Latitud:</label>
+                            <input
+                              type="text"
+                              placeholder="ej: -0.1806"
+                              value={nuevaDireccion.lat}
+                              onChange={e => setNuevaDireccion(prev => ({ ...prev, lat: e.target.value }))}
+                              className="w-full bg-[#0c0f12] border border-gray-800 rounded-xl px-3.5 py-2 text-white focus:outline-none focus:border-green-500"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[10px] text-gray-400">Longitud:</label>
+                            <input
+                              type="text"
+                              placeholder="ej: -78.4658"
+                              value={nuevaDireccion.lng}
+                              onChange={e => setNuevaDireccion(prev => ({ ...prev, lng: e.target.value }))}
+                              className="w-full bg-[#0c0f12] border border-gray-800 rounded-xl px-3.5 py-2 text-white focus:outline-none focus:border-green-500"
+                            />
+                          </div>
+                          {nuevaDireccion.lat && nuevaDireccion.lng && (
+                            <div className="col-span-2 pt-1">
+                              <a
+                                href={"https://www.google.com/maps/search/?api=1&query=" + nuevaDireccion.lat + "," + nuevaDireccion.lng}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-blue-400 hover:text-blue-300 font-bold underline text-[9px] flex items-center gap-1">
+                                🗺️ Previsualizar Ubicación Manual en Google Maps
+                              </a>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                 </div>
 
-              </div>
-
-              {/* Footer */}
-              <div className="px-6 py-4 border-t border-gray-850 bg-[#0c0f12]/50 flex gap-3">
-                <button
-                  onClick={() => setModalPedido(null)}
-                  className="flex-1 bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white font-bold text-xs py-2 rounded-xl transition cursor-pointer">
-                  Cerrar
-                </button>
-                <button
-                  onClick={() => liberarPedido(modalPedido)}
-                  disabled={
-                    procesando ||
-                    (modalPedido.metodo_pago === 'transferencia' && !modalPedido.pago_confirmado) ||
-                    (direccionSeleccionada === '' && (!nuevaDireccion.lat || !nuevaDireccion.lng))
-                  }
-                  className="flex-1 bg-green-600 hover:bg-green-550 text-white font-extrabold text-xs py-2 rounded-xl transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1">
-                  {procesando && <Loader2 size={13} className="animate-spin" />}
-                  Liberar al Pool (Aprobar)
-                </button>
+                {/* Footer */}
+                <div className="px-6 py-4 border-t border-gray-800 bg-[#080b0e] flex gap-3">
+                  <button
+                    onClick={() => setModalPedido(null)}
+                    className="flex-1 bg-gray-850 hover:bg-gray-800 text-gray-400 hover:text-white font-bold text-xs py-2.5 rounded-xl transition cursor-pointer">
+                    Cerrar
+                  </button>
+                  <button
+                    onClick={() => liberarPedido(modalPedido)}
+                    disabled={
+                      procesando ||
+                      (isTransferencia && !modalPedido.pago_confirmado) ||
+                      (direccionSeleccionada === '' && (!nuevaDireccion.lat || !nuevaDireccion.lng))
+                    }
+                    className="flex-1 bg-[#10b981] hover:bg-[#059669] text-white font-black text-xs py-2.5 rounded-xl transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 shadow-md shadow-green-900/10">
+                    {procesando && <Loader2 size={13} className="animate-spin" />}
+                    Liberar al Pool (Aprobar)
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
         )}
         
       </main>
