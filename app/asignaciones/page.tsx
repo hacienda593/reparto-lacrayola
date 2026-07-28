@@ -29,6 +29,7 @@ interface Pedido {
   pago_confirmado?: boolean | null
   referencias?: string | null
   notas?: string | null
+  user_id?: string | null
 }
 
 interface Repartidor {
@@ -93,17 +94,55 @@ export default function AsignacionesPage() {
     setPegarCoords('')
     setCargandoDirecciones(true)
     try {
-      const { data, error } = await supabase
+      // 1. Cargar desde rep_clientes_direcciones (historial de motorizados)
+      const { data: repDirs, error: errRep } = await supabase
         .from('rep_clientes_direcciones')
         .select('*')
         .eq('telefono', p.telefono)
-      if (error) throw error
-      setDireccionesCliente(data || [])
+      if (errRep) throw errRep
+
+      // 2. Cargar desde ol_direcciones_cliente (agenda de la tienda del cliente)
+      let storeDirs: any[] = []
+      if (p.user_id) {
+        const { data: sDirs } = await supabase
+          .from('ol_direcciones_cliente')
+          .select('*')
+          .eq('user_id', p.user_id)
+        storeDirs = sDirs || []
+      }
+
+      // Combinar ambas listas
+      const combinadas = [
+        ...(repDirs || []).map(d => ({
+          id: d.id,
+          nombre_direccion: d.nombre_direccion || 'Dirección de Reparto',
+          direccion: d.direccion,
+          geo_lat: d.geo_lat,
+          geo_lng: d.geo_lng,
+          verificada: d.verificada,
+          origen: 'reparto'
+        })),
+        ...storeDirs.map(d => ({
+          id: d.id,
+          nombre_direccion: `📍 Tienda: ${d.nombre_etiqueta || 'Mi dirección'}`,
+          direccion: d.direccion_texto,
+          geo_lat: d.geo_lat,
+          geo_lng: d.geo_lng,
+          verificada: false,
+          origen: 'tienda'
+        }))
+      ]
+
+      setDireccionesCliente(combinadas)
       
-      // Auto-seleccionar si hay una verificada
-      const verif = data?.find(d => d.verificada)
-      if (verif) {
-        setDireccionSeleccionada(verif.id)
+      // Auto-seleccionar si el pedido vino con coordenadas de origen en la tienda
+      if (p.geo_lat && p.geo_lng) {
+        setDireccionSeleccionada('pedido')
+      } else {
+        const verif = combinadas.find(d => d.verificada)
+        if (verif) {
+          setDireccionSeleccionada(verif.id)
+        }
       }
     } catch (err) {
       console.error("Error al cargar direcciones:", err)
@@ -139,7 +178,32 @@ export default function AsignacionesPage() {
       let lat = p.geo_lat
       let lng = p.geo_lng
 
-      if (direccionSeleccionada) {
+      if (direccionSeleccionada === 'pedido') {
+        lat = p.geo_lat
+        lng = p.geo_lng
+        // Guardar/Verificar dirección en el listado de reparto
+        try {
+          const { data: extDir } = await supabase
+            .from('rep_clientes_direcciones')
+            .select('id')
+            .eq('telefono', p.telefono)
+            .eq('direccion', p.direccion || '')
+          if (!extDir || extDir.length === 0) {
+            await supabase.from('rep_clientes_direcciones').insert({
+              telefono: p.telefono,
+              nombre_direccion: 'Dirección Tienda',
+              direccion: p.direccion || 'Dirección de Entrega',
+              ciudad: p.ciudad,
+              referencias: p.referencias || '',
+              geo_lat: lat,
+              geo_lng: lng,
+              verificada: true
+            })
+          }
+        } catch (e) {
+          console.error("Error al registrar en agenda:", e)
+        }
+      } else if (direccionSeleccionada) {
         const dSel = direccionesCliente.find(d => d.id === direccionSeleccionada)
         if (dSel) {
           lat = dSel.geo_lat
@@ -918,17 +982,50 @@ export default function AsignacionesPage() {
                     {cargandoDirecciones && <Loader2 size={12} className="animate-spin text-green-500" />}
                   </h4>
 
-                  {/* Direcciones guardadas */}
-                  {direccionesCliente.length > 0 ? (
+                  {/* Direcciones guardadas y de pedido */}
+                  {(direccionesCliente.length > 0 || (modalPedido.geo_lat && modalPedido.geo_lng)) ? (
                     <div className="space-y-2">
-                      <label className="text-[10px] text-gray-400 font-semibold">Seleccionar una ubicación verificada del historial:</label>
+                      <label className="text-[10px] text-gray-400 font-semibold">Seleccionar una ubicación del historial o del pedido:</label>
                       <div className="grid grid-cols-1 gap-2">
+                        {/* 1. Coordenadas del Pedido (si el cliente usó el mapa en el Checkout) */}
+                        {modalPedido.geo_lat && modalPedido.geo_lng && (
+                          <label
+                            className={`flex items-start gap-3 p-3 rounded-2xl border text-xs cursor-pointer transition ${
+                              direccionSeleccionada === 'pedido' 
+                                ? 'bg-green-500/5 border-green-500/40 text-white font-semibold' 
+                                : 'bg-[#0c0f12]/30 border-gray-800 text-gray-400 hover:border-gray-700'
+                            }`}>
+                            <input
+                              type="radio"
+                              name="direccion_seleccionada"
+                              checked={direccionSeleccionada === 'pedido'}
+                              onChange={() => setDireccionSeleccionada('pedido')}
+                              className="mt-0.5 accent-green-500"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div className="font-bold flex items-center justify-between text-gray-200">
+                                <span className="text-green-450">📍 Ubicación de este Pedido (Mapa Tienda)</span>
+                                <a
+                                  href={"https://www.google.com/maps/search/?api=1&query=" + modalPedido.geo_lat + "," + modalPedido.geo_lng}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-blue-400 hover:text-blue-300 font-bold text-[9px] underline">
+                                  🗺️ Ver en Mapa
+                                </a>
+                              </div>
+                              <div className="text-[10px] truncate">{modalPedido.direccion}</div>
+                              <div className="text-[9px] text-gray-500 mt-0.5">Coords: {modalPedido.geo_lat}, {modalPedido.geo_lng}</div>
+                            </div>
+                          </label>
+                        )}
+
+                        {/* 2. Direcciones del historial (rep_clientes_direcciones y ol_direcciones_cliente) */}
                         {direccionesCliente.map(d => (
                           <label
                             key={d.id}
                             className={`flex items-start gap-3 p-3 rounded-2xl border text-xs cursor-pointer transition ${
                               direccionSeleccionada === d.id 
-                                ? 'bg-green-500/5 border-green-500/40 text-white' 
+                                ? 'bg-green-500/5 border-green-500/40 text-white font-semibold' 
                                 : 'bg-[#0c0f12]/30 border-gray-800 text-gray-400 hover:border-gray-700'
                             }`}>
                             <input
@@ -963,7 +1060,7 @@ export default function AsignacionesPage() {
                         <label
                           className={`flex items-start gap-3 p-3 rounded-2xl border text-xs cursor-pointer transition ${
                             direccionSeleccionada === '' 
-                              ? 'bg-green-500/5 border-green-500/40 text-white' 
+                              ? 'bg-green-500/5 border-green-500/40 text-white font-semibold' 
                               : 'bg-[#0c0f12]/30 border-gray-800 text-gray-400 hover:border-gray-700'
                           }`}>
                           <input
