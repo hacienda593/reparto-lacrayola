@@ -76,6 +76,81 @@ export default function EntregaPage() {
 
   useEffect(() => { cargar() }, [id])
 
+  // Rastreo GPS en tiempo real
+  useEffect(() => {
+    if (!pedido || (pedido.estado !== 'enviado' && pedido.estado !== 'en_ruta') || !pedido.repartidor_id) return
+
+    let watchId: number | null = null
+    let wakeLock: any = null
+    let lastSentTime = 0
+    const SEND_INTERVAL_MS = 10000 // Transmitir cada 10 segundos
+
+    async function requestWakeLock() {
+      if (typeof window !== 'undefined' && 'wakeLock' in navigator) {
+        try {
+          wakeLock = await (navigator as any).wakeLock.request('screen')
+          console.log('🔒 Screen Wake Lock activo para evitar suspensión de GPS.')
+        } catch (err: any) {
+          console.warn('⚠️ No se pudo adquirir el Wake Lock:', err.message)
+        }
+      }
+    }
+
+    if (typeof window !== 'undefined' && navigator.geolocation) {
+      requestWakeLock()
+
+      watchId = navigator.geolocation.watchPosition(
+        async (position) => {
+          const { latitude, longitude } = position.coords
+          const now = Date.now()
+
+          if (now - lastSentTime > SEND_INTERVAL_MS) {
+            lastSentTime = now
+            try {
+              const { error: updateErr } = await sb
+                .from('rep_repartidores')
+                .update({
+                  gps_lat: latitude,
+                  gps_lng: longitude,
+                  gps_updated_at: new Date().toISOString()
+                })
+                .eq('id', pedido.repartidor_id)
+
+              if (updateErr) {
+                console.error('Error al guardar ubicación GPS:', updateErr)
+              } else {
+                console.log('📍 Ubicación GPS transmitida:', latitude, longitude)
+              }
+            } catch (err) {
+              console.error('Error actualizando GPS:', err)
+            }
+          }
+        },
+        (error) => {
+          console.warn('⚠️ Error capturando GPS en movimiento:', error.message)
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 0
+        }
+      )
+    }
+
+    return () => {
+      if (watchId !== null) {
+        navigator.geolocation.clearWatch(watchId)
+        console.log('⏹️ Rastreo de GPS desactivado.')
+      }
+      if (wakeLock) {
+        wakeLock.release().then(() => {
+          wakeLock = null
+          console.log('🔓 Screen Wake Lock liberado.')
+        }).catch((e: any) => console.warn('Error al liberar Wake Lock:', e))
+      }
+    }
+  }, [pedido?.id, pedido?.estado, pedido?.repartidor_id])
+
   async function cargar() {
     const { data: asig } = await sb.from('rep_asignaciones').select('*').eq('id', id).single()
     if (!asig) { router.replace('/pedidos'); return }
