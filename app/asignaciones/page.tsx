@@ -83,6 +83,10 @@ export default function AsignacionesPage() {
   const [cargandoDirecciones, setCargandoDirecciones] = useState(false)
   const [refDuplicadaEn, setRefDuplicadaEn] = useState<number | null>(null)
   const [revirtiendoPago, setRevirtiendoPago] = useState(false)
+  const [bancoInput, setBancoInput] = useState<'pichincha' | 'deuna' | 'otro'>('pichincha')
+  const [fechaDepositoInput, setFechaDepositoInput] = useState('')
+  const [historialVerif, setHistorialVerif] = useState<any[]>([])
+  const [mostrarHistorial, setMostrarHistorial] = useState(false)
 
   const isTransferencia = modalPedido
     ? (modalPedido.metodo_pago === 'transferencia' ||
@@ -129,6 +133,40 @@ export default function AsignacionesPage() {
     }
   }
 
+  // Inserta en la bitacora de auditoria (tabla append-only, ver migracion
+  // migration_auditoria_verificacion_pagos.sql). Deliberadamente no lanza:
+  // si la migracion aun no se corrio en Supabase, la accion principal
+  // (confirmar/anular/corregir referencia) no debe romperse por esto.
+  async function registrarAuditoria(accion: 'confirmado' | 'anulado' | 'ref_corregida', extra: {
+    referencia?: string, banco?: string, fecha_deposito?: string, notas?: string
+  } = {}) {
+    if (!modalPedido || !user) return
+    try {
+      await supabase.from('ol_pedidos_verificaciones').insert({
+        pedido_id:      modalPedido.id,
+        accion,
+        referencia:     extra.referencia ?? refNumber ?? null,
+        banco:          extra.banco ?? null,
+        fecha_deposito: extra.fecha_deposito ?? null,
+        admin_user_id:  user.id,
+        admin_nombre:   (user as any).user_metadata?.full_name || user.email || 'Admin',
+        notas:          extra.notas ?? null,
+      })
+      cargarHistorial(modalPedido.id)
+    } catch (err) {
+      console.error('No se pudo registrar en la bitácora de auditoría (¿falta correr la migración?):', err)
+    }
+  }
+
+  async function cargarHistorial(pedidoId: string) {
+    const { data } = await supabase
+      .from('ol_pedidos_verificaciones')
+      .select('*')
+      .eq('pedido_id', pedidoId)
+      .order('created_at', { ascending: false })
+    setHistorialVerif(data ?? [])
+  }
+
   async function abrirVerificacion(p: Pedido) {
     setModalPedido(p)
     setDireccionSeleccionada('')
@@ -137,7 +175,12 @@ export default function AsignacionesPage() {
     setRefInput(p.referencia_transferencia || '')
     setConfirmoPorWhatsapp(false)
     setRefDuplicadaEn(null)
+    setBancoInput('pichincha')
+    setFechaDepositoInput(new Date().toISOString().split('T')[0])
+    setHistorialVerif([])
+    setMostrarHistorial(false)
     setCargandoDirecciones(true)
+    cargarHistorial(p.id)
 
     // Chequeo proactivo de comprobante duplicado: si el numero ya vino cargado
     // desde el checkout (no fue tecleado a mano aqui), nunca pasaba por el
@@ -234,6 +277,7 @@ export default function AsignacionesPage() {
       setModalPedido(prev => prev && prev.id === pedidoId ? { ...prev, referencia_transferencia: limpio } : prev)
       // Si el guardado paso el indice unico de la BD, este numero ya no esta duplicado.
       setRefDuplicadaEn(null)
+      registrarAuditoria('ref_corregida', { referencia: limpio })
     } catch (err: any) {
       // El indice unico de la BD rechaza el guardado si ese numero de
       // comprobante ya fue usado en otro pedido (posible fraude/duplicado).
@@ -258,6 +302,7 @@ export default function AsignacionesPage() {
       setPedidos(prev => prev.map(p => p.id === pedidoId ? { ...p, pago_confirmado: true } as any : p))
       setModalPedido(prev => prev && prev.id === pedidoId ? { ...prev, pago_confirmado: true } as any : prev)
       setMensaje('✓ Pago validado y registrado en el sistema.')
+      registrarAuditoria('confirmado', { banco: bancoInput, fecha_deposito: fechaDepositoInput || undefined })
     } catch (err: any) {
       setError(`Error al confirmar pago: ${err.message}`)
     } finally {
@@ -269,7 +314,13 @@ export default function AsignacionesPage() {
   // comprobante (queda guardado para no perder el dato), solo el estado de
   // "verificado" — asi el admin puede volver a revisarlo con calma.
   async function revertirPago(pedidoId: string) {
-    if (!confirm('¿Anular la verificación de este pago? El pedido volverá a quedar como pendiente de validación.')) return
+    // El motivo es obligatorio: es el dato que mas importa cuando alguien
+    // revise el historial despues (¿fue un error de tipeo, un reclamo del
+    // cliente, algo mas serio?).
+    const motivo = prompt('¿Por qué se anula esta verificación? (obligatorio, queda en el historial de auditoría)')
+    if (motivo === null) return
+    if (!motivo.trim()) { alert('Debes indicar un motivo para anular.'); return }
+
     setRevirtiendoPago(true)
     setError('')
     try {
@@ -282,6 +333,7 @@ export default function AsignacionesPage() {
       setPedidos(prev => prev.map(p => p.id === pedidoId ? { ...p, pago_confirmado: false } as any : p))
       setModalPedido(prev => prev && prev.id === pedidoId ? { ...prev, pago_confirmado: false } as any : prev)
       setMensaje('↩️ Verificación de pago anulada.')
+      registrarAuditoria('anulado', { notas: motivo.trim() })
     } catch (err: any) {
       setError(`Error al anular verificación: ${err.message}`)
     } finally {
@@ -1163,6 +1215,35 @@ export default function AsignacionesPage() {
                           </div>
                         )}
 
+                        {/* Banco y fecha del deposito: quedan en la bitacora de auditoria
+                            junto con quien confirmo y cuando -- necesarios para poder
+                            distinguir un mismo numero de comprobante reutilizado en bancos
+                            o fechas distintas, y para el cruce contra el estado de cuenta. */}
+                        {!modalPedido.pago_confirmado && (
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="space-y-1">
+                              <label className="text-[9px] text-gray-400 uppercase font-black tracking-wide block">Banco / medio</label>
+                              <select
+                                value={bancoInput}
+                                onChange={e => setBancoInput(e.target.value as any)}
+                                className="w-full bg-[#0c0f12] border border-gray-800 rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-green-500">
+                                <option value="pichincha">🏦 Banco Pichincha</option>
+                                <option value="deuna">🟣 Deuna</option>
+                                <option value="otro">Otro</option>
+                              </select>
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-[9px] text-gray-400 uppercase font-black tracking-wide block">Fecha del depósito</label>
+                              <input
+                                type="date"
+                                value={fechaDepositoInput}
+                                onChange={e => setFechaDepositoInput(e.target.value)}
+                                className="w-full bg-[#0c0f12] border border-gray-800 rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-green-500"
+                              />
+                            </div>
+                          </div>
+                        )}
+
                         {esClienteNuevo && !modalPedido.pago_confirmado && (
                           <label className="flex items-start gap-2.5 bg-rose-500/5 border border-rose-500/20 rounded-xl p-3 text-[11px] text-rose-300 cursor-pointer">
                             <input
@@ -1255,6 +1336,43 @@ export default function AsignacionesPage() {
                               entrega antes de aprobar.
                             </span>
                           </label>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Historial de auditoria: quien confirmo/anulo/corrigio, cuando,
+                        y con que datos. Viene de una tabla append-only (nadie puede
+                        editarla ni borrarla, ni siquiera un superadmin desde la app). */}
+                    {historialVerif.length > 0 && (
+                      <div className="pt-1">
+                        <button
+                          onClick={() => setMostrarHistorial(v => !v)}
+                          className="text-[10px] text-gray-500 hover:text-gray-300 font-semibold flex items-center gap-1 cursor-pointer">
+                          {mostrarHistorial ? '▾' : '▸'} Historial de verificación ({historialVerif.length})
+                        </button>
+                        {mostrarHistorial && (
+                          <div className="mt-2 space-y-1.5">
+                            {historialVerif.map(h => (
+                              <div key={h.id} className="bg-[#0c0f12] border border-gray-850 rounded-lg px-3 py-2 text-[10px] text-gray-400">
+                                <div className="flex justify-between items-center">
+                                  <span className={`font-bold ${
+                                    h.accion === 'confirmado' ? 'text-green-400' :
+                                    h.accion === 'anulado' ? 'text-red-400' : 'text-blue-400'
+                                  }`}>
+                                    {h.accion === 'confirmado' ? '✓ Confirmado' : h.accion === 'anulado' ? '↩️ Anulado' : '✏️ Ref. corregida'}
+                                  </span>
+                                  <span className="text-gray-550">{new Date(h.created_at).toLocaleString('es')}</span>
+                                </div>
+                                <div className="mt-0.5">
+                                  Por <strong className="text-gray-300">{h.admin_nombre}</strong>
+                                  {h.banco && <> · {h.banco === 'pichincha' ? 'Pichincha' : h.banco === 'deuna' ? 'Deuna' : 'Otro banco'}</>}
+                                  {h.fecha_deposito && <> · depósito {h.fecha_deposito}</>}
+                                  {h.referencia && <> · Ref: {h.referencia}</>}
+                                </div>
+                                {h.notas && <div className="mt-0.5 italic text-gray-500">"{h.notas}"</div>}
+                              </div>
+                            ))}
+                          </div>
                         )}
                       </div>
                     )}
