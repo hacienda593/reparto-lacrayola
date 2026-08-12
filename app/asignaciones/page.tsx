@@ -485,8 +485,23 @@ export default function AsignacionesPage() {
     return () => { supabase.removeChannel(canal) }
   }, [])
 
-  async function forzarAsignacion(pedidoId: string, repartidorId: string) {
+  async function forzarAsignacion(pedidoId: string, repartidorId: string, pedido?: Pedido) {
     if (!pedidoId || !repartidorId) return
+
+    // Segunda capa de seguridad ademas de deshabilitar el boton en la UI: este
+    // atajo ("Forzar Shopper") hacia exactamente lo mismo que "Liberar al
+    // Pool" (marcaba el pedido como 'confirmado') pero sin pasar por NINGUNA
+    // de las dos validaciones del modal. Si el pago por transferencia sigue
+    // pendiente, no se permite asignar bajo ninguna circunstancia desde aqui.
+    const esTransferenciaPend = pedido && (
+      pedido.metodo_pago === 'transferencia' ||
+      pedido.notas?.toLowerCase().includes('transferencia')
+    ) && !pedido.pago_confirmado
+    if (esTransferenciaPend) {
+      setError('No se puede asignar: el pago por transferencia de este pedido aún no ha sido validado. Usa "Validar Pago & GPS" primero.')
+      return
+    }
+
     setProcesando(true)
     setError('')
     setMensaje('')
@@ -760,11 +775,12 @@ export default function AsignacionesPage() {
                               const sel = document.getElementById(`select-rep-${p.id}`) as HTMLSelectElement
                               const nombreSel = sel.options[sel.selectedIndex]?.text
                               if (sel.value && confirm(`¿Asignar el pedido #${String(p.numero).padStart(4,'0')} a ${nombreSel}?`)) {
-                                forzarAsignacion(p.id, sel.value)
+                                forzarAsignacion(p.id, sel.value, p)
                               }
                             }}
-                            disabled={procesando}
-                            className="bg-gray-800 hover:bg-gray-700 border border-gray-750 text-white font-bold text-[10px] px-3 py-1 rounded-xl transition cursor-pointer shrink-0">
+                            disabled={procesando || (esTransferencia && !p.pago_confirmado)}
+                            title={esTransferencia && !p.pago_confirmado ? 'Primero valida el pago por transferencia con "Validar Pago & GPS"' : undefined}
+                            className="bg-gray-800 hover:bg-gray-700 border border-gray-750 text-white font-bold text-[10px] px-3 py-1 rounded-xl transition cursor-pointer shrink-0 disabled:opacity-30 disabled:cursor-not-allowed">
                             ⚡ Asignar
                           </button>
                         </div>
