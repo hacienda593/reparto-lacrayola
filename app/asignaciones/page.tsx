@@ -27,6 +27,7 @@ interface Pedido {
   geo_lng?: number | null
   metodo_pago?: string | null
   pago_confirmado?: boolean | null
+  referencia_transferencia?: string | null
   referencias?: string | null
   notas?: string | null
   user_id?: string | null
@@ -76,15 +77,27 @@ export default function AsignacionesPage() {
   const [nuevaDireccion, setNuevaDireccion] = useState({ nombre: 'Casa', lat: '', lng: '', referencias: '' })
   const [pegarCoords, setPegarCoords] = useState('')
   const [copiadoRef, setCopiadoRef] = useState(false)
+  const [refInput, setRefInput] = useState('')
+  const [guardandoRef, setGuardandoRef] = useState(false)
+  const [confirmoPorWhatsapp, setConfirmoPorWhatsapp] = useState(false)
+  const [cargandoDirecciones, setCargandoDirecciones] = useState(false)
 
-  const isTransferencia = modalPedido 
-    ? (modalPedido.metodo_pago === 'transferencia' || 
+  const isTransferencia = modalPedido
+    ? (modalPedido.metodo_pago === 'transferencia' ||
        modalPedido.notas?.toLowerCase().includes('transferencia') ||
        modalPedido.notas?.toLowerCase().includes('[pago: transferencia'))
     : false
 
+  // Fuente de verdad: la columna referencia_transferencia (con indice unico
+  // anti-fraude en la BD). Si el pedido es viejo y no la tiene, se cae al
+  // parseo legacy desde `notas` como respaldo.
   const refMatch = modalPedido?.notas?.match(/Ref:\s*([a-zA-Z0-9]+)/i) || modalPedido?.notas?.match(/Referencia:\s*([a-zA-Z0-9]+)/i)
-  const refNumber = refMatch ? refMatch[1].trim() : ''
+  const refNumber = modalPedido?.referencia_transferencia?.trim() || (refMatch ? refMatch[1].trim() : '')
+
+  // Cliente nuevo = sin ninguna direccion previa registrada (ni en el
+  // historial de reparto ni en la agenda de la tienda). A estos se les pide
+  // una verificacion mas exhaustiva antes de aprobar.
+  const esClienteNuevo = !cargandoDirecciones && direccionesCliente.length === 0 && !(modalPedido?.geo_lat && modalPedido?.geo_lng)
 
   // Acepta lo que Google Maps copia al mantener presionado un punto ("lat, lng"),
   // o un link completo que incluya esas mismas coordenadas en cualquier parte del texto.
@@ -95,13 +108,14 @@ export default function AsignacionesPage() {
       setNuevaDireccion(prev => ({ ...prev, lat: match[1], lng: match[2] }))
     }
   }
-  const [cargandoDirecciones, setCargandoDirecciones] = useState(false)
 
   async function abrirVerificacion(p: Pedido) {
     setModalPedido(p)
     setDireccionSeleccionada('')
     setNuevaDireccion({ nombre: 'Casa', lat: '', lng: '', referencias: p.referencias || '' })
     setPegarCoords('')
+    setRefInput(p.referencia_transferencia || '')
+    setConfirmoPorWhatsapp(false)
     setCargandoDirecciones(true)
     try {
       // 1. Cargar desde rep_clientes_direcciones (historial de motorizados)
@@ -161,6 +175,34 @@ export default function AsignacionesPage() {
     }
   }
 
+  // Guarda/corrige el numero de comprobante que el administrador escribio o
+  // pego a mano (ej. tras verificarlo en el app del banco o pedirselo al
+  // cliente por WhatsApp). No marca el pago como conciliado por si solo.
+  async function guardarReferencia(pedidoId: string, valor: string) {
+    const limpio = valor.trim()
+    if (!limpio) return
+    setGuardandoRef(true)
+    setError('')
+    try {
+      const { error } = await supabase
+        .from('ol_pedidos')
+        .update({ referencia_transferencia: limpio })
+        .eq('id', pedidoId)
+      if (error) throw error
+
+      setPedidos(prev => prev.map(p => p.id === pedidoId ? { ...p, referencia_transferencia: limpio } : p))
+      setModalPedido(prev => prev && prev.id === pedidoId ? { ...prev, referencia_transferencia: limpio } : prev)
+    } catch (err: any) {
+      // El indice unico de la BD rechaza el guardado si ese numero de
+      // comprobante ya fue usado en otro pedido (posible fraude/duplicado).
+      setError(err.message?.includes('duplicate')
+        ? '⚠️ Este número de comprobante ya fue registrado en otro pedido. Verifica con el cliente.'
+        : `Error al guardar referencia: ${err.message}`)
+    } finally {
+      setGuardandoRef(false)
+    }
+  }
+
   async function confirmarPagoPedido(pedidoId: string) {
     setProcesando(true)
     setError('')
@@ -170,7 +212,7 @@ export default function AsignacionesPage() {
         .update({ pago_confirmado: true })
         .eq('id', pedidoId)
       if (error) throw error
-      
+
       setPedidos(prev => prev.map(p => p.id === pedidoId ? { ...p, pago_confirmado: true } as any : p))
       setModalPedido(prev => prev && prev.id === pedidoId ? { ...prev, pago_confirmado: true } as any : prev)
       setMensaje('✓ Pago validado y registrado en el sistema.')
@@ -874,8 +916,27 @@ export default function AsignacionesPage() {
                 {/* Header */}
                 <div className="px-6 py-4 border-b border-gray-800 flex justify-between items-center bg-[#080b0e]">
                   <div>
-                    <h3 className="font-bold text-white text-base">Validación de Pedido #{String(modalPedido.numero).padStart(4, '0')}</h3>
-                    <p className="text-xs text-gray-400">Verificación obligatoria de pago y localización GPS</p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="font-bold text-white text-base">Validación de Pedido #{String(modalPedido.numero).padStart(4, '0')}</h3>
+                      {cargandoDirecciones ? (
+                        <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-gray-800 text-gray-400 flex items-center gap-1">
+                          <Loader2 size={9} className="animate-spin" /> Revisando historial...
+                        </span>
+                      ) : esClienteNuevo ? (
+                        <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-400 border border-rose-500/30">
+                          🆕 CLIENTE NUEVO
+                        </span>
+                      ) : (
+                        <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-400 border border-blue-500/30">
+                          🔁 CLIENTE FRECUENTE
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-400">
+                      {esClienteNuevo
+                        ? 'Sin pedidos previos — verificación reforzada de pago y ubicación'
+                        : 'Verificación obligatoria de pago y localización GPS'}
+                    </p>
                   </div>
                   <button
                     onClick={() => setModalPedido(null)}
@@ -949,8 +1010,10 @@ export default function AsignacionesPage() {
                           </span>
                         </div>
 
-                        {/* Caja del comprobante */}
-                        {refNumber ? (
+                        {/* Caja del comprobante: solo se muestra como "final" cuando ya
+                            esta conciliado. Mientras este pendiente, se ve editable abajo
+                            (asi el admin puede corregirlo hasta el ultimo momento). */}
+                        {refNumber && modalPedido.pago_confirmado ? (
                           <div className="bg-[#181f29] border border-gray-800 rounded-xl p-3 flex items-center justify-between gap-3">
                             <div className="min-w-0">
                               <span className="text-[9px] text-gray-405 uppercase font-black tracking-wide block">Nro. de Comprobante</span>
@@ -967,8 +1030,48 @@ export default function AsignacionesPage() {
                             </button>
                           </div>
                         ) : (
-                          <div className="bg-yellow-500/5 p-3 rounded-xl border border-yellow-500/10 text-xs text-yellow-500 font-medium">
-                            ⚠️ El cliente seleccionó transferencia pero no ingresó un código de referencia (comprobante antiguo).
+                          <div className="space-y-2">
+                            {!refNumber && (
+                              <div className="bg-yellow-500/5 p-3 rounded-xl border border-yellow-500/10 text-xs text-yellow-500 font-medium">
+                                ⚠️ El cliente seleccionó transferencia pero no ingresó un código de comprobante.
+                              </div>
+                            )}
+
+                            {/* Input editable: el admin escribe/pega el numero que verifico
+                                contra el estado de cuenta del banco. Se guarda en
+                                referencia_transferencia (columna con indice unico anti-fraude). */}
+                            <div className="space-y-1">
+                              <label className="text-[9px] text-gray-400 uppercase font-black tracking-wide block">
+                                {refNumber ? 'Corregir nro. de comprobante' : 'Ingresar nro. de comprobante verificado en el banco'}
+                              </label>
+                              <div className="flex gap-2">
+                                <input
+                                  type="text"
+                                  value={refInput}
+                                  onChange={e => setRefInput(e.target.value)}
+                                  placeholder="ej: 000123456789"
+                                  className="flex-1 bg-[#0c0f12] border border-gray-800 rounded-xl px-3 py-2 text-white text-xs font-mono focus:outline-none focus:border-green-500"
+                                />
+                                <button
+                                  onClick={() => guardarReferencia(modalPedido.id, refInput)}
+                                  disabled={guardandoRef || !refInput.trim() || refInput.trim() === refNumber}
+                                  className="bg-gray-800 hover:bg-gray-700 disabled:opacity-40 text-gray-300 font-bold text-[10px] px-3 py-2 rounded-lg transition shrink-0 cursor-pointer">
+                                  {guardandoRef ? <Loader2 size={12} className="animate-spin" /> : 'Guardar'}
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Pedir el comprobante/numero directo al cliente por WhatsApp
+                                cuando no lo dejo en el checkout. */}
+                            <a
+                              href={"https://wa.me/593" + (modalPedido.telefono.startsWith('0') ? modalPedido.telefono.slice(1) : modalPedido.telefono) + "?text=" + encodeURIComponent(
+                                "Hola " + modalPedido.nombre_cliente + ", te saluda La Crayola. Para confirmar tu pago por transferencia de tu pedido #" + String(modalPedido.numero).padStart(4, '0') + " ($" + modalPedido.total.toFixed(2) + "), ¿nos podrías enviar el número de comprobante o una captura del depósito? ¡Gracias!"
+                              )}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="w-full bg-green-600 hover:bg-green-555 text-white font-extrabold text-[10px] py-2 rounded-lg flex items-center justify-center gap-1.5 transition cursor-pointer">
+                              <Phone size={11} /> Solicitar comprobante por WhatsApp
+                            </a>
                           </div>
                         )}
 
@@ -978,11 +1081,27 @@ export default function AsignacionesPage() {
                           </div>
                         )}
 
+                        {esClienteNuevo && !modalPedido.pago_confirmado && (
+                          <label className="flex items-start gap-2.5 bg-rose-500/5 border border-rose-500/20 rounded-xl p-3 text-[11px] text-rose-300 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={confirmoPorWhatsapp}
+                              onChange={e => setConfirmoPorWhatsapp(e.target.checked)}
+                              className="mt-0.5 accent-rose-500 w-3.5 h-3.5 shrink-0"
+                            />
+                            <span>
+                              <strong>Cliente nuevo</strong> (sin historial de pedidos ni direcciones): confirmo que
+                              dialogué por WhatsApp con el cliente y verifiqué el comprobante contra el estado de
+                              cuenta del banco antes de aprobar.
+                            </span>
+                          </label>
+                        )}
+
                         {!modalPedido.pago_confirmado ? (
                           <button
                             onClick={() => confirmarPagoPedido(modalPedido.id)}
-                            disabled={procesando}
-                            className="w-full bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white font-black text-xs py-2.5 rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 shadow-md">
+                            disabled={procesando || !refNumber || (esClienteNuevo && !confirmoPorWhatsapp)}
+                            className="w-full bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white font-black text-xs py-2.5 rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 shadow-md disabled:opacity-40 disabled:cursor-not-allowed">
                             {procesando ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
                             Confirmar Depósito Recibido
                           </button>
@@ -993,13 +1112,34 @@ export default function AsignacionesPage() {
                         )}
                       </div>
                     ) : (
-                      <div className="bg-blue-500/5 border border-blue-500/20 rounded-2xl p-4 flex justify-between items-center text-xs">
-                        <span className="text-gray-300 font-bold flex items-center gap-1.5">
-                          💵 Pago Contra-Entrega (Efectivo)
-                        </span>
-                        <span className="bg-blue-500/15 text-blue-400 text-[9px] font-extrabold px-2 py-0.5 rounded-full border border-blue-500/30">
-                          PAGO AL ENTREGAR
-                        </span>
+                      <div className="space-y-2">
+                        <div className="bg-blue-500/5 border border-blue-500/20 rounded-2xl p-4 flex justify-between items-center text-xs">
+                          <span className="text-gray-300 font-bold flex items-center gap-1.5">
+                            💵 Pago Contra-Entrega (Efectivo)
+                          </span>
+                          <span className="bg-blue-500/15 text-blue-400 text-[9px] font-extrabold px-2 py-0.5 rounded-full border border-blue-500/30">
+                            PAGO AL ENTREGAR
+                          </span>
+                        </div>
+
+                        {/* Contra-entrega no exige validar un comprobante, pero un cliente
+                            nuevo sigue necesitando confirmar identidad/direccion antes de
+                            que salga mercaderia hacia una ubicacion sin historial. */}
+                        {esClienteNuevo && (
+                          <label className="flex items-start gap-2.5 bg-rose-500/5 border border-rose-500/20 rounded-xl p-3 text-[11px] text-rose-300 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={confirmoPorWhatsapp}
+                              onChange={e => setConfirmoPorWhatsapp(e.target.checked)}
+                              className="mt-0.5 accent-rose-500 w-3.5 h-3.5 shrink-0"
+                            />
+                            <span>
+                              <strong>Cliente nuevo</strong> (sin historial de pedidos ni direcciones): confirmo que
+                              dialogué por WhatsApp con el cliente para verificar su identidad y la dirección de
+                              entrega antes de aprobar.
+                            </span>
+                          </label>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1207,7 +1347,8 @@ export default function AsignacionesPage() {
                     disabled={
                       procesando ||
                       (isTransferencia && !modalPedido.pago_confirmado) ||
-                      (direccionSeleccionada === '' && (!nuevaDireccion.lat || !nuevaDireccion.lng))
+                      (direccionSeleccionada === '' && (!nuevaDireccion.lat || !nuevaDireccion.lng)) ||
+                      (esClienteNuevo && !confirmoPorWhatsapp)
                     }
                     className="flex-1 bg-[#10b981] hover:bg-[#059669] text-white font-black text-xs py-2.5 rounded-xl transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 shadow-md shadow-green-900/10">
                     {procesando && <Loader2 size={13} className="animate-spin" />}
