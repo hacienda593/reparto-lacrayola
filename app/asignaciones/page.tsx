@@ -81,6 +81,8 @@ export default function AsignacionesPage() {
   const [guardandoRef, setGuardandoRef] = useState(false)
   const [confirmoPorWhatsapp, setConfirmoPorWhatsapp] = useState(false)
   const [cargandoDirecciones, setCargandoDirecciones] = useState(false)
+  const [refDuplicadaEn, setRefDuplicadaEn] = useState<number | null>(null)
+  const [revirtiendoPago, setRevirtiendoPago] = useState(false)
 
   const isTransferencia = modalPedido
     ? (modalPedido.metodo_pago === 'transferencia' ||
@@ -134,7 +136,27 @@ export default function AsignacionesPage() {
     setPegarCoords('')
     setRefInput(p.referencia_transferencia || '')
     setConfirmoPorWhatsapp(false)
+    setRefDuplicadaEn(null)
     setCargandoDirecciones(true)
+
+    // Chequeo proactivo de comprobante duplicado: si el numero ya vino cargado
+    // desde el checkout (no fue tecleado a mano aqui), nunca pasaba por el
+    // unique-index de la BD hasta este momento. Se revisa apenas se abre el
+    // modal para no confiar solo en que el admin decida "corregir" el campo.
+    const refDelPedido = p.referencia_transferencia?.trim()
+      || p.notas?.match(/Ref:\s*([a-zA-Z0-9]+)/i)?.[1]
+      || p.notas?.match(/Referencia:\s*([a-zA-Z0-9]+)/i)?.[1]
+    if (refDelPedido) {
+      supabase.from('ol_pedidos')
+        .select('numero')
+        .eq('referencia_transferencia', refDelPedido.trim())
+        .neq('id', p.id)
+        .limit(1)
+        .then(({ data }) => {
+          if (data && data.length > 0) setRefDuplicadaEn(data[0].numero)
+        })
+    }
+
     try {
       // 1. Cargar desde rep_clientes_direcciones (historial de motorizados)
       const { data: repDirs, error: errRep } = await supabase
@@ -210,6 +232,8 @@ export default function AsignacionesPage() {
 
       setPedidos(prev => prev.map(p => p.id === pedidoId ? { ...p, referencia_transferencia: limpio } : p))
       setModalPedido(prev => prev && prev.id === pedidoId ? { ...prev, referencia_transferencia: limpio } : prev)
+      // Si el guardado paso el indice unico de la BD, este numero ya no esta duplicado.
+      setRefDuplicadaEn(null)
     } catch (err: any) {
       // El indice unico de la BD rechaza el guardado si ese numero de
       // comprobante ya fue usado en otro pedido (posible fraude/duplicado).
@@ -238,6 +262,30 @@ export default function AsignacionesPage() {
       setError(`Error al confirmar pago: ${err.message}`)
     } finally {
       setProcesando(false)
+    }
+  }
+
+  // Revierte una conciliacion marcada por error. No borra el numero de
+  // comprobante (queda guardado para no perder el dato), solo el estado de
+  // "verificado" — asi el admin puede volver a revisarlo con calma.
+  async function revertirPago(pedidoId: string) {
+    if (!confirm('¿Anular la verificación de este pago? El pedido volverá a quedar como pendiente de validación.')) return
+    setRevirtiendoPago(true)
+    setError('')
+    try {
+      const { error } = await supabase
+        .from('ol_pedidos')
+        .update({ pago_confirmado: false })
+        .eq('id', pedidoId)
+      if (error) throw error
+
+      setPedidos(prev => prev.map(p => p.id === pedidoId ? { ...p, pago_confirmado: false } as any : p))
+      setModalPedido(prev => prev && prev.id === pedidoId ? { ...prev, pago_confirmado: false } as any : prev)
+      setMensaje('↩️ Verificación de pago anulada.')
+    } catch (err: any) {
+      setError(`Error al anular verificación: ${err.message}`)
+    } finally {
+      setRevirtiendoPago(false)
     }
   }
 
@@ -1028,6 +1076,18 @@ export default function AsignacionesPage() {
                           </span>
                         </div>
 
+                        {/* Alerta de comprobante repetido: se revisa apenas se abre el
+                            modal, no solo cuando el admin edita el campo a mano. */}
+                        {refDuplicadaEn && (
+                          <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 text-xs text-red-300 font-semibold flex items-start gap-2">
+                            <AlertCircle size={14} className="shrink-0 mt-0.5" />
+                            <span>
+                              ⚠️ Este número de comprobante ya está registrado en el pedido #{String(refDuplicadaEn).padStart(4, '0')}.
+                              Posible duplicado o fraude — verifica con el cliente antes de continuar.
+                            </span>
+                          </div>
+                        )}
+
                         {/* Caja del comprobante: solo se muestra como "final" cuando ya
                             esta conciliado. Mientras este pendiente, se ve editable abajo
                             (asi el admin puede corregirlo hasta el ultimo momento). */}
@@ -1122,15 +1182,30 @@ export default function AsignacionesPage() {
                         {!modalPedido.pago_confirmado ? (
                           <button
                             onClick={() => confirmarPagoPedido(modalPedido.id)}
-                            disabled={procesando || !refNumber || (esClienteNuevo && !confirmoPorWhatsapp)}
+                            disabled={procesando || !refNumber || !!refDuplicadaEn || (esClienteNuevo && !confirmoPorWhatsapp)}
                             className="w-full bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white font-black text-xs py-2.5 rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 shadow-md disabled:opacity-40 disabled:cursor-not-allowed">
                             {procesando ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
                             Confirmar Depósito Recibido
                           </button>
                         ) : (
                           <div className="space-y-2">
-                            <div className="text-[10px] text-green-400 font-bold flex items-center justify-center gap-1 bg-green-500/10 p-2 rounded-xl border border-green-500/20">
-                              ✓ Depósito bancario verificado por Administración. Pedido conciliado.
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1 text-[10px] text-green-400 font-bold flex items-center justify-center gap-1 bg-green-500/10 p-2 rounded-xl border border-green-500/20">
+                                ✓ Depósito bancario verificado por Administración. Pedido conciliado.
+                              </div>
+                              {/* Anular solo tiene sentido antes de liberar el pedido al pool:
+                                  una vez el shopper ya puede verlo, revertir el pago aqui no lo
+                                  retira de su cola (esa es otra pantalla), asi que ocultarlo
+                                  evita que el admin crea que tambien lo "des-libera". */}
+                              {modalPedido.estado === 'pendiente' && (
+                                <button
+                                  onClick={() => revertirPago(modalPedido.id)}
+                                  disabled={revirtiendoPago}
+                                  title="Anular verificación (por si se marcó por error)"
+                                  className="shrink-0 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 font-bold text-[10px] px-3 py-2 rounded-xl transition cursor-pointer disabled:opacity-40">
+                                  {revirtiendoPago ? <Loader2 size={12} className="animate-spin" /> : '↩️ Anular'}
+                                </button>
+                              )}
                             </div>
 
                             {/* Con el pago ya conciliado, se avisa al cliente y se le pide
