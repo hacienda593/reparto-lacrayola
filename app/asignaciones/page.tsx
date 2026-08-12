@@ -99,6 +99,24 @@ export default function AsignacionesPage() {
   // una verificacion mas exhaustiva antes de aprobar.
   const esClienteNuevo = !cargandoDirecciones && direccionesCliente.length === 0 && !(modalPedido?.geo_lat && modalPedido?.geo_lng)
 
+  // Ubicacion actualmente elegida en el Paso 3 (GPS), para poder incluirla en
+  // los mensajes de WhatsApp de este mismo modal. Cubre las tres fuentes
+  // posibles: la del pedido, una guardada en el historial, o la recien tipeada.
+  const ubicacionSel = (() => {
+    if (direccionSeleccionada === 'pedido' && modalPedido?.geo_lat && modalPedido?.geo_lng) {
+      return { nombre: modalPedido.direccion || 'Ubicación del pedido', lat: modalPedido.geo_lat, lng: modalPedido.geo_lng }
+    }
+    const guardada = direccionesCliente.find(d => d.id === direccionSeleccionada)
+    if (guardada) {
+      return { nombre: guardada.nombre_direccion || guardada.direccion || 'Dirección guardada', lat: guardada.geo_lat, lng: guardada.geo_lng }
+    }
+    if (nuevaDireccion.lat && nuevaDireccion.lng) {
+      return { nombre: nuevaDireccion.nombre || 'Dirección de entrega', lat: nuevaDireccion.lat, lng: nuevaDireccion.lng }
+    }
+    return null
+  })()
+  const ubicacionUrl = ubicacionSel ? `https://www.google.com/maps/search/?api=1&query=${ubicacionSel.lat},${ubicacionSel.lng}` : ''
+
   // Acepta lo que Google Maps copia al mantener presionado un punto ("lat, lng"),
   // o un link completo que incluya esas mismas coordenadas en cualquier parte del texto.
   function parsearCoordenadas(texto: string) {
@@ -1062,10 +1080,14 @@ export default function AsignacionesPage() {
                             </div>
 
                             {/* Pedir el comprobante/numero directo al cliente por WhatsApp
-                                cuando no lo dejo en el checkout. */}
+                                cuando no lo dejo en el checkout. Incluye la ubicacion de
+                                entrega seleccionada en el Paso 3 para que el cliente la
+                                reconozca y confirme junto con el pago. */}
                             <a
                               href={"https://wa.me/593" + (modalPedido.telefono.startsWith('0') ? modalPedido.telefono.slice(1) : modalPedido.telefono) + "?text=" + encodeURIComponent(
-                                "Hola " + modalPedido.nombre_cliente + ", te saluda La Crayola. Para confirmar tu pago por transferencia de tu pedido #" + String(modalPedido.numero).padStart(4, '0') + " ($" + modalPedido.total.toFixed(2) + "), ¿nos podrías enviar el número de comprobante o una captura del depósito? ¡Gracias!"
+                                `Hola ${modalPedido.nombre_cliente}, hemos recibido tu pedido #${String(modalPedido.numero).padStart(4, '0')} ($${modalPedido.total.toFixed(2)})` +
+                                (ubicacionSel ? `, a ser entregado en "${ubicacionSel.nombre}" 📍 ${ubicacionUrl}` : '') +
+                                `. Para continuar necesitamos verificar tu transferencia: aún no hemos recibido el comprobante o número de referencia. ¿Nos lo puedes compartir? ¡Gracias!`
                               )}
                               target="_blank"
                               rel="noopener noreferrer"
@@ -1106,8 +1128,27 @@ export default function AsignacionesPage() {
                             Confirmar Depósito Recibido
                           </button>
                         ) : (
-                          <div className="text-[10px] text-green-400 font-bold flex items-center justify-center gap-1 bg-green-500/10 p-2 rounded-xl border border-green-500/20">
-                            ✓ Depósito bancario verificado por Administración. Pedido conciliado.
+                          <div className="space-y-2">
+                            <div className="text-[10px] text-green-400 font-bold flex items-center justify-center gap-1 bg-green-500/10 p-2 rounded-xl border border-green-500/20">
+                              ✓ Depósito bancario verificado por Administración. Pedido conciliado.
+                            </div>
+
+                            {/* Con el pago ya conciliado, se avisa al cliente y se le pide
+                                que confirme la direccion de entrega elegida (no que la
+                                envie de nuevo) — cierra el ciclo de verificacion. */}
+                            <a
+                              href={"https://wa.me/593" + (modalPedido.telefono.startsWith('0') ? modalPedido.telefono.slice(1) : modalPedido.telefono) + "?text=" + encodeURIComponent(
+                                `Hola ${modalPedido.nombre_cliente}, te confirmamos que recibimos tu pedido #${String(modalPedido.numero).padStart(4, '0')} pagado por transferencia (Ref: ${refNumber}).` +
+                                (ubicacionSel
+                                  ? ` ¿Nos confirmas que la entrega es en "${ubicacionSel.nombre}"? 📍 ${ubicacionUrl}`
+                                  : ' ¿Nos confirmas la dirección exacta de entrega, por favor?') +
+                                ` ¡Gracias!`
+                              )}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="w-full bg-green-600 hover:bg-green-555 text-white font-extrabold text-[10px] py-2 rounded-lg flex items-center justify-center gap-1.5 transition cursor-pointer">
+                              <Phone size={11} /> Confirmar pedido y dirección por WhatsApp
+                            </a>
                           </div>
                         )}
                       </div>
