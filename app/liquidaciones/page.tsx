@@ -4,11 +4,18 @@ import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import Sidebar from '@/components/Sidebar'
 import {
-  Wallet, Check, Loader2, ChevronDown, ChevronUp, AlertCircle,
-  FileText, Camera, Upload, CheckCircle, X, Printer, DollarSign, User, ArrowRightLeft
+  Check, Loader2, ChevronDown, ChevronUp, AlertCircle,
+  Upload, CheckCircle, X, Printer, DollarSign, User, ArrowRightLeft
 } from 'lucide-react'
 
 function fmt(n: number) { return '$' + (n ?? 0).toFixed(2) }
+function fechaLocal() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Guayaquil', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
+}
+function limitesDiaEcuador(fecha: string) {
+  // Ecuador continental usa UTC-05:00 todo el año.
+  return { inicio: `${fecha}T00:00:00-05:00`, fin: `${fecha}T23:59:59.999-05:00` }
+}
 
 interface LiquidacionVista {
   id:               string | null
@@ -34,9 +41,13 @@ interface ValeCaja {
   metodo: string
   referencia?: string
 }
+type PersonaRelacion = {nombre?:string} | {nombre?:string}[] | null
+interface TraspasoDia { id:string; monto:number; notas?:string|null; created_at:string; origen?:PersonaRelacion; destino?:PersonaRelacion }
+function mensajeError(error: unknown) { return error instanceof Error ? error.message : String(error) }
+function nombreRelacion(persona: PersonaRelacion | undefined) { return Array.isArray(persona) ? persona[0]?.nombre : persona?.nombre }
 
 export default function LiquidacionesPage() {
-  const [fecha,       setFecha]       = useState(new Date().toISOString().split('T')[0])
+  const [fecha,       setFecha]       = useState(fechaLocal)
   const [liquidaciones, setLiquidaciones] = useState<LiquidacionVista[]>([])
   const [cargando,    setCargando]    = useState(true)
   const [procesando,  setProcesando]  = useState<string | null>(null)
@@ -48,17 +59,20 @@ export default function LiquidacionesPage() {
   const [referencia, setReferencia] = useState('')
   const [fotoUrl, setFotoUrl] = useState('')
   const [recibidoPor, setRecibidoPor] = useState('')
+  const [montoRecibido, setMontoRecibido] = useState('')
+  const [requestId, setRequestId] = useState('')
   const [subiendoFoto, setSubiendoFoto] = useState(false)
 
   // Estado para visualización del Vale de Caja Digital
   const [valeVista, setValeVista] = useState<ValeCaja | null>(null)
 
   // Traspasos de efectivo entre colaboradores (ej: repartidor entrega COD a un comprador)
-  const [traspasosDia, setTraspasosDia] = useState<any[]>([])
+  const [traspasosDia, setTraspasosDia] = useState<TraspasoDia[]>([])
   const [mostrarTraspasos, setMostrarTraspasos] = useState(false)
 
   async function cargar() {
     setCargando(true)
+    const limites = limitesDiaEcuador(fecha)
 
     // Repartidores activos
     const { data: reps } = await supabase
@@ -76,15 +90,15 @@ export default function LiquidacionesPage() {
     const { data: entregas } = await supabase
       .from('rep_entregas')
       .select('repartidor_id,monto_cobrado,exitosa,entregado_at')
-      .gte('entregado_at', fecha)
-      .lt('entregado_at',  fecha + 'T23:59:59')
+      .gte('entregado_at', limites.inicio)
+      .lte('entregado_at', limites.fin)
 
     // Asignaciones del día
     const { data: asigs } = await supabase
       .from('rep_asignaciones')
       .select('repartidor_id,estado')
-      .gte('asignado_at', fecha)
-      .lt('asignado_at',  fecha + 'T23:59:59')
+      .gte('asignado_at', limites.inicio)
+      .lte('asignado_at', limites.fin)
 
     const resultado: LiquidacionVista[] = reps.map(rep => {
       const existente    = liqMap.get(rep.id)
@@ -121,8 +135,8 @@ export default function LiquidacionesPage() {
         origen:rep_repartidores!rep_traspasos_efectivo_repartidor_origen_id_fkey(nombre),
         destino:rep_repartidores!rep_traspasos_efectivo_repartidor_destino_id_fkey(nombre)
       `)
-      .gte('created_at', fecha)
-      .lt('created_at', fecha + 'T23:59:59')
+      .gte('created_at', limites.inicio)
+      .lte('created_at', limites.fin)
       .order('created_at', { ascending: false })
     setTraspasosDia(traspasos ?? [])
 
@@ -138,7 +152,7 @@ export default function LiquidacionesPage() {
     try {
       const fileExt = file.name.split('.').pop()
       const fileName = `liq-${Date.now()}.${fileExt}`
-      const { data, error } = await supabase.storage
+      const { error } = await supabase.storage
         .from('comprobantes-proveedores')
         .upload(fileName, file)
 
@@ -149,8 +163,8 @@ export default function LiquidacionesPage() {
         .getPublicUrl(fileName)
 
       setFotoUrl(publicUrl)
-    } catch (err: any) {
-      alert('Error al subir la imagen: ' + err.message)
+    } catch (err: unknown) {
+      alert('Error al subir la imagen: ' + mensajeError(err))
     } finally {
       setSubiendoFoto(false)
     }
@@ -162,6 +176,8 @@ export default function LiquidacionesPage() {
     setReferencia('')
     setFotoUrl('')
     setRecibidoPor('')
+    setMontoRecibido(Number(liq.efectivo_en_mano || 0).toFixed(2))
+    setRequestId(crypto.randomUUID())
   }
 
   async function confirmarLiquidacion() {
@@ -172,6 +188,15 @@ export default function LiquidacionesPage() {
     }
     if (metodo === 'transferencia' && !referencia.trim()) {
       alert('Por favor ingresa el número de referencia bancaria.')
+      return
+    }
+    const monto = Number(montoRecibido)
+    if (!Number.isFinite(monto) || monto <= 0) {
+      alert('Ingresa un monto recibido mayor que cero.')
+      return
+    }
+    if (monto > modalLiquidar.efectivo_en_mano) {
+      alert(`El monto no puede superar el saldo en mano (${fmt(modalLiquidar.efectivo_en_mano)}).`)
       return
     }
 
@@ -185,14 +210,10 @@ export default function LiquidacionesPage() {
       // La liquidación y el descuento del saldo ocurren dentro de una sola
       // transacción en PostgreSQL. Así no puede guardarse uno sin el otro.
       const { error: rpcError } = await supabase.rpc('liquidar_repartidor_admin', {
+        p_request_id: requestId,
         p_repartidor_id: modalLiquidar.repartidor_id,
         p_fecha: modalLiquidar.fecha,
-        p_total_asignados: modalLiquidar.total_asignados,
-        p_total_entregados: modalLiquidar.total_entregados,
-        p_total_devueltos: modalLiquidar.total_devueltos,
-        p_total_cobrado: modalLiquidar.total_cobrado,
-        p_total_comision: modalLiquidar.total_comision,
-        p_total_a_entregar: modalLiquidar.total_a_entregar,
+        p_monto_recibido: monto,
         p_metodo: metodo,
         p_recibido_por: recibidoPor,
         p_referencia: referencia || null,
@@ -206,7 +227,7 @@ export default function LiquidacionesPage() {
         setValeVista({
           numero: numeroVale,
           repartidor: modalLiquidar.nombre,
-          monto: modalLiquidar.total_a_entregar,
+          monto,
           fecha: modalLiquidar.fecha,
           recibidoPor: recibidoPor,
           metodo: 'Abono en Efectivo a Oficina'
@@ -217,8 +238,8 @@ export default function LiquidacionesPage() {
 
       setModalLiquidar(null)
       await cargar()
-    } catch (err: any) {
-      alert('Error al registrar la liquidación: ' + err.message)
+    } catch (err: unknown) {
+      alert('Error al registrar la liquidación: ' + mensajeError(err))
     } finally {
       setProcesando(null)
     }
@@ -227,7 +248,7 @@ export default function LiquidacionesPage() {
   const totalGeneral = liquidaciones.reduce((s, l) => ({
     cobrado:    s.cobrado    + l.total_cobrado,
     comisiones: s.comisiones + l.total_comision,
-    entregar:   s.entregar   + l.total_a_entregar,
+    entregar:   s.entregar   + l.efectivo_en_mano,
     entregas:   s.entregas   + l.total_entregados,
   }), { cobrado: 0, comisiones: 0, entregar: 0, entregas: 0 })
 
@@ -250,7 +271,7 @@ export default function LiquidacionesPage() {
           {[
             { label: 'Total cobrado',    value: fmt(totalGeneral.cobrado),    color: 'text-green-400',  bg: 'bg-green-500/5 border-[#00b074]/20' },
             { label: 'Comisiones',       value: fmt(totalGeneral.comisiones), color: 'text-blue-400',   bg: 'bg-blue-500/5 border-blue-500/20' },
-            { label: 'Debe entregar',    value: fmt(totalGeneral.entregar),   color: 'text-orange-400', bg: 'bg-orange-500/5 border-orange-500/20' },
+            { label: 'Efectivo pendiente', value: fmt(totalGeneral.entregar), color: 'text-orange-400', bg: 'bg-orange-500/5 border-orange-500/20' },
             { label: 'Total entregas',   value: totalGeneral.entregas,        color: 'text-purple-400', bg: 'bg-purple-500/5 border-purple-500/20' },
           ].map(({ label, value, color, bg }) => (
             <div key={label} className={`${bg} rounded-2xl p-4 border`}>
@@ -278,9 +299,9 @@ export default function LiquidacionesPage() {
                 {traspasosDia.map(t => (
                   <div key={t.id} className="px-4 py-3 flex items-center justify-between gap-3 text-sm">
                     <div className="flex items-center gap-2 text-gray-300">
-                      <span className="font-semibold text-white">{t.origen?.nombre ?? '—'}</span>
+                      <span className="font-semibold text-white">{nombreRelacion(t.origen) ?? '—'}</span>
                       <ArrowRightLeft size={12} className="text-gray-500 shrink-0" />
-                      <span className="font-semibold text-white">{t.destino?.nombre ?? '—'}</span>
+                      <span className="font-semibold text-white">{nombreRelacion(t.destino) ?? '—'}</span>
                       {t.notas && <span className="text-xs text-gray-500 italic">· {t.notas}</span>}
                     </div>
                     <span className="font-bold text-yellow-400 shrink-0">{fmt(t.monto)}</span>
@@ -298,7 +319,7 @@ export default function LiquidacionesPage() {
           <div className="space-y-3">
             {liquidaciones.map(liq => {
               const liquidado  = liq.estado === 'liquidado'
-              const sinActividad = liq.total_asignados === 0
+              const sinActividad = liq.total_asignados === 0 && liq.efectivo_en_mano <= 0
               return (
                 <div key={liq.repartidor_id} className={`bg-[#181d24] rounded-2xl border shadow-sm overflow-hidden ${sinActividad ? 'opacity-60 border-[#2d3748]' : 'border-[#2d3748]'}`}>
                   <div className="flex items-center justify-between px-4 py-3.5 cursor-pointer"
@@ -314,8 +335,8 @@ export default function LiquidacionesPage() {
                     </div>
                     <div className="flex items-center gap-3">
                       <div className="text-right">
-                        <div className="font-bold text-orange-400">{fmt(liq.total_a_entregar)}</div>
-                        <div className="text-[10px] text-gray-500">Saldo actual en mano: {fmt(liq.efectivo_en_mano)}</div>
+                        <div className="font-bold text-orange-400">{fmt(liq.efectivo_en_mano)}</div>
+                        <div className="text-[10px] text-gray-500">Efectivo pendiente en mano</div>
                       </div>
                       <span className={`text-[10px] font-semibold px-2.5 py-0.5 rounded-full ${liquidado ? 'bg-green-500/15 text-green-400 border border-green-500/30' : 'bg-yellow-500/15 text-yellow-400 border border-yellow-500/30'}`}>
                         {liquidado ? '✓ Liquidado' : 'Pendiente'}
@@ -357,7 +378,7 @@ export default function LiquidacionesPage() {
                         </div>
                       </div>
 
-                      {!liquidado && liq.total_entregados > 0 && (
+                      {liq.efectivo_en_mano > 0 && (
                         <button onClick={() => abrirModalLiquidar(liq)} disabled={procesando === liq.repartidor_id}
                           className="w-full flex items-center justify-center gap-2 bg-[#00b074] hover:bg-[#008f5d] disabled:opacity-60 text-white font-bold py-3 rounded-xl transition text-sm cursor-pointer border-0">
                           {procesando === liq.repartidor_id
@@ -399,8 +420,13 @@ export default function LiquidacionesPage() {
                 
                 {/* Monto a Liquidar */}
                 <div className="bg-[#0c0f12] border border-[#2d3748] rounded-2xl p-4 flex justify-between items-center">
-                  <span className="text-gray-400 font-semibold">Monto Neto a Entregar:</span>
-                  <span className="text-lg font-black text-orange-400">{fmt(modalLiquidar.total_a_entregar)}</span>
+                  <div><span className="block text-gray-400 font-semibold">Saldo registrado en mano</span><span className="text-[9px] text-gray-600">Puede registrar un abono parcial</span></div>
+                  <span className="text-lg font-black text-orange-400">{fmt(modalLiquidar.efectivo_en_mano)}</span>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Monto realmente recibido</label>
+                  <div className="relative"><DollarSign className="absolute left-3 top-2.5 text-gray-500" size={14}/><input type="number" min="0.01" step="0.01" max={modalLiquidar.efectivo_en_mano} value={montoRecibido} onChange={e=>setMontoRecibido(e.target.value)} className="w-full bg-[#0c0f12] border border-[#2d3748] rounded-xl pl-9 pr-3 py-2 text-white focus:outline-none focus:border-green-500 text-xs"/></div>
                 </div>
 
                 {/* Persona que recibe */}
@@ -548,7 +574,6 @@ export default function LiquidacionesPage() {
                 <button
                   onClick={() => {
                     const printContent = document.getElementById('printable-receipt')?.innerHTML;
-                    const originalContent = document.body.innerHTML;
                     if (printContent) {
                       const printWindow = window.open('', '_blank');
                       printWindow?.document.write(`

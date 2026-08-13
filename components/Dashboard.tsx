@@ -60,12 +60,14 @@ export default function Dashboard() {
     const enRuta = asignaciones.filter(a => ['en_ruta','recolectado'].includes(a.estado))
     const demorados = enRuta.filter(a => minutesSince(a.updated_at || a.asignado_at) > 60)
     const efectivo = repartidores.reduce((s, r) => s + Number(r.efectivo_en_mano || 0), 0)
-    const avgMin = entregasHoy.length ? Math.round(entregasHoy.reduce((s, e) => s + Number(e.tiempo_entrega || (e.salida_at ? (new Date(e.entregado_at).getTime() - new Date(e.salida_at).getTime()) / 60000 : 0)), 0) / entregasHoy.length) : 0
+    const tiemposValidos = entregasHoy.map(e => Number(e.tiempo_entrega || (e.salida_at ? (new Date(e.entregado_at).getTime() - new Date(e.salida_at).getTime()) / 60000 : 0))).filter(min => min > 0 && min <= 24 * 60)
+    const avgMin = tiemposValidos.length ? Math.round(tiemposValidos.reduce((s,min)=>s+min,0)/tiemposValidos.length) : 0
+    const datosIncompletos = entregasHoy.filter(e => e.monto_cobrado == null || (e.salida_at && new Date(e.salida_at) > new Date(e.entregado_at))).length
     const ranking = repartidores.map(rep => {
       const mine = entregas.filter(e => e.repartidor_id === rep.id && e.exitosa)
       return { ...rep, entregas: mine.length, cobrado: mine.reduce((s,e) => s + Number(e.monto_cobrado || 0), 0) }
     }).sort((x,y) => y.entregas - x.entregas).slice(0, 5)
-    return { asigByPedido, pedidosHoy, entregasHoy, entregasAyer, sinAsignar, transferencias, sinUbicacion, enRuta, demorados, efectivo, avgMin, ranking }
+    return { asigByPedido, pedidosHoy, entregasHoy, entregasAyer, sinAsignar, transferencias, sinUbicacion, enRuta, demorados, efectivo, avgMin, datosIncompletos, ranking }
   }, [pedidos, asignaciones, entregas, repartidores])
 
   const actions = [
@@ -92,6 +94,7 @@ export default function Dashboard() {
     </header>
 
     {error && <div className="flex gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700"><AlertTriangle size={18}/><span>No se pudo cargar todo el tablero: {error}</span></div>}
+    {data.datosIncompletos > 0 && <Link href="/reportes" className="flex gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800"><AlertTriangle size={18}/><span><strong>{data.datosIncompletos} entrega(s)</strong> de hoy tienen monto o tiempos incompletos. Se excluyen los tiempos inválidos del promedio.</span><ArrowRight size={16} className="ml-auto"/></Link>}
 
     <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
       {summaryCards.map(({label,value,icon:Icon,tone}) => <div key={label} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className={`mb-3 flex h-9 w-9 items-center justify-center rounded-xl ${tone}`}><Icon size={17}/></div><div className="text-xl font-black">{loading ? <Loader2 size={18} className="animate-spin"/> : value}</div><div className="text-xs text-slate-500">{label}</div></div>)}
