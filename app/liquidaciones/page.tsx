@@ -43,6 +43,8 @@ interface ValeCaja {
 }
 type PersonaRelacion = {nombre?:string} | {nombre?:string}[] | null
 interface TraspasoDia { id:string; monto:number; notas?:string|null; created_at:string; origen?:PersonaRelacion; destino?:PersonaRelacion }
+interface MovimientoLiquidacion { id:string; repartidor_id:string; monto:number; saldo_antes:number; saldo_despues:number; metodo:string; referencia?:string|null; recibido_por:string; created_at:string; reversado_at?:string|null; motivo_reverso?:string|null }
+interface DiagnosticoCaja { repartidor_id:string; nombre:string; efectivo_en_mano:number; total_liquidado:number; transferido_salida:number; transferido_entrada:number; datos_anomalos:number }
 function mensajeError(error: unknown) { return error instanceof Error ? error.message : String(error) }
 function nombreRelacion(persona: PersonaRelacion | undefined) { return Array.isArray(persona) ? persona[0]?.nombre : persona?.nombre }
 
@@ -69,6 +71,10 @@ export default function LiquidacionesPage() {
   // Traspasos de efectivo entre colaboradores (ej: repartidor entrega COD a un comprador)
   const [traspasosDia, setTraspasosDia] = useState<TraspasoDia[]>([])
   const [mostrarTraspasos, setMostrarTraspasos] = useState(false)
+  const [movimientos, setMovimientos] = useState<MovimientoLiquidacion[]>([])
+  const [diagnostico, setDiagnostico] = useState<DiagnosticoCaja[]>([])
+  const [reversando, setReversando] = useState<string | null>(null)
+  const [avisoMigracion, setAvisoMigracion] = useState('')
 
   async function cargar() {
     setCargando(true)
@@ -139,6 +145,13 @@ export default function LiquidacionesPage() {
       .lte('created_at', limites.fin)
       .order('created_at', { ascending: false })
     setTraspasosDia(traspasos ?? [])
+    const { data: movs, error: movError } = await supabase.from('rep_movimientos_liquidacion')
+      .select('id,repartidor_id,monto,saldo_antes,saldo_despues,metodo,referencia,recibido_por,created_at,reversado_at,motivo_reverso')
+      .gte('created_at', limites.inicio).lte('created_at', limites.fin).order('created_at',{ascending:false})
+    setMovimientos((movs ?? []) as MovimientoLiquidacion[])
+    const { data: diag, error: diagError } = await supabase.from('rep_diagnostico_caja').select('*').order('efectivo_en_mano',{ascending:false})
+    setDiagnostico((diag ?? []) as DiagnosticoCaja[])
+    setAvisoMigracion(movError || diagError ? 'Falta aplicar la migración financiera más reciente en Supabase.' : '')
 
     setCargando(false)
   }
@@ -243,6 +256,18 @@ export default function LiquidacionesPage() {
     } finally {
       setProcesando(null)
     }
+  }
+
+  async function reversarMovimiento(movimiento: MovimientoLiquidacion) {
+    const motivo = window.prompt('Motivo del reverso (mínimo 8 caracteres). Esta acción quedará auditada:')?.trim()
+    if (!motivo) return
+    if (motivo.length < 8) { alert('El motivo debe tener al menos 8 caracteres.'); return }
+    if (!window.confirm(`Se devolverán ${fmt(Number(movimiento.monto))} al saldo del custodio. ¿Continuar?`)) return
+    setReversando(movimiento.id)
+    const { error } = await supabase.rpc('reversar_movimiento_liquidacion',{ p_movimiento_id:movimiento.id,p_motivo:motivo })
+    setReversando(null)
+    if (error) { alert('No se pudo reversar: '+error.message); return }
+    await cargar()
   }
 
   const totalGeneral = liquidaciones.reduce((s, l) => ({
@@ -401,6 +426,15 @@ export default function LiquidacionesPage() {
             })}
           </div>
         )}
+
+        {avisoMigracion&&<div className="flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-300"><AlertCircle size={15}/>{avisoMigracion}</div>}
+
+        {diagnostico.length>0&&<section className="bg-[#181d24] rounded-2xl border border-[#2d3748] overflow-hidden"><div className="px-4 py-3.5 border-b border-[#2d3748]"><h2 className="font-bold text-white text-sm">Conciliación por custodio</h2><p className="text-[10px] text-gray-500">Saldo actual, movimientos y alertas de calidad.</p></div><div className="overflow-x-auto"><table className="w-full text-xs"><thead className="text-gray-500 bg-[#0c0f12]"><tr><th className="text-left px-4 py-2">Custodio</th><th className="text-right px-3">En mano</th><th className="text-right px-3">Liquidado</th><th className="text-right px-3">Entradas</th><th className="text-right px-3">Salidas</th><th className="text-right px-4">Alertas</th></tr></thead><tbody className="divide-y divide-[#2d3748]">{diagnostico.map(d=><tr key={d.repartidor_id}><td className="px-4 py-3 font-bold text-white">{d.nombre}</td><td className="px-3 text-right text-orange-400 font-bold">{fmt(Number(d.efectivo_en_mano))}</td><td className="px-3 text-right text-green-400">{fmt(Number(d.total_liquidado))}</td><td className="px-3 text-right text-gray-300">{fmt(Number(d.transferido_entrada))}</td><td className="px-3 text-right text-gray-300">{fmt(Number(d.transferido_salida))}</td><td className={`px-4 text-right font-bold ${Number(d.datos_anomalos)>0?'text-red-400':'text-green-500'}`}>{Number(d.datos_anomalos)>0?d.datos_anomalos:'✓'}</td></tr>)}</tbody></table></div></section>}
+
+        <section className="bg-[#181d24] rounded-2xl border border-[#2d3748] overflow-hidden">
+          <div className="px-4 py-3.5 border-b border-[#2d3748]"><h2 className="font-bold text-white text-sm">Libro de movimientos ({movimientos.length})</h2><p className="text-[10px] text-gray-500">Registro inmutable de cada ingreso de caja del día.</p></div>
+          {movimientos.length===0?<p className="p-6 text-center text-xs text-gray-500">Todavía no hay movimientos registrados.</p>:<div className="divide-y divide-[#2d3748]">{movimientos.map(m=>{const rep=liquidaciones.find(l=>l.repartidor_id===m.repartidor_id);return <div key={m.id} className={`px-4 py-3 flex flex-wrap items-center gap-3 text-xs ${m.reversado_at?'opacity-50':''}`}><div className="min-w-0 flex-1"><p className="font-bold text-white">{rep?.nombre||'Repartidor'} · {m.metodo==='caja'?'Efectivo':'Transferencia'}</p><p className="text-gray-500">{new Date(m.created_at).toLocaleTimeString('es-EC',{hour:'2-digit',minute:'2-digit'})} · recibió {m.recibido_por}{m.referencia?` · Ref. ${m.referencia}`:''}</p>{m.reversado_at&&<p className="text-red-400">Reversado: {m.motivo_reverso}</p>}</div><div className="text-right"><p className={`font-black ${m.reversado_at?'line-through text-gray-500':'text-green-400'}`}>{fmt(Number(m.monto))}</p><p className="text-[9px] text-gray-600">{fmt(Number(m.saldo_antes))} → {fmt(Number(m.saldo_despues))}</p></div>{!m.reversado_at&&<button onClick={()=>reversarMovimiento(m)} disabled={reversando===m.id} className="rounded-lg border border-red-500/30 px-2.5 py-1.5 text-[10px] font-bold text-red-400 hover:bg-red-500/10 disabled:opacity-50">{reversando===m.id?'Procesando…':'Reversar'}</button>}</div>})}</div>}
+        </section>
 
         {/* MODAL DE PROCESAR LIQUIDACIÓN */}
         {modalLiquidar && (

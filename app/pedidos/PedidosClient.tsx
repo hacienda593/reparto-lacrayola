@@ -73,13 +73,12 @@ export default function PedidosClient({ repartidor, asignaciones, pedidoMap, tie
 
     setProcesandoTraspaso(true)
     setErrorTraspaso('')
-    const { data: { user } } = await sb.auth.getUser()
     const { error } = await sb.rpc('transferir_efectivo_repartidor', {
       p_origen_id: repartidor.id,
       p_destino_id: destinoTraspaso,
       p_monto: monto,
       p_notas: notasTraspaso.trim() || null,
-      p_registrado_por: user?.id ?? null,
+      p_request_id: crypto.randomUUID(),
     })
     setProcesandoTraspaso(false)
 

@@ -34,6 +34,9 @@ CREATE TABLE IF NOT EXISTS rep_movimientos_liquidacion (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CONSTRAINT rep_mov_liq_transferencia_ref CHECK (metodo <> 'transferencia' OR NULLIF(TRIM(referencia),'') IS NOT NULL)
 );
+ALTER TABLE rep_movimientos_liquidacion ADD COLUMN IF NOT EXISTS reversado_at TIMESTAMPTZ;
+ALTER TABLE rep_movimientos_liquidacion ADD COLUMN IF NOT EXISTS reversado_por UUID;
+ALTER TABLE rep_movimientos_liquidacion ADD COLUMN IF NOT EXISTS motivo_reverso TEXT;
 
 CREATE INDEX IF NOT EXISTS rep_mov_liq_repartidor_fecha_idx
   ON rep_movimientos_liquidacion(repartidor_id, fecha, created_at DESC);
@@ -125,3 +128,35 @@ END; $$;
 
 REVOKE ALL ON FUNCTION liquidar_repartidor_admin(UUID,UUID,DATE,NUMERIC,TEXT,TEXT,TEXT,TEXT,TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION liquidar_repartidor_admin(UUID,UUID,DATE,NUMERIC,TEXT,TEXT,TEXT,TEXT,TEXT) TO authenticated;
+
+-- Reverso contable: nunca borra movimientos; devuelve el dinero al custodio
+-- y conserva quién, cuándo y por qué realizó la corrección.
+CREATE OR REPLACE FUNCTION reversar_movimiento_liquidacion(p_movimiento_id UUID,p_motivo TEXT)
+RETURNS NUMERIC LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_mov rep_movimientos_liquidacion; v_saldo NUMERIC;
+BEGIN
+  IF NOT rep_is_admin() THEN RAISE EXCEPTION 'Acceso denegado'; END IF;
+  IF NULLIF(TRIM(p_motivo),'') IS NULL OR LENGTH(TRIM(p_motivo))<8 THEN RAISE EXCEPTION 'Explique el motivo del reverso (mínimo 8 caracteres)'; END IF;
+  SELECT * INTO v_mov FROM rep_movimientos_liquidacion WHERE id=p_movimiento_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Movimiento no encontrado'; END IF;
+  IF v_mov.reversado_at IS NOT NULL THEN RAISE EXCEPTION 'El movimiento ya fue reversado'; END IF;
+  SELECT efectivo_en_mano INTO v_saldo FROM rep_repartidores WHERE id=v_mov.repartidor_id FOR UPDATE;
+  v_saldo:=COALESCE(v_saldo,0)+v_mov.monto;
+  UPDATE rep_repartidores SET efectivo_en_mano=v_saldo WHERE id=v_mov.repartidor_id;
+  UPDATE rep_movimientos_liquidacion SET reversado_at=NOW(),reversado_por=auth.uid(),motivo_reverso=TRIM(p_motivo) WHERE id=p_movimiento_id;
+  UPDATE rep_liquidaciones SET monto_recibido=GREATEST(0,monto_recibido-v_mov.monto),saldo_despues=v_saldo,estado='con_diferencia',updated_at=NOW() WHERE id=v_mov.liquidacion_id;
+  RETURN v_saldo;
+END; $$;
+REVOKE ALL ON FUNCTION reversar_movimiento_liquidacion(UUID,TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION reversar_movimiento_liquidacion(UUID,TEXT) TO authenticated;
+
+-- Diagnóstico de consistencia consumible por el panel administrativo.
+CREATE OR REPLACE VIEW rep_diagnostico_caja WITH (security_invoker=true) AS
+SELECT r.id repartidor_id,r.nombre,r.efectivo_en_mano,
+  COALESCE((SELECT SUM(monto) FROM rep_movimientos_liquidacion m WHERE m.repartidor_id=r.id AND m.reversado_at IS NULL),0) total_liquidado,
+  COALESCE((SELECT SUM(monto) FROM rep_traspasos_efectivo t WHERE t.repartidor_origen_id=r.id),0) transferido_salida,
+  COALESCE((SELECT SUM(monto) FROM rep_traspasos_efectivo t WHERE t.repartidor_destino_id=r.id),0) transferido_entrada,
+  (SELECT COUNT(*) FROM rep_entregas e WHERE e.repartidor_id=r.id AND e.exitosa AND (e.monto_cobrado IS NULL OR (e.salida_at IS NOT NULL AND e.salida_at>e.entregado_at))) datos_anomalos
+FROM rep_repartidores r;
+REVOKE ALL ON rep_diagnostico_caja FROM PUBLIC,anon;
+GRANT SELECT ON rep_diagnostico_caja TO authenticated;

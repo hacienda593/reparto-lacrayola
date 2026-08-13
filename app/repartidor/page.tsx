@@ -225,7 +225,7 @@ export default function RepartidorPage() {
       p_destino_id: destinoTraspaso,
       p_monto: monto,
       p_notas: notasTraspaso.trim() || null,
-      p_registrado_por: user?.id ?? null,
+      p_request_id: crypto.randomUUID(),
     })
     setProcesandoTraspaso(false)
 
