@@ -1,131 +1,52 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { supabase } from '@/lib/supabase'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import Sidebar from '@/components/Sidebar'
-import { Loader2, Package, DollarSign, Wallet, XCircle, ArrowRightLeft, TrendingUp } from 'lucide-react'
+import { supabase } from '@/lib/supabase'
+import { AlertTriangle, Bike, CheckCircle2, Clock3, Download, Loader2, Package, RefreshCw, ShoppingBasket, TrendingUp, XCircle } from 'lucide-react'
 
-function fmt(n: number) { return '$' + (n ?? 0).toFixed(2) }
+const fmt = (n:number) => new Intl.NumberFormat('es-EC',{style:'currency',currency:'USD'}).format(n||0)
+const dateInput = (offset=0) => { const d=new Date(); d.setDate(d.getDate()+offset); return d.toISOString().slice(0,10) }
+const csvCell = (v: unknown) => `"${String(v ?? '').replaceAll('"','""')}"`
+type Persona = { nombre?: string } | null
+type Asig = { id:string; pedido_id:string; estado:string; asignado_at:string; updated_at?:string; shopper_id?:string|null; rider_id?:string|null; repartidor_id?:string|null; shopper?:Persona; rider?:Persona; repartidor?:Persona }
+type Entrega = { pedido_id:string; repartidor_id:string; monto_cobrado:number; exitosa:boolean; entregado_at:string; salida_at?:string|null; tiempo_entrega?:number|null; motivo_fallo?:string|null; repartidor?:Persona }
+type Pedido = { id:string; numero:number; estado:string; total:number; created_at:string; nombre_cliente:string }
 
-function haceNDias(n: number) {
-  const d = new Date()
-  d.setDate(d.getDate() - n)
-  return d.toISOString().split('T')[0]
-}
+export default function ReportesPage(){
+  const [desde,setDesde]=useState(dateInput(-30)); const [hasta,setHasta]=useState(dateInput())
+  const [pedidos,setPedidos]=useState<Pedido[]>([]); const [asigs,setAsigs]=useState<Asig[]>([]); const [entregas,setEntregas]=useState<Entrega[]>([])
+  const [loading,setLoading]=useState(true); const [error,setError]=useState('')
+  const cargar=useCallback(async()=>{setLoading(true);setError('');const fin=`${hasta}T23:59:59.999Z`;const inicio=`${desde}T00:00:00.000Z`
+    const [p,a,e]=await Promise.all([
+      supabase.from('ol_pedidos').select('id,numero,estado,total,created_at,nombre_cliente').gte('created_at',inicio).lte('created_at',fin).order('created_at',{ascending:false}),
+      supabase.from('rep_asignaciones').select('id,pedido_id,estado,asignado_at,updated_at,shopper_id,rider_id,repartidor_id,shopper:rep_repartidores!rep_asignaciones_shopper_id_fkey(nombre),rider:rep_repartidores!rep_asignaciones_rider_id_fkey(nombre),repartidor:rep_repartidores!rep_asignaciones_repartidor_id_fkey(nombre)').gte('asignado_at',inicio).lte('asignado_at',fin),
+      supabase.from('rep_entregas').select('pedido_id,repartidor_id,monto_cobrado,exitosa,entregado_at,salida_at,tiempo_entrega,motivo_fallo,repartidor:rep_repartidores(nombre)').gte('entregado_at',inicio).lte('entregado_at',fin),
+    ]);const err=p.error||a.error||e.error;if(err)setError(err.message);setPedidos((p.data??[]) as Pedido[]);setAsigs((a.data??[]) as unknown as Asig[]);setEntregas((e.data??[]) as unknown as Entrega[]);setLoading(false)},[desde,hasta])
+  useEffect(()=>{const timer=window.setTimeout(()=>void cargar(),0);return()=>window.clearTimeout(timer)},[cargar])
 
-export default function ReportesPage() {
-  const [desde, setDesde] = useState(haceNDias(7))
-  const [hasta, setHasta] = useState(new Date().toISOString().split('T')[0])
-  const [cargando, setCargando] = useState(true)
+  const stats=useMemo(()=>{const exitosas=entregas.filter(e=>e.exitosa);const fallidas=entregas.filter(e=>!e.exitosa);const entregadosIds=new Set(exitosas.map(e=>e.pedido_id));const facturado=pedidos.filter(p=>entregadosIds.has(p.id)||p.estado==='entregado').reduce((s,p)=>s+Number(p.total||0),0);const avg=exitosas.length?Math.round(exitosas.reduce((s,e)=>s+Number(e.tiempo_entrega||(e.salida_at?(new Date(e.entregado_at).getTime()-new Date(e.salida_at).getTime())/60000:0)),0)/exitosas.length):0
+    const riders=new Map<string,{nombre:string;entregas:number;fallidas:number;cobrado:number;minutos:number}>();entregas.forEach(e=>{const key=e.repartidor_id;const x=riders.get(key)??{nombre:e.repartidor?.nombre||'Sin nombre',entregas:0,fallidas:0,cobrado:0,minutos:0};if(e.exitosa){x.entregas++;x.cobrado+=Number(e.monto_cobrado||0);x.minutos+=Number(e.tiempo_entrega||0)}else x.fallidas++;riders.set(key,x)})
+    const shoppers=new Map<string,{nombre:string;asignados:number;completados:number;devueltos:number}>();asigs.forEach(a=>{const key=a.shopper_id||a.repartidor_id;if(!key)return;const x=shoppers.get(key)??{nombre:a.shopper?.nombre||a.repartidor?.nombre||'Sin nombre',asignados:0,completados:0,devueltos:0};x.asignados++;if(['recolectado','en_ruta','entregado'].includes(a.estado))x.completados++;if(['devuelto','cancelado'].includes(a.estado))x.devueltos++;shoppers.set(key,x)})
+    return {exitosas,fallidas,facturado,avg,tasa:entregas.length?exitosas.length/entregas.length*100:0,cancelados:pedidos.filter(p=>p.estado==='cancelado').length,riders:[...riders.values()].sort((a,b)=>b.entregas-a.entregas),shoppers:[...shoppers.values()].sort((a,b)=>b.completados-a.completados)}},[pedidos,asigs,entregas])
 
-  const [pedidosEntregados, setPedidosEntregados] = useState(0)
-  const [totalFacturado, setTotalFacturado] = useState(0)
-  const [pedidosCancelados, setPedidosCancelados] = useState(0)
-  const [comisionesTotales, setComisionesTotales] = useState(0)
-  const [traspasos, setTraspasos] = useState<{ count: number; monto: number }>({ count: 0, monto: 0 })
-  const [efectivoPendiente, setEfectivoPendiente] = useState(0)
-  const [porEstado, setPorEstado] = useState<Record<string, number>>({})
-
-  useEffect(() => { cargar() }, [desde, hasta])
-
-  async function cargar() {
-    setCargando(true)
-    const hastaFin = hasta + 'T23:59:59'
-
-    const [{ data: pedidos }, { data: entregas }, { data: reps }, { data: traspasosData }] = await Promise.all([
-      supabase.from('ol_pedidos').select('id, estado, total, created_at').gte('created_at', desde).lt('created_at', hastaFin),
-      supabase.from('rep_entregas').select('monto_cobrado, exitosa, entregado_at').gte('entregado_at', desde).lt('entregado_at', hastaFin),
-      supabase.from('rep_repartidores').select('efectivo_en_mano').eq('activo', true),
-      supabase.from('rep_traspasos_efectivo').select('monto, created_at').gte('created_at', desde).lt('created_at', hastaFin),
-    ])
-
-    const entregadosArr = (pedidos ?? []).filter(p => p.estado === 'entregado')
-    const canceladosArr = (pedidos ?? []).filter(p => p.estado === 'cancelado')
-
-    setPedidosEntregados(entregadosArr.length)
-    setTotalFacturado(entregadosArr.reduce((s, p) => s + (p.total ?? 0), 0))
-    setPedidosCancelados(canceladosArr.length)
-
-    const estados: Record<string, number> = {}
-    ;(pedidos ?? []).forEach(p => { estados[p.estado] = (estados[p.estado] ?? 0) + 1 })
-    setPorEstado(estados)
-
-    // Comisiones: aproximación simple ($1 por entrega exitosa, ajustable manualmente en Repartidores)
-    const entregasExitosas = (entregas ?? []).filter(e => e.exitosa)
-    setComisionesTotales(entregasExitosas.length * 1)
-
-    setEfectivoPendiente((reps ?? []).reduce((s, r) => s + (r.efectivo_en_mano ?? 0), 0))
-
-    setTraspasos({
-      count: (traspasosData ?? []).length,
-      monto: (traspasosData ?? []).reduce((s, t) => s + (t.monto ?? 0), 0),
-    })
-
-    setCargando(false)
-  }
-
-  const kpis = [
-    { label: 'Pedidos entregados', value: pedidosEntregados, icon: Package, color: 'text-[#00b074]', bg: 'bg-[#00b074]/5 border-[#00b074]/20' },
-    { label: 'Total facturado', value: fmt(totalFacturado), icon: TrendingUp, color: 'text-blue-400', bg: 'bg-blue-500/5 border-blue-500/20' },
-    { label: 'Comisiones (aprox.)', value: fmt(comisionesTotales), icon: DollarSign, color: 'text-purple-400', bg: 'bg-purple-500/5 border-purple-500/20' },
-    { label: 'Pedidos cancelados', value: pedidosCancelados, icon: XCircle, color: 'text-red-400', bg: 'bg-red-500/5 border-red-500/20' },
-    { label: 'Efectivo pendiente de liquidar', value: fmt(efectivoPendiente), icon: Wallet, color: 'text-yellow-400', bg: 'bg-yellow-500/5 border-yellow-500/20' },
-    { label: 'Traspasos entre colaboradores', value: `${traspasos.count} · ${fmt(traspasos.monto)}`, icon: ArrowRightLeft, color: 'text-orange-400', bg: 'bg-orange-500/5 border-orange-500/20' },
+  function exportar(){const rows=[['Tipo','Nombre','Asignados/Entregas','Completados/Fallidas','Efectividad','Monto cobrado'],...stats.riders.map(r=>['Repartidor',r.nombre,r.entregas,r.fallidas,`${r.entregas+r.fallidas?Math.round(r.entregas/(r.entregas+r.fallidas)*100):0}%`,r.cobrado]),...stats.shoppers.map(s=>['Comprador',s.nombre,s.asignados,s.completados,`${s.asignados?Math.round(s.completados/s.asignados*100):0}%`,''])];const blob=new Blob(['\ufeff'+rows.map(row=>row.map(csvCell).join(',')).join('\n')],{type:'text/csv;charset=utf-8'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`analitica-${desde}-${hasta}.csv`;a.click();URL.revokeObjectURL(url)}
+  const cards=[
+    {label:'Pedidos',value:pedidos.length,icon:Package,tone:'text-blue-600 bg-blue-50'},
+    {label:'Entregas',value:stats.exitosas.length,icon:CheckCircle2,tone:'text-green-600 bg-green-50'},
+    {label:'Facturado',value:fmt(stats.facturado),icon:TrendingUp,tone:'text-emerald-600 bg-emerald-50'},
+    {label:'Efectividad',value:`${stats.tasa.toFixed(1)}%`,icon:Bike,tone:'text-violet-600 bg-violet-50'},
+    {label:'Tiempo promedio',value:stats.avg?`${stats.avg} min`:'—',icon:Clock3,tone:'text-orange-600 bg-orange-50'},
+    {label:'Cancelados',value:stats.cancelados,icon:XCircle,tone:'text-red-600 bg-red-50'},
   ]
 
-  return (
-    <div className="flex min-h-screen bg-[#0c0f12] text-white">
-      <Sidebar />
-      <main className="flex-1 md:pl-56 pt-14 md:pt-0 p-4 md:p-6 space-y-5">
-
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div>
-            <h1 className="text-2xl font-extrabold text-white">Reportes</h1>
-            <p className="text-sm text-gray-500">Resumen operativo de La Crayola Reparto</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <input type="date" value={desde} onChange={e => setDesde(e.target.value)}
-              className="border border-[#2d3748] rounded-xl px-3 py-2 text-sm bg-[#181d24] text-white focus:outline-none focus:border-green-500" />
-            <span className="text-gray-500 text-xs">a</span>
-            <input type="date" value={hasta} onChange={e => setHasta(e.target.value)}
-              className="border border-[#2d3748] rounded-xl px-3 py-2 text-sm bg-[#181d24] text-white focus:outline-none focus:border-green-500" />
-          </div>
-        </div>
-
-        {cargando ? (
-          <div className="flex justify-center py-16"><Loader2 size={24} className="animate-spin text-green-500" /></div>
-        ) : (
-          <>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-              {kpis.map(({ label, value, icon: Icon, color, bg }) => (
-                <div key={label} className={`${bg} rounded-2xl p-4 border`}>
-                  <Icon size={16} className={`${color} mb-2`} />
-                  <div className={`text-xl font-extrabold ${color}`}>{value}</div>
-                  <div className="text-xs text-gray-400 mt-0.5">{label}</div>
-                </div>
-              ))}
-            </div>
-
-            <div className="bg-[#181d24] border border-[#2d3748] rounded-2xl p-4 space-y-2">
-              <p className="text-gray-500 text-[10px] font-bold uppercase tracking-wider">Pedidos por estado en el rango</p>
-              {Object.keys(porEstado).length === 0 ? (
-                <p className="text-gray-600 text-xs">Sin pedidos en este rango de fechas.</p>
-              ) : (
-                Object.entries(porEstado).map(([estado, count]) => (
-                  <div key={estado} className="flex justify-between text-sm border-b border-[#2d3748]/50 py-1.5 last:border-0">
-                    <span className="text-gray-400 capitalize">{estado}</span>
-                    <span className="text-white font-semibold">{count}</span>
-                  </div>
-                ))
-              )}
-            </div>
-
-            <p className="text-[10px] text-gray-600 leading-relaxed">
-              Nota: las comisiones son un estimado de $1 por entrega exitosa. Para el cálculo exacto por repartidor (fijo o porcentaje), revisa Liquidaciones.
-            </p>
-          </>
-        )}
-      </main>
-    </div>
-  )
+  return <div className="flex min-h-screen bg-slate-100"><Sidebar/><main className="flex-1 space-y-5 p-4 pt-16 md:ml-56 md:p-6">
+    <header className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-[.18em] text-green-600">Analítica</p><h1 className="text-2xl font-black text-slate-900">Rendimiento operativo</h1><p className="text-sm text-slate-500">Métricas calculadas desde asignaciones y entregas reales.</p></div><div className="flex flex-wrap items-center gap-2"><input type="date" value={desde} onChange={e=>setDesde(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"/><span className="text-xs text-slate-400">a</span><input type="date" value={hasta} onChange={e=>setHasta(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"/><button onClick={cargar} className="rounded-xl border border-slate-200 bg-white p-2.5" title="Actualizar"><RefreshCw size={16} className={loading?'animate-spin':''}/></button><button onClick={exportar} className="flex items-center gap-2 rounded-xl bg-slate-900 px-3 py-2.5 text-xs font-bold text-white"><Download size={15}/> CSV</button></div></header>
+    {error&&<div className="flex gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700"><AlertTriangle size={18}/>{error}</div>}
+    <section className="grid grid-cols-2 gap-3 lg:grid-cols-6">{cards.map(({label,value,icon:Icon,tone})=><div key={label} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className={`mb-3 flex h-9 w-9 items-center justify-center rounded-xl ${tone}`}><Icon size={17}/></div><p className="text-xl font-black text-slate-900">{loading?<Loader2 size={18} className="animate-spin"/>:value}</p><p className="text-xs text-slate-500">{label}</p></div>)}</section>
+    <section className="grid gap-4 xl:grid-cols-2"><Ranking title="Repartidores" subtitle="Entrega, recaudo y efectividad" icon={Bike} columns={['Entregas','Éxito','Cobrado']} rows={stats.riders.map(r=>({name:r.nombre,values:[r.entregas,`${r.entregas+r.fallidas?Math.round(r.entregas/(r.entregas+r.fallidas)*100):0}%`,fmt(r.cobrado)]}))}/><Ranking title="Compradores / shoppers" subtitle="Carga tomada y pedidos completados" icon={ShoppingBasket} columns={['Asignados','Completados','Éxito']} rows={stats.shoppers.map(s=>({name:s.nombre,values:[s.asignados,s.completados,`${s.asignados?Math.round(s.completados/s.asignados*100):0}%`]}))}/></section>
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="font-black text-slate-900">Embudo del pedido</h2><p className="mb-5 text-xs text-slate-500">Distribución de estados en el período seleccionado.</p><div className="space-y-3">{Object.entries(pedidos.reduce<Record<string,number>>((m,p)=>(m[p.estado]=(m[p.estado]||0)+1,m),{})).sort((a,b)=>b[1]-a[1]).map(([estado,count])=><div key={estado}><div className="mb-1 flex justify-between text-xs"><span className="font-bold capitalize text-slate-600">{estado.replaceAll('_',' ')}</span><span className="font-black">{count}</span></div><div className="h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-green-500" style={{width:`${pedidos.length?count/pedidos.length*100:0}%`}}/></div></div>)}</div></section>
+  </main></div>
 }
+
+function Ranking({title,subtitle,icon:Icon,columns,rows}:{title:string;subtitle:string;icon:typeof Bike;columns:string[];rows:{name:string;values:(string|number)[]}[]}){return <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"><div className="flex items-center gap-3 border-b border-slate-100 p-5"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-green-50 text-green-600"><Icon size={18}/></div><div><h2 className="font-black text-slate-900">{title}</h2><p className="text-xs text-slate-500">{subtitle}</p></div></div><div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-400"><tr><th className="px-5 py-3">Nombre</th>{columns.map(c=><th key={c} className="px-3 py-3 text-right">{c}</th>)}</tr></thead><tbody className="divide-y divide-slate-100">{rows.map((r,i)=><tr key={`${r.name}-${i}`}><td className="px-5 py-3 font-bold text-slate-800"><span className="mr-2 text-xs text-slate-300">{i+1}</span>{r.name}</td>{r.values.map((v,j)=><td key={j} className="px-3 py-3 text-right font-semibold text-slate-600">{v}</td>)}</tr>)}{!rows.length&&<tr><td colSpan={4} className="p-8 text-center text-sm text-slate-400">Sin actividad en este período.</td></tr>}</tbody></table></div></div>}

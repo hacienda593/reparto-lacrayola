@@ -129,7 +129,7 @@ export default function LiquidacionesPage() {
     setCargando(false)
   }
 
-  useEffect(() => { cargar() }, [fecha])
+  useEffect(() => { const timer = window.setTimeout(() => void cargar(), 0); return () => window.clearTimeout(timer) }, [fecha])
 
   async function subirFotoComprobante(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -182,45 +182,24 @@ export default function LiquidacionesPage() {
         ? `VALE-${Date.now().toString().slice(-6)}` 
         : null
 
-      const payload = {
-        repartidor_id:          modalLiquidar.repartidor_id,
-        fecha:                  modalLiquidar.fecha,
-        total_asignados:        modalLiquidar.total_asignados,
-        total_entregados:       modalLiquidar.total_entregados,
-        total_devueltos:        modalLiquidar.total_devueltos,
-        total_cobrado:          modalLiquidar.total_cobrado,
-        total_comision:         modalLiquidar.total_comision,
-        total_a_entregar:       modalLiquidar.total_a_entregar,
-        estado:                 'liquidado',
-        liquidado_at:           new Date().toISOString(),
-        updated_at:             new Date().toISOString(),
-        metodo_liquidacion:     metodo,
-        comprobante_referencia: referencia || null,
-        foto_comprobante_url:   fotoUrl || null,
-        recibido_por:           recibidoPor,
-        numero_vale_caja:       numeroVale
-      }
-
-      // 1. Guardar la liquidación en la base de datos
-      if (modalLiquidar.id) {
-        await supabase.from('rep_liquidaciones').update(payload).eq('id', modalLiquidar.id)
-      } else {
-        await supabase.from('rep_liquidaciones').insert(payload)
-      }
-
-      // 2. Descontar del efectivo_en_mano del repartidor
-      const { data: rep } = await supabase
-        .from('rep_repartidores')
-        .select('efectivo_en_mano')
-        .eq('id', modalLiquidar.repartidor_id)
-        .single()
-
-      const nuevoSaldo = (rep?.efectivo_en_mano ?? 0) - modalLiquidar.total_a_entregar
-      
-      await supabase
-        .from('rep_repartidores')
-        .update({ efectivo_en_mano: nuevoSaldo })
-        .eq('id', modalLiquidar.repartidor_id)
+      // La liquidación y el descuento del saldo ocurren dentro de una sola
+      // transacción en PostgreSQL. Así no puede guardarse uno sin el otro.
+      const { error: rpcError } = await supabase.rpc('liquidar_repartidor_admin', {
+        p_repartidor_id: modalLiquidar.repartidor_id,
+        p_fecha: modalLiquidar.fecha,
+        p_total_asignados: modalLiquidar.total_asignados,
+        p_total_entregados: modalLiquidar.total_entregados,
+        p_total_devueltos: modalLiquidar.total_devueltos,
+        p_total_cobrado: modalLiquidar.total_cobrado,
+        p_total_comision: modalLiquidar.total_comision,
+        p_total_a_entregar: modalLiquidar.total_a_entregar,
+        p_metodo: metodo,
+        p_recibido_por: recibidoPor,
+        p_referencia: referencia || null,
+        p_foto_url: fotoUrl || null,
+        p_numero_vale: numeroVale,
+      })
+      if (rpcError) throw rpcError
 
       // 3. Si es abono en caja (efectivo), preparar vale para visualización/impresión
       if (metodo === 'caja' && numeroVale) {
