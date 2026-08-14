@@ -4,10 +4,11 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useAuth } from '@/context/AuthContext'
-import { LayoutDashboard, Package, Users, Wallet, ClipboardList, Settings, LogOut, Truck, Menu, X, ShieldCheck, FileText, Scale } from 'lucide-react'
+import { LayoutDashboard, Package, Users, Wallet, ClipboardList, Settings, LogOut, Truck, Menu, X, ShieldCheck, FileText, Scale, Radar } from 'lucide-react'
 
 const NAV = [
   { href: '/', label: 'Centro operativo', icon: LayoutDashboard, group: 'Operación', roles: ['superadmin','admin','supervisor','contador'] },
+  { href: '/control', label: 'Control 360', icon: Radar, group: 'Operación', roles: ['superadmin','admin','supervisor','contador'] },
   { href: '/asignaciones', label: 'Despacho y control', icon: Truck, group: 'Operación', roles: ['superadmin','admin','supervisor'] },
   { href: '/pedidos', label: 'Pedidos', icon: Package, group: 'Operación', roles: ['superadmin','admin','supervisor','contador'] },
   { href: '/repartidores', label: 'Equipo', icon: Users, group: 'Personal', roles: ['superadmin','admin','supervisor','contador'] },
