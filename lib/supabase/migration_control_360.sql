@@ -1,5 +1,8 @@
 -- Torre de control administrativa: una fila por pedido con toda la cadena.
-CREATE OR REPLACE VIEW rep_control_pedidos_360 WITH(security_invoker=true) AS
+-- La vista no almacena datos. Se elimina antes de recrearla porque PostgreSQL
+-- no permite insertar columnas nuevas en medio mediante CREATE OR REPLACE.
+DROP VIEW IF EXISTS rep_control_pedidos_360;
+CREATE VIEW rep_control_pedidos_360 WITH(security_invoker=true) AS
 SELECT p.id,p.numero,p.created_at,p.nombre_cliente,p.telefono,p.total,p.estado pedido_estado,
  p.metodo_pago,p.pago_confirmado,p.referencia_transferencia,p.geo_lat,p.geo_lng,
  a.id asignacion_id,a.estado asignacion_estado,a.asignado_at,a.compra_iniciada_at,a.updated_at asignacion_updated_at,
