@@ -339,22 +339,6 @@ export default function EntregaPage() {
         ? [pedido.referencias, referenciaNueva.trim()].filter(Boolean).join(' · ')
         : pedido.referencias
 
-      await sb.from('rep_asignaciones').update({ 
-        estado: 'entregado', 
-        foto_entrega_url: fotoEntregaUrl,
-        firma_cliente_url: firmaClienteUrl,
-        entrega_lat: geoFinal.lat ?? null,
-        entrega_lng: geoFinal.lng ?? null,
-        updated_at: new Date().toISOString() 
-      }).eq('id', id)
-
-      await sb.from('ol_pedidos').update({
-        estado: 'entregado',
-        geo_lat: geoFinal.lat,
-        geo_lng: geoFinal.lng,
-        referencias: referenciasFinal,
-      }).eq('id', pedido.id)
-
       if (pedido.user_id && corrigiendoGps && nuevaGeo) {
         try {
           const { data: dirs } = await sb
@@ -410,25 +394,22 @@ export default function EntregaPage() {
       }
 
       const montoFinal = esTransferencia ? 0 : parseFloat(monto)
-
-      await sb.from('rep_entregas').insert({
-        asignacion_id: id, repartidor_id: pedido.repartidor_id, pedido_id: pedido.id,
-        entregado_at: new Date().toISOString(), monto_cobrado: montoFinal,
-        metodo_pago: esTransferencia ? 'transferencia' : 'efectivo', exitosa: true,
-        geo_lat: geoFinal.lat ?? null, geo_lng: geoFinal.lng ?? null,
-        foto_url: fotoEntregaUrl,
-        firma_cliente: firmaClienteUrl
+      const requestKey = `entrega-request:${id}`
+      const requestId = sessionStorage.getItem(requestKey) || crypto.randomUUID()
+      sessionStorage.setItem(requestKey, requestId)
+      const { error: cierreError } = await sb.rpc('finalizar_entrega_atomica', {
+        p_request_id: requestId,
+        p_asignacion_id: id,
+        p_monto: montoFinal,
+        p_metodo: esTransferencia ? 'transferencia' : 'efectivo',
+        p_lat: geoFinal.lat ?? null,
+        p_lng: geoFinal.lng ?? null,
+        p_foto_url: fotoEntregaUrl,
+        p_firma_url: firmaClienteUrl,
+        p_referencias: referenciasFinal || null,
       })
-
-      if (!esTransferencia && montoFinal > 0) {
-        await sb.from('rep_transacciones_caja').insert({
-          repartidor_id: pedido.repartidor_id,
-          pedido_id:     pedido.id,
-          tipo:          'ingreso_entrega',
-          monto:         montoFinal,
-          estado:        'pendiente'
-        })
-      }
+      if (cierreError) throw cierreError
+      sessionStorage.removeItem(requestKey)
 
       setEntregado(true)
       setEntregaModalOpen(false)
@@ -445,14 +426,16 @@ export default function EntregaPage() {
     if (!motivoFallo) { setError('Selecciona un motivo'); return }
     setGuardando(true); setError('')
 
-    await sb.from('rep_asignaciones').update({ estado: 'devuelto', updated_at: new Date().toISOString() }).eq('id', id)
-
-    await sb.from('rep_entregas').insert({
-      asignacion_id: id, repartidor_id: pedido.repartidor_id, pedido_id: pedido.id,
-      entregado_at: new Date().toISOString(), monto_cobrado: 0,
-      exitosa: false, motivo_fallo: motivoFallo + (notasFallo.trim() ? ` — ${notasFallo.trim()}` : ''),
-      geo_lat: pedido.geo_lat ?? null, geo_lng: pedido.geo_lng ?? null,
+    const requestKey = `entrega-fallida-request:${id}`
+    const requestId = sessionStorage.getItem(requestKey) || crypto.randomUUID()
+    sessionStorage.setItem(requestKey, requestId)
+    const { error: falloError } = await sb.rpc('registrar_entrega_fallida_atomica', {
+      p_request_id: requestId,p_asignacion_id:id,
+      p_motivo:motivoFallo+(notasFallo.trim()?` — ${notasFallo.trim()}`:''),
+      p_lat:pedido.geo_lat??null,p_lng:pedido.geo_lng??null,
     })
+    if(falloError){setGuardando(false);setError(falloError.message);return}
+    sessionStorage.removeItem(requestKey)
 
     setGuardando(false); setMostrarFallo(false); setNoEntregado(true)
   }

@@ -558,14 +558,6 @@ export default function AsignacionesPage() {
         .eq('id', pedidoId)
       if (errUpdate) throw errUpdate
 
-      await supabase.from('rep_entregas').insert({
-        asignacion_id: asigId,
-        repartidor_id: repartidorId,
-        pedido_id:     pedidoId,
-        salida_at:     new Date().toISOString(),
-        exitosa:       true,
-      })
-
       setMensaje('✓ Traspaso forzado con éxito. Pedido en ruta.')
       await cargarDatos()
     } catch (err: any) {

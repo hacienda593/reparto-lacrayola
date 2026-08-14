@@ -168,14 +168,6 @@ export default function EscanearPage() {
         .update({ estado: 'enviado' })
         .eq('id', asigValida.pedido_id)
 
-      await supabase.from('rep_entregas').insert({
-        asignacion_id: asigValida.id,
-        repartidor_id: repartidor.id,
-        pedido_id:     asigValida.pedido_id,
-        salida_at:     new Date().toISOString(),
-        exitosa:       true,
-      })
-
       setPedidoNum(String(asigValida.ol_pedidos?.numero).padStart(4, '0'))
       setExito(true)
       setProcesando(false)

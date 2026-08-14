@@ -580,16 +580,7 @@ export default function RepartidorPage() {
     // 2. Cambiar estado del pedido a enviado
     await supabase.from('ol_pedidos').update({ estado: 'enviado' }).eq('id', pedidoId)
 
-    // 3. Crear registro en rep_entregas (salida en ruta)
-    await supabase.from('rep_entregas').insert({
-      asignacion_id: asignacionId,
-      repartidor_id: repartidor.id,
-      pedido_id:     pedidoId,
-      salida_at:     new Date().toISOString(),
-      exitosa:       true,
-    })
-
-    // 4. Cambiar modo de la vista a 'repartidor' (Modo Entregas) y redirigir a entrega
+    // La entrega se registra únicamente al finalizarla con evidencia.
     setModo('repartidor')
     setProcesando(null)
     router.push(`/entrega/${asignacionId}`)
@@ -663,16 +654,6 @@ export default function RepartidorPage() {
       updated_at: new Date().toISOString()
     }).eq('id', asignacionId)
     await supabase.from('ol_pedidos').update({ estado: 'enviado' }).eq('id', pedidoId)
-    if (repartidor) {
-      await supabase.from('rep_entregas').insert({
-        asignacion_id: asignacionId,
-        repartidor_id: repartidor.id,
-        pedido_id:     pedidoId,
-        salida_at:     new Date().toISOString(),
-        geo_lat:       geo?.lat, geo_lng: geo?.lng,
-        exitosa:       true,
-      })
-    }
     setProcesando(null)
     router.push(`/entrega/${asignacionId}`)
   }
@@ -695,13 +676,6 @@ export default function RepartidorPage() {
         
         await supabase.from('ol_pedidos').update({ estado: 'enviado' }).eq('id', p.pedido_id)
         
-        await supabase.from('rep_entregas').insert({
-          asignacion_id: p.asignacion_id,
-          repartidor_id: repartidor.id,
-          pedido_id:     p.pedido_id,
-          salida_at:     new Date().toISOString(),
-          exitosa:       true,
-        })
         await cargar(user!.id)
       } catch (err) {
         console.error("Error al activar parada:", err)
@@ -717,26 +691,15 @@ export default function RepartidorPage() {
 
   async function confirmarRetiroCliente(asignacionId: string, pedidoId: string) {
     setProcesando(asignacionId)
-    await supabase.from('rep_asignaciones').update({
-      estado: 'entregado', updated_at: new Date().toISOString()
-    }).eq('id', asignacionId)
-
-    await supabase.from('ol_pedidos').update({ estado: 'entregado' }).eq('id', pedidoId)
-
-    if (repartidor) {
-      await supabase.from('rep_entregas').insert({
-        asignacion_id: asignacionId,
-        repartidor_id: repartidor.id,
-        pedido_id:     pedidoId,
-        salida_at:     new Date().toISOString(),
-        entregado_at:  new Date().toISOString(),
-        monto_cobrado: pedidos.find(p => p.asignacion_id === asignacionId)?.total ?? 0,
-        metodo_pago:   'efectivo',
-        exitosa:       true,
-        observaciones: 'Retirado por el cliente en local principal',
-      })
-    }
-
+    const requestKey=`retiro-request:${asignacionId}`
+    const requestId=sessionStorage.getItem(requestKey)||crypto.randomUUID();sessionStorage.setItem(requestKey,requestId)
+    const {error}=await supabase.rpc('finalizar_entrega_atomica',{
+      p_request_id:requestId,p_asignacion_id:asignacionId,
+      p_monto:pedidos.find(p=>p.asignacion_id===asignacionId)?.total??0,p_metodo:'retiro_local',
+      p_lat:null,p_lng:null,p_foto_url:null,p_firma_url:null,p_referencias:null,
+    })
+    if(error){alert('No se pudo confirmar el retiro: '+error.message);setProcesando(null);return}
+    sessionStorage.removeItem(requestKey)
     await cargar(user!.id)
     setProcesando(null)
   }
@@ -939,47 +902,16 @@ export default function RepartidorPage() {
 
       const monto = parseFloat(montoCobradoModal || '0')
 
-      await supabase.from('rep_asignaciones').update({
-        estado: 'entregado',
-        foto_entrega_url: fotoEntregaUrl,
-        firma_cliente_url: firmaClienteUrl,
-        entrega_lat: geo?.lat || null,
-        entrega_lng: geo?.lng || null,
-        updated_at: new Date().toISOString()
-      }).eq('id', asignacionId)
-
-      await supabase.from('ol_pedidos').update({ estado: 'entregado' }).eq('id', pedidoId)
-
-      await supabase.from('rep_entregas').update({
-        entregado_at:  new Date().toISOString(),
-        monto_cobrado: monto,
-        metodo_pago:   'efectivo',
-        geo_lat:       geo?.lat,
-        geo_lng:       geo?.lng,
-        foto_url:      fotoEntregaUrl,
-        firma_cliente: firmaClienteUrl
-      }).eq('asignacion_id', asignacionId)
-
-      if (repartidor) {
-        await supabase.from('rep_cuentas_cobrar').insert({
-          pedido_id:     pedidoId,
-          asignacion_id: asignacionId,
-          repartidor_id: repartidor.id,
-          monto_pedido:  entregaModal.total ?? 0,
-          monto_cobrado: monto,
-          metodo_pago:   'efectivo',
-          estado:        'cobrado',
-          cobrado_at:    new Date().toISOString(),
-        })
-
-        await supabase.from('rep_transacciones_caja').insert({
-          repartidor_id: repartidor.id,
-          pedido_id:     pedidoId,
-          tipo:          'ingreso_entrega',
-          monto:         monto,
-          estado:        'pendiente'
-        })
-      }
+      const requestKey = `entrega-request:${asignacionId}`
+      const requestId = sessionStorage.getItem(requestKey) || crypto.randomUUID()
+      sessionStorage.setItem(requestKey, requestId)
+      const { error: cierreError } = await supabase.rpc('finalizar_entrega_atomica', {
+        p_request_id: requestId,p_asignacion_id:asignacionId,p_monto:monto,p_metodo:'efectivo',
+        p_lat:geo?.lat??null,p_lng:geo?.lng??null,p_foto_url:fotoEntregaUrl,
+        p_firma_url:firmaClienteUrl,p_referencias:null,
+      })
+      if(cierreError)throw cierreError
+      sessionStorage.removeItem(requestKey)
 
       setFotoFile(null)
       setEntregaModal(null)
