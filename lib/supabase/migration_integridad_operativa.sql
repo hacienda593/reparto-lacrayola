@@ -44,5 +44,6 @@ DROP POLICY IF EXISTS incidencias_select ON rep_incidencias;CREATE POLICY incide
 DROP POLICY IF EXISTS incidencias_insert ON rep_incidencias;CREATE POLICY incidencias_insert ON rep_incidencias FOR INSERT WITH CHECK(auth.uid() IS NOT NULL AND creada_por=auth.uid());
 DROP POLICY IF EXISTS incidencias_update ON rep_incidencias;CREATE POLICY incidencias_update ON rep_incidencias FOR UPDATE USING(rep_is_admin() OR responsable_id=auth.uid()) WITH CHECK(rep_is_admin() OR responsable_id=auth.uid());
 
--- 4. Los comprobantes contienen información tributaria: el bucket deja de ser público.
-UPDATE storage.buckets SET public=false WHERE id='comprobantes-proveedores';
+-- Seguridad pendiente coordinada: el bucket contiene información tributaria,
+-- pero no se vuelve privado aquí porque las pantallas actuales aún consumen
+-- URLs públicas. Primero deben migrarse todas a URLs firmadas temporales.
