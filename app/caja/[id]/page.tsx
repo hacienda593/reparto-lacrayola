@@ -664,9 +664,13 @@ export default function CajaPage() {
               <p className="text-gray-300 font-mono text-xs break-all tracking-widest leading-relaxed bg-black/35 p-3 rounded-xl border border-gray-800">
                 {claveAcceso.match(/.{1,4}/g)?.join(' ') || claveAcceso}
               </p>
-              <p className="text-xs font-bold text-white">{facturaSri.razonSocialEmisor} · ${facturaSri.total.toFixed(2)}</p>
-              <p className={`text-[10px] font-bold ${conciliacionSri?.receptorCorrecto?'text-green-400':'text-red-400'}`}>Receptor: {facturaSri.razonSocialComprador} ({facturaSri.identificacionComprador})</p>
-              <p className="text-[10px] text-gray-500">Hash XML: {facturaSri.sha256.slice(0,20)}… · {facturaSri.detalles.length} ítems</p>
+              <div className="grid grid-cols-2 gap-2 rounded-xl bg-black/25 p-3 text-xs">
+                <span className="text-gray-500">Estado</span><span className="text-right font-black text-green-400">{facturaSri.estado}</span>
+                <span className="text-gray-500">Fecha</span><span className="text-right font-bold text-white">{facturaSri.fechaAutorizacion||facturaSri.fechaEmision}</span>
+                <span className="text-gray-500">Valor</span><span className="text-right font-black text-white">${facturaSri.total.toFixed(2)}</span>
+                <span className="text-gray-500">Comprador</span><span className={`text-right font-bold ${conciliacionSri?.receptorCorrecto?'text-green-400':'text-red-400'}`}>{facturaSri.razonSocialComprador}</span>
+              </div>
+              <p className="text-[10px] text-gray-500">Los datos tributarios completos y el XML quedan disponibles para administración.</p>
             </div>
           )}
 
