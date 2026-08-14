@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Loader2, CheckCircle2, AlertTriangle, Shield, CreditCard, Camera, ArrowRight } from 'lucide-react'
+type SriFactura={estado:string;claveAcceso:string;fechaAutorizacion:string|null;ambiente:string;rucEmisor:string;razonSocialEmisor:string;identificacionComprador:string;razonSocialComprador:string;establecimiento:string;puntoEmision:string;secuencial:string;fechaEmision:string;subtotal:number;iva:number;total:number;xml:string;sha256:string;detalles:Array<{codigo:string;descripcion:string;cantidad:number;precioUnitario:number;precioTotal:number}>}
 
 function parseDatosFactura(notas: string) {
   if (!notas) return null
@@ -55,6 +56,9 @@ export default function CajaPage() {
   const [imagenFile, setImagenFile]                   = useState<File | null>(null)
   const [error, setError]                             = useState('')
   const [sriGenerado, setSriGenerado]                 = useState(false)
+  const [consultandoSri,setConsultandoSri]            = useState(false)
+  const [facturaSri,setFacturaSri]                    = useState<SriFactura|null>(null)
+  const [conciliacionSri,setConciliacionSri]          = useState<{receptorCorrecto:boolean;ambienteProduccion:boolean;rucEsperado:string}|null>(null)
 
   // Datos del Proveedor para armar clave SRI
   const [provRuc, setProvRuc]                         = useState('')
@@ -168,6 +172,8 @@ export default function CajaPage() {
 
   // Generador reactivo de Clave de Acceso SRI de 49 dígitos (Ecuador Módulo 11)
   useEffect(() => {
+    // La clave válida proviene del comprobante emitido por el proveedor.
+    if (process.env.NEXT_PUBLIC_SRI_GENERAR_CLAVE !== 'true') return
     if (!fechaEmision || !provRuc || !provEstablecimiento || !provPuntoEmision || !provSecuencial || !provCodigoNumerico) {
       setClaveAcceso('')
       setSriGenerado(false)
@@ -240,6 +246,18 @@ export default function CajaPage() {
 
 
 
+  async function consultarSri(){
+    setError('');setFacturaSri(null);setConciliacionSri(null)
+    const clave=claveAcceso.replace(/\D/g,'');if(clave.length!==49){setError('Escanea o escribe los 49 dígitos de la clave de acceso');return}
+    setConsultandoSri(true)
+    try{
+      const res=await fetch('/api/sri/comprobante',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({clave,asignacionId:id})})
+      const data=await res.json();if(!res.ok)throw new Error(data.error||'No se pudo consultar el SRI')
+      const f=data.factura as SriFactura;setFacturaSri(f);setConciliacionSri(data.conciliacion);setSriGenerado(true)
+      setProvRuc(f.rucEmisor);setProvEstablecimiento(f.establecimiento);setProvPuntoEmision(f.puntoEmision);setProvSecuencial(f.secuencial);setMontoFacturado(f.total.toFixed(2));setFactura(`${f.establecimiento}-${f.puntoEmision}-${f.secuencial}`)
+    }catch(e){setSriGenerado(false);setError(e instanceof Error?e.message:'No se pudo consultar el SRI')}finally{setConsultandoSri(false)}
+  }
+
   async function registrarFacturacion() {
     setError('')
     
@@ -263,6 +281,14 @@ export default function CajaPage() {
     }
     if (claveAcceso.length !== 49 || isNaN(Number(claveAcceso))) {
       setError('La clave de acceso SRI debe tener exactamente 49 dígitos numéricos')
+      return
+    }
+    if (!facturaSri || facturaSri.claveAcceso !== claveAcceso) {
+      setError('Primero consulta y valida esta clave directamente con el SRI')
+      return
+    }
+    if (!conciliacionSri?.receptorCorrecto || !conciliacionSri.ambienteProduccion) {
+      setError('La factura no está emitida para el RUC de La Crayola o no pertenece al ambiente de producción')
       return
     }
     if (!montoFacturado.trim() || isNaN(parseFloat(montoFacturado)) || parseFloat(montoFacturado) <= 0) {
@@ -316,7 +342,20 @@ export default function CajaPage() {
         prov_factura_url: fotoUrl || null,
         prov_clave_acceso: claveAcceso || null,
         prov_ruc: provRucFinal,
-        metodo_pago: metodoPago
+        metodo_pago: metodoPago,
+        sri_estado: facturaSri.estado,
+        sri_fecha_autorizacion: facturaSri.fechaAutorizacion,
+        sri_xml: facturaSri.xml,
+        sri_xml_sha256: facturaSri.sha256,
+        sri_razon_social_emisor: facturaSri.razonSocialEmisor,
+        sri_identificacion_comprador: facturaSri.identificacionComprador,
+        sri_subtotal: facturaSri.subtotal,
+        sri_iva: facturaSri.iva,
+        sri_total: facturaSri.total,
+        sri_ambiente: facturaSri.ambiente,
+        sri_consultado_at: new Date().toISOString(),
+        conciliacion_estado: Math.abs(facturaSri.total-parseFloat(montoFacturado))<=0.01?'coincide':'con_diferencia',
+        conciliacion_diferencias: Math.abs(facturaSri.total-parseFloat(montoFacturado))<=0.01?[]:[`XML ${facturaSri.total.toFixed(2)} / digitado ${parseFloat(montoFacturado).toFixed(2)}`]
       })
 
       if (insertErr) {
@@ -521,6 +560,13 @@ export default function CajaPage() {
         <div className="bg-[#181d24] border border-[#2d3748] rounded-3xl p-5 space-y-4">
           <p className="text-gray-500 text-xs font-bold uppercase tracking-wider mb-2">Detalles de Facturación</p>
 
+          <div className="space-y-2 rounded-2xl border border-blue-500/30 bg-blue-500/10 p-4">
+            <label className="block text-xs font-bold uppercase tracking-wider text-blue-300">Clave de acceso SRI (49 dígitos)</label>
+            <textarea value={claveAcceso} onChange={e=>{setClaveAcceso(e.target.value.replace(/\D/g,'').slice(0,49));setSriGenerado(false);setFacturaSri(null)}} rows={2} inputMode="numeric" placeholder="Escanea o escribe la clave impresa en la factura" className="w-full resize-none rounded-xl border border-[#2d3748] bg-[#0c0f12] p-3 font-mono text-xs tracking-wider text-white"/>
+            <button type="button" onClick={consultarSri} disabled={consultandoSri||claveAcceso.length!==49} className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 py-3 text-sm font-bold text-white disabled:opacity-50">{consultandoSri?<Loader2 size={16} className="animate-spin"/>:<Shield size={16}/>} {consultandoSri?'Consultando SRI…':'Consultar y leer XML autorizado'}</button>
+            <p className="text-[10px] text-blue-300/80">La aplicación obtiene RUC, número, fecha, impuestos, total y productos directamente del XML.</p>
+          </div>
+
           {/* Fecha de Emisión del Ticket */}
           <div className="space-y-1.5">
             <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider block">
@@ -611,16 +657,16 @@ export default function CajaPage() {
 
 
 
-          {/* Clave de Acceso Generada */}
-          {sriGenerado && claveAcceso && (
+          {/* Resultado autorizado del SRI */}
+          {sriGenerado && facturaSri && (
             <div className="bg-[#00b074]/10 border border-[#00b074]/30 rounded-2xl p-4 space-y-1.5">
-              <p className="text-[#00b074] text-[11px] font-bold uppercase tracking-wider">✓ Clave de Acceso SRI Generada</p>
+              <p className="text-[#00b074] text-[11px] font-bold uppercase tracking-wider">✓ XML autorizado consultado en el SRI</p>
               <p className="text-gray-300 font-mono text-xs break-all tracking-widest leading-relaxed bg-black/35 p-3 rounded-xl border border-gray-800">
                 {claveAcceso.match(/.{1,4}/g)?.join(' ') || claveAcceso}
               </p>
-              <p className="text-[10px] text-gray-500 leading-normal">
-                Compara esta clave con la clave de 49 dígitos impresa al final del ticket del proveedor.
-              </p>
+              <p className="text-xs font-bold text-white">{facturaSri.razonSocialEmisor} · ${facturaSri.total.toFixed(2)}</p>
+              <p className={`text-[10px] font-bold ${conciliacionSri?.receptorCorrecto?'text-green-400':'text-red-400'}`}>Receptor: {facturaSri.razonSocialComprador} ({facturaSri.identificacionComprador})</p>
+              <p className="text-[10px] text-gray-500">Hash XML: {facturaSri.sha256.slice(0,20)}… · {facturaSri.detalles.length} ítems</p>
             </div>
           )}
 
