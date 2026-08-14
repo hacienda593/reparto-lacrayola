@@ -27,12 +27,18 @@ export default function Sidebar() {
   const avatar = user?.user_metadata?.avatar_url
   const links = NAV.filter(n => !rol || n.roles.includes(rol))
   const groups = [...new Set(links.map(link => link.group))]
+  // Solo una opción puede estar activa. Elegimos la coincidencia más
+  // específica para que /asignaciones no se marque también cuando el usuario
+  // está en /asignaciones/facturacion.
+  const activeHref = links
+    .filter(link => link.href === '/' ? pathname === '/' : pathname === link.href || pathname.startsWith(`${link.href}/`))
+    .sort((a,b) => b.href.length-a.href.length)[0]?.href
 
   const NavLinks = () => <nav className="flex-1 overflow-y-auto px-3 py-4">
     {groups.map(group => <div key={group} className="mb-4">
       <p className="px-3 pb-1.5 text-[9px] font-black uppercase tracking-[.18em] text-slate-400">{group}</p>
       <div className="space-y-1">{links.filter(link => link.group === group).map(({ href, label, icon: Icon }) => {
-        const active = href === '/' ? pathname === '/' : pathname.startsWith(href)
+        const active = href === activeHref
         return <Link key={href} href={href} onClick={() => setOpen(false)} className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all ${active ? 'bg-green-600 text-white shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900'}`}><Icon size={18} strokeWidth={active ? 2.5 : 1.8}/>{label}</Link>
       })}</div>
     </div>)}
