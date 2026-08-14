@@ -10,6 +10,7 @@ SELECT p.id,p.numero,p.created_at,p.nombre_cliente,p.telefono,p.total,p.estado p
  COALESCE(pk.pendientes,oi.pendientes,0) items_pendientes,
  cp.total comprobantes_proveedor,
  e.exitosa entrega_exitosa,e.entregado_at,e.monto_cobrado,e.metodo_pago entrega_metodo_pago,e.foto_url entrega_foto,e.geo_lat entrega_lat,e.geo_lng entrega_lng,
+ cp.total facturas_compra_proveedor,fc.estado factura_cliente_estado,fc.numero_factura factura_cliente_numero,
  CASE
   WHEN p.metodo_pago='transferencia' AND COALESCE(p.pago_confirmado,false)=false THEN 'validar_pago'
   WHEN p.geo_lat IS NULL OR p.geo_lng IS NULL THEN 'confirmar_ubicacion'
@@ -20,8 +21,8 @@ SELECT p.id,p.numero,p.created_at,p.nombre_cliente,p.telefono,p.total,p.estado p
   WHEN a.rider_id IS NULL AND a.estado IN ('recolectado','en_ruta') THEN 'asignar_repartidor'
   WHEN a.estado IN ('en_ruta','recolectado') AND e.id IS NULL THEN 'seguir_entrega'
   WHEN e.id IS NOT NULL AND NOT e.exitosa THEN 'resolver_entrega_fallida'
-  WHEN e.exitosa AND p.estado<>'facturado' THEN 'facturar'
-  WHEN p.estado='facturado' THEN 'completado'
+  WHEN e.exitosa AND COALESCE(fc.estado,'pendiente')<>'emitida' THEN 'facturar'
+  WHEN e.exitosa AND fc.estado='emitida' THEN 'completado'
   ELSE 'en_proceso' END etapa_control,
  ARRAY_REMOVE(ARRAY[
   CASE WHEN p.metodo_pago='transferencia' AND NOT COALESCE(p.pago_confirmado,false) THEN 'Pago sin verificar' END,
@@ -39,5 +40,6 @@ LEFT JOIN rep_repartidores sh ON sh.id=a.shopper_id LEFT JOIN rep_repartidores r
 LEFT JOIN LATERAL (SELECT COUNT(*)::int total,COUNT(*) FILTER(WHERE estado IN('recogido','sustituido','no_disponible'))::int resueltos,COUNT(*) FILTER(WHERE estado='no_disponible')::int faltantes,COUNT(*) FILTER(WHERE estado='pendiente')::int pendientes FROM rep_picking WHERE pedido_id=p.id) pk ON true
 LEFT JOIN LATERAL (SELECT COUNT(*)::int total,COUNT(*) FILTER(WHERE picking_completado OR picking_agotado)::int resueltos,COUNT(*) FILTER(WHERE picking_agotado)::int faltantes,COUNT(*) FILTER(WHERE NOT COALESCE(picking_completado,false) AND NOT COALESCE(picking_agotado,false))::int pendientes FROM ol_pedido_items WHERE pedido_id=p.id) oi ON true
 LEFT JOIN LATERAL (SELECT COUNT(*)::int total FROM ol_pedidos_comprobantes_proveedor WHERE pedido_id=p.id) cp ON true
-LEFT JOIN LATERAL (SELECT x.* FROM rep_entregas x WHERE x.pedido_id=p.id ORDER BY x.created_at DESC LIMIT 1) e ON true;
+LEFT JOIN LATERAL (SELECT x.* FROM rep_entregas x WHERE x.pedido_id=p.id ORDER BY x.created_at DESC LIMIT 1) e ON true
+LEFT JOIN rep_facturas_cliente fc ON fc.pedido_id=p.id;
 REVOKE ALL ON rep_control_pedidos_360 FROM PUBLIC,anon;GRANT SELECT ON rep_control_pedidos_360 TO authenticated;
