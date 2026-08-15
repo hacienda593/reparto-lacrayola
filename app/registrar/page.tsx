@@ -1,6 +1,7 @@
 'use client'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { validarCedulaEcuador, validarCelularEcuador } from '@/lib/cedula'
 import {
   User, Phone, Mail, MapPin, FileText,
   CheckCircle, Loader2, ArrowLeft, ChevronRight,
@@ -20,13 +21,19 @@ export default function RegistrarPage() {
   const [form,      setForm]      = useState({
     nombre: '', cedula: '', telefono: '',
     email: '', password: '', passwordConf: '',
-    vehiculo: 'moto', placa: '', zona_principal: '',
+    vehiculo: 'moto', placa: '', zona_id: '',
     observaciones: '',
   })
+  const [zonas, setZonas] = useState<{ id: string; nombre: string }[]>([])
   const [verPass,   setVerPass]   = useState(false)
   const [guardando, setGuardando] = useState(false)
   const [error,     setError]     = useState('')
   const [enviado,   setEnviado]   = useState(false)
+
+  useEffect(() => {
+    supabase.from('zonas').select('id, nombre').eq('activo', true).order('nombre')
+      .then(({ data }) => setZonas(data ?? []))
+  }, [])
 
   function set(k: string, v: string) { setForm(f => ({ ...f, [k]: v })) }
 
@@ -34,8 +41,8 @@ export default function RegistrarPage() {
     setError('')
     if (paso === 1) {
       if (!form.nombre.trim())    { setError('El nombre es obligatorio');    return }
-      if (!form.cedula.trim())    { setError('La cédula es obligatoria');    return }
-      if (!form.telefono.trim())  { setError('El teléfono es obligatorio'); return }
+      if (!validarCedulaEcuador(form.cedula)) { setError('Ingresa una cédula ecuatoriana válida'); return }
+      if (!validarCelularEcuador(form.telefono)) { setError('El celular debe tener el formato 09XXXXXXXX'); return }
       if (!form.email.trim())     { setError('El email es obligatorio');    return }
       if (!form.email.includes('@')) { setError('Ingresa un email válido');  return }
       if (form.password.length < 6)  { setError('La contraseña debe tener al menos 6 caracteres'); return }
@@ -61,8 +68,9 @@ export default function RegistrarPage() {
         if (existente.estado_registro === 'aprobado')  { setError('Este email ya tiene una cuenta activa'); return }
       }
 
-      // 2. Crear cuenta en Supabase Auth
-      const { data: authData, error: authErr } = await supabase.auth.signUp({
+      // 2. Crear cuenta en Supabase Auth (tiene que ser del lado del cliente
+      // para que la sesión quede en las cookies del navegador)
+      const { error: authErr } = await supabase.auth.signUp({
         email:    form.email.trim(),
         password: form.password,
         options:  { emailRedirectTo: undefined },
@@ -70,22 +78,24 @@ export default function RegistrarPage() {
 
       if (authErr) { setError(authErr.message); return }
 
-      // 3. Registrar en rep_repartidores como pendiente
-      const { error: repErr } = await supabase.from('rep_repartidores').insert({
-        user_id:         authData.user?.id ?? null,
-        nombre:          form.nombre.trim(),
-        cedula:          form.cedula.trim(),
-        telefono:        form.telefono.trim(),
-        email:           form.email.trim(),
-        vehiculo:        form.vehiculo,
-        placa:           form.placa.trim() || null,
-        zona_principal:  form.zona_principal.trim() || null,
-        observaciones:   form.observaciones.trim() || null,
-        activo:          false,
-        estado_registro: 'pendiente',
+      // 3. Registrar en rep_repartidores: la validación real (cédula con
+      // módulo 10, celular, duplicados) ocurre en el servidor -- no se
+      // confía en que el navegador haya validado bien.
+      const res = await fetch('/api/repartidores/registrar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nombre: form.nombre.trim(),
+          cedula: form.cedula.trim(),
+          telefono: form.telefono.trim(),
+          vehiculo: form.vehiculo,
+          placa: form.placa.trim() || null,
+          zonaId: form.zona_id || null,
+          observaciones: form.observaciones.trim() || null,
+        }),
       })
-
-      if (repErr) { setError(repErr.message); return }
+      const resultado = await res.json()
+      if (!res.ok) { setError(resultado.error || 'No se pudo registrar la solicitud'); return }
 
       // 4. Cerrar la sesión recién creada — no debe quedar logueado tras registrarse
       await supabase.auth.signOut()
@@ -170,12 +180,14 @@ export default function RegistrarPage() {
               ))}
 
               <div>
-                <label className="text-xs font-semibold text-slate-600 block mb-1">Zona de trabajo</label>
+                <label className="text-xs font-semibold text-slate-600 block mb-1">Pueblo donde vas a trabajar</label>
                 <div className="relative">
-                  <MapPin size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input type="text" value={form.zona_principal} onChange={e => set('zona_principal', e.target.value)}
-                    placeholder="Los Bancos centro"
-                    className="w-full border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-sm focus:outline-none focus:border-green-500" />
+                  <MapPin size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10" />
+                  <select value={form.zona_id} onChange={e => set('zona_id', e.target.value)}
+                    className="w-full border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-sm focus:outline-none focus:border-green-500 appearance-none bg-white">
+                    <option value="">Selecciona un pueblo</option>
+                    {zonas.map(z => <option key={z.id} value={z.id}>{z.nombre}</option>)}
+                  </select>
                 </div>
               </div>
 

@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import Sidebar from '@/components/Sidebar'
+import ZonasAdmin from '@/components/ZonasAdmin'
 import { Wallet, Truck, Receipt, ShieldCheck, Info } from 'lucide-react'
 
 export default async function ConfiguracionPage() {
@@ -80,6 +81,8 @@ export default async function ConfiguracionPage() {
             Usados al registrar el comprobante de compra en <code className="text-gray-400">/caja/[id]</code>.
           </p>
         </div>
+
+        <ZonasAdmin />
 
         {/* Roles */}
         <div className="bg-[#181d24] border border-[#2d3748] rounded-2xl p-4 space-y-2">

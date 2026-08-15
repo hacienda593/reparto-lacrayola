@@ -12,6 +12,7 @@ export interface RepRepartidor {
   vehiculo:       string | null
   placa:          string | null
   zona_principal: string | null
+  zona_id:        string | null
   comision_tipo:  'fijo' | 'porcentaje'
   comision_valor: number
   activo:         boolean

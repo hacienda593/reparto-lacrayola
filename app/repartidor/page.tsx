@@ -313,7 +313,7 @@ export default function RepartidorPage() {
     try {
       const { data: rep, error: errRep } = await supabase
         .from('rep_repartidores')
-        .select('id,nombre,email,comision_valor,efectivo_en_mano,estado,estado_registro,activo,vehiculo,conectado')
+        .select('id,nombre,email,comision_valor,efectivo_en_mano,estado,estado_registro,activo,vehiculo,conectado,zona_id')
         .eq('user_id', userId)
         .single()
 
@@ -389,11 +389,18 @@ export default function RepartidorPage() {
       // de carga inicial, que era muy lento por hacer todo en secuencia.
       const [{ data: asigs }, { data: pends }, { data: activeAsigs }, { data: pool }] = await Promise.all([
         queryAsigs,
-        supabase
-          .from('ol_pedidos')
-          .select('id, numero, nombre_cliente, telefono, direccion, ciudad, referencias, total, geo_lat, geo_lng, notas')
-          .eq('estado', 'confirmado')
-          .order('numero', { ascending: false }),
+        // Pool de pedidos disponibles: solo de la misma zona del repartidor
+        // (si tiene una asignada) -- multi-pueblo, no debe verse la lista de
+        // otro pueblo. La RPC de autoasignación también lo exige del lado
+        // del servidor; esto es solo para no ni siquiera mostrarlo.
+        (() => {
+          let q = supabase
+            .from('ol_pedidos')
+            .select('id, numero, nombre_cliente, telefono, direccion, ciudad, referencias, total, geo_lat, geo_lng, notas, zona_id')
+            .eq('estado', 'confirmado')
+          if (rep.zona_id) q = q.eq('zona_id', rep.zona_id)
+          return q.order('numero', { ascending: false })
+        })(),
         supabase
           .from('rep_asignaciones')
           .select('pedido_id')
@@ -403,7 +410,7 @@ export default function RepartidorPage() {
         // mismo Promise.all para no complicar la carga condicional.
         supabase
           .from('rep_asignaciones')
-          .select('id, pedido_id, shopper_id, ol_pedidos(numero,nombre_cliente,direccion,ciudad,total,telefono,geo_lat,geo_lng,metodo_pago,pago_confirmado,notas)')
+          .select('id, pedido_id, shopper_id, ol_pedidos(numero,nombre_cliente,direccion,ciudad,total,telefono,geo_lat,geo_lng,metodo_pago,pago_confirmado,notas,zona_id)')
           .eq('estado', 'recolectado')
           .is('rider_id', null),
       ])
@@ -512,7 +519,16 @@ export default function RepartidorPage() {
         })
       }
 
-      setPoolEntregas((pool ?? []).map((a: any) => {
+      // Multi-pueblo: no ofrecer traspasos de otra zona (comparación
+      // defensiva del lado del cliente; la RPC de traspaso también valida
+      // responsable/estado, y ambas zonas comparten el mismo shopper solo
+      // si es el mismo repartidor, así que esto es principalmente para no
+      // ni mostrar algo irrelevante).
+      const poolMismaZona = rep.zona_id
+        ? (pool ?? []).filter((a: any) => !a.ol_pedidos?.zona_id || a.ol_pedidos.zona_id === rep.zona_id)
+        : (pool ?? [])
+
+      setPoolEntregas(poolMismaZona.map((a: any) => {
         const tel = a.ol_pedidos?.telefono
         const listDirs = tel ? dirMap.get(tel) : null
         const matchDir = listDirs?.find((d: any) => sonDireccionesSimilares(d.direccion, a.ol_pedidos?.direccion))

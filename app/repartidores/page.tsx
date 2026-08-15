@@ -27,10 +27,13 @@ interface RepConEstado extends RepRepartidor {
   motivo_rechazo?:  string
 }
 
+interface Zona { id: string; nombre: string; activo: boolean }
+
 export default function RepartidoresPage() {
   const { user } = useAuth()
   const [lista,       setLista]       = useState<RepConEstado[]>([])
   const [pendientes,  setPendientes]  = useState<RepConEstado[]>([])
+  const [zonas,       setZonas]       = useState<Zona[]>([])
   const [cargando,    setCargando]    = useState(true)
   const [vista,       setVista]       = useState<Vista>('activos')
   const [modal,       setModal]       = useState(false)
@@ -42,14 +45,15 @@ export default function RepartidoresPage() {
   const [procesando,  setProcesando]  = useState<string | null>(null)
 
   async function cargar() {
-    const { data } = await supabase
-      .from('rep_repartidores')
-      .select('*')
-      .order('created_at', { ascending: false })
+    const [{ data }, { data: zonasData }] = await Promise.all([
+      supabase.from('rep_repartidores').select('*').order('created_at', { ascending: false }),
+      supabase.from('zonas').select('id, nombre, activo').order('nombre'),
+    ])
 
     const todos = (data ?? []) as RepConEstado[]
     setLista(todos.filter(r => r.estado_registro === 'aprobado' || !r.estado_registro))
     setPendientes(todos.filter(r => r.estado_registro === 'pendiente'))
+    setZonas((zonasData ?? []) as Zona[])
     setCargando(false)
   }
 
@@ -216,7 +220,9 @@ export default function RepartidoresPage() {
                     <div className="space-y-1.5 text-xs text-slate-500">
                       <div className="flex items-center gap-1.5"><Phone size={11} />{r.telefono}</div>
                       {r.email && <div className="flex items-center gap-1.5"><Mail size={11} /><span className="truncate">{r.email}</span></div>}
-                      {r.zona_principal && <div className="flex items-center gap-1.5"><MapPin size={11} />{r.zona_principal}</div>}
+                      {(zonas.find(z => z.id === r.zona_id)?.nombre || r.zona_principal) && (
+                        <div className="flex items-center gap-1.5"><MapPin size={11} />{zonas.find(z => z.id === r.zona_id)?.nombre || r.zona_principal}</div>
+                      )}
                       {r.placa && <div className="flex items-center gap-1.5"><Bike size={11} />{r.vehiculo} · {r.placa}</div>}
                     </div>
 
@@ -359,6 +365,15 @@ export default function RepartidoresPage() {
                     className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-green-500">
                     {VEHICULOS.map(v => <option key={v} value={v}>{EMOJI_V[v]} {v}</option>)}
                   </select>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-600 block mb-1">Pueblo / zona de cobertura</label>
+                  <select value={(form as any).zona_id ?? ''} onChange={e => set('zona_id', e.target.value)}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-green-500">
+                    <option value="">Sin asignar</option>
+                    {zonas.map(z => <option key={z.id} value={z.id}>{z.nombre}{!z.activo ? ' (inactiva)' : ''}</option>)}
+                  </select>
+                  <p className="text-[10px] text-slate-400 mt-1">Solo verá y podrá aceptar pedidos de este pueblo. Se activan/desactivan pueblos en Configuración.</p>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
