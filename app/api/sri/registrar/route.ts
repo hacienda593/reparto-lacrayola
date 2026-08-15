@@ -1,15 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { createServiceClient } from '@/lib/supabase/service'
 import { consultarFacturaSri } from '@/lib/sri'
 
-// Punto 8 de docs/auditoria_plan_correcciones_ia.md: persiste la factura de
-// compra completamente en el servidor. El navegador solo envía datos que el
-// operador digitó (asignacionId, claveAcceso, montoDigitado, metodoPago,
-// fotoPath ya subido a Storage). El SRI se vuelve a consultar aquí mismo —
-// nunca se confía en el xml/hash/totales que /api/sri/comprobante devolvió
-// antes al navegador para la vista previa, porque ese valor pudo ser
-// manipulado en el cliente antes de llegar aquí.
+// Punto 8 de docs/auditoria_plan_correcciones_ia.md: valida la factura de
+// compra en el servidor antes de guardarla. El navegador solo envía datos
+// que el operador digitó (asignacionId, claveAcceso, montoDigitado,
+// metodoPago, fotoPath ya subido a Storage). El SRI se vuelve a consultar
+// aquí mismo -- no se confía en el xml/hash/totales que
+// /api/sri/comprobante devolvió antes al navegador para la vista previa.
+//
+// Este es un paso básico del lado del shopper (registro provisional); la
+// aprobación final la hace un administrador con más acceso en
+// app/facturas-compra, que puede volver a consultar el SRI antes de
+// validar. Por eso el guardado en Supabase usa la sesión normal del
+// usuario (RPC otorgada a `authenticated`, sin service_role) en vez de un
+// camino restringido: la revisión humana posterior es el control real, no
+// solo la escritura atómica.
 //
 // Soporta 3 tipos de comprobante (tipoComprobante), pedidos por el negocio
 // para que el shopper nunca quede bloqueado en caja:
@@ -72,7 +78,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No existe un perfil de repartidor para este usuario' }, { status: 403 })
     }
 
-    const serviceClient = createServiceClient()
     const rpcParamsBase = {
       p_asignacion_id: asignacionId,
       p_actor_user_id: user.id,
@@ -86,7 +91,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (tipo === 'sin_comprobante') {
-      const { data: comprobante, error: rpcError } = await serviceClient.rpc('registrar_factura_compra_servidor', {
+      const { data: comprobante, error: rpcError } = await supabase.rpc('registrar_factura_compra_servidor', {
         ...rpcParamsBase,
         p_prov_ruc: provRuc || 'S/N',
         p_prov_establecimiento: provEstablecimiento || 'S/N',
@@ -149,7 +154,7 @@ export async function POST(req: NextRequest) {
       // intento, se registra como electronica normal, no como excepción.
       const tipoFinal = tipo === 'electronica_pendiente_sri' && factura.estado === 'AUTORIZADO' ? 'electronica' : tipo
 
-      const { data: comprobante, error: rpcError } = await serviceClient.rpc('registrar_factura_compra_servidor', {
+      const { data: comprobante, error: rpcError } = await supabase.rpc('registrar_factura_compra_servidor', {
         ...rpcParamsBase,
         p_prov_ruc: provRuc || factura.rucEmisor,
         p_prov_establecimiento: provEstablecimiento || factura.establecimiento,
@@ -177,7 +182,7 @@ export async function POST(req: NextRequest) {
 
     // tipo === 'electronica_pendiente_sri' y la consulta falló: se registra
     // la excepción con el mensaje de error del SRI para que admin la revise.
-    const { data: comprobante, error: rpcError } = await serviceClient.rpc('registrar_factura_compra_servidor', {
+    const { data: comprobante, error: rpcError } = await supabase.rpc('registrar_factura_compra_servidor', {
       ...rpcParamsBase,
       p_prov_ruc: provRuc || 'S/N',
       p_prov_establecimiento: provEstablecimiento || 'S/N',
