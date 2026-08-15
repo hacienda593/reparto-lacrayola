@@ -288,7 +288,7 @@ END $function$;
 -- crear_traspaso_shopper / aceptar_traspaso_rider: eventos handoff_creado / custodia_transferida.
 CREATE OR REPLACE FUNCTION public.crear_traspaso_shopper(p_asignacion_id UUID, p_lat NUMERIC DEFAULT NULL, p_lng NUMERIC DEFAULT NULL)
 RETURNS TABLE(handoff_id UUID, token TEXT, codigo_visual TEXT, expires_at TIMESTAMPTZ)
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions
 AS $$
 DECLARE v_repartidor rep_repartidores; v_a rep_asignaciones; v_token TEXT; v_codigo TEXT; v_id UUID; v_expires TIMESTAMPTZ;
 BEGIN
@@ -318,7 +318,7 @@ GRANT EXECUTE ON FUNCTION public.crear_traspaso_shopper TO authenticated;
 
 CREATE OR REPLACE FUNCTION public.aceptar_traspaso_rider(p_token TEXT, p_request_id UUID, p_lat NUMERIC DEFAULT NULL, p_lng NUMERIC DEFAULT NULL)
 RETURNS public.rep_handoffs
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions
 AS $$
 DECLARE v_repartidor rep_repartidores; v_h rep_handoffs; v_a rep_asignaciones; v_token_limpio TEXT; v_es_codigo_visual BOOLEAN;
 BEGIN

@@ -66,7 +66,9 @@ CREATE OR REPLACE FUNCTION public.crear_traspaso_shopper(
 RETURNS TABLE(handoff_id UUID, token TEXT, codigo_visual TEXT, expires_at TIMESTAMPTZ)
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+-- gen_random_bytes/digest (pgcrypto) viven en el esquema "extensions" en
+-- este proyecto de Supabase, no en "public" -- hace falta en el search_path.
+SET search_path = public, extensions
 AS $$
 DECLARE
   v_repartidor rep_repartidores;
@@ -127,7 +129,7 @@ CREATE OR REPLACE FUNCTION public.aceptar_traspaso_rider(
 RETURNS public.rep_handoffs
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 DECLARE
   v_repartidor rep_repartidores;
