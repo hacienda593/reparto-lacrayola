@@ -162,22 +162,26 @@ export default function RepartidorPage() {
     return Math.sqrt(dLat * dLat + dLng * dLng)
   }
 
-  function abrirRutaCombinada() {
-    const paradas = pedidos.filter(p => p.estado === 'en_ruta' && p.geo_lat && p.geo_lng)
-    if (paradas.length === 0) return
-
-    if (typeof window === 'undefined' || !navigator?.geolocation) {
-      abrirRutaDesdePunto(null, paradas)
-      return
-    }
-    navigator.geolocation.getCurrentPosition(
-      pos => abrirRutaDesdePunto({ lat: pos.coords.latitude, lng: pos.coords.longitude }, paradas),
-      () => abrirRutaDesdePunto(null, paradas),
-      { timeout: 6000 }
-    )
+  // Distancia real en km (Haversine) -- distanciaAprox de arriba es solo un
+  // proxy en grados, útil para ordenar por cercanía pero no para mostrarle
+  // un ETA creíble al repartidor.
+  function distanciaKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
+    const R = 6371
+    const dLat = (b.lat - a.lat) * Math.PI / 180
+    const dLng = (b.lng - a.lng) * Math.PI / 180
+    const s = Math.sin(dLat/2)**2 + Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*Math.sin(dLng/2)**2
+    return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1-s))
   }
 
-  function abrirRutaDesdePunto(origenGeo: { lat: number; lng: number } | null, paradas: PedidoAsignado[]) {
+  // ETA aproximado asumiendo velocidad urbana promedio (San Miguel de los
+  // Bancos y alrededores, calles de montaña/tierra) -- es una estimación
+  // gruesa a partir de línea recta, se etiqueta siempre como "aprox."
+  function minutosEstimados(km: number) {
+    const VELOCIDAD_KMH = 25
+    return Math.max(1, Math.round((km / VELOCIDAD_KMH) * 60))
+  }
+
+  function ordenarPorCercania(origenGeo: { lat: number; lng: number } | null, paradas: PedidoAsignado[]): PedidoAsignado[] {
     const restantes = [...paradas]
     const ordenadas: PedidoAsignado[] = []
     let puntoActual = origenGeo
@@ -195,7 +199,26 @@ export default function RepartidorPage() {
       ordenadas.push(siguiente)
       puntoActual = { lat: siguiente.geo_lat!, lng: siguiente.geo_lng! }
     }
+    return ordenadas
+  }
 
+  function abrirRutaCombinada() {
+    const paradas = pedidos.filter(p => p.estado === 'en_ruta' && p.geo_lat && p.geo_lng)
+    if (paradas.length === 0) return
+
+    if (typeof window === 'undefined' || !navigator?.geolocation) {
+      abrirRutaDesdePunto(null, paradas)
+      return
+    }
+    navigator.geolocation.getCurrentPosition(
+      pos => abrirRutaDesdePunto({ lat: pos.coords.latitude, lng: pos.coords.longitude }, paradas),
+      () => abrirRutaDesdePunto(null, paradas),
+      { timeout: 6000 }
+    )
+  }
+
+  function abrirRutaDesdePunto(origenGeo: { lat: number; lng: number } | null, paradas: PedidoAsignado[]) {
+    const ordenadas = ordenarPorCercania(origenGeo, paradas)
     const destino = ordenadas[ordenadas.length - 1]
     const intermedias = ordenadas.slice(0, -1)
 
@@ -210,6 +233,42 @@ export default function RepartidorPage() {
     }
     window.open(`https://www.google.com/maps/dir/?${params.toString()}`, '_blank')
   }
+
+  // Orden real por cercanía (no A/B/C de Google Maps, que no se puede
+  // rotular con el nombre del cliente) para las paradas activas
+  // (asignado/en_ruta). Se recalcula cuando cambia la lista de pedidos;
+  // usa el GPS del repartidor como punto de partida cuando está disponible.
+  // Alimenta tanto el número que ya se muestra en cada tarjeta
+  // (renderCardRepartidor) como la estimación de minutos del mensaje
+  // "En Camino" -- sin duplicar la vista de mapa/lista que ya existe.
+  const [ordenParadas, setOrdenParadas] = useState<Record<string, number>>({})
+  const [distanciaEntreParadas, setDistanciaEntreParadas] = useState<Record<string, number>>({})
+
+  useEffect(() => {
+    const paradas = pedidos.filter(p => (p.estado === 'asignado' || p.estado === 'en_ruta') && p.geo_lat && p.geo_lng)
+    if (paradas.length === 0) { setOrdenParadas({}); setDistanciaEntreParadas({}); return }
+
+    const aplicar = (origenGeo: { lat: number; lng: number } | null) => {
+      const ordenadas = ordenarPorCercania(origenGeo, paradas)
+      const orden: Record<string, number> = {}
+      const dist: Record<string, number> = {}
+      let anterior = origenGeo
+      ordenadas.forEach((p, i) => {
+        orden[p.asignacion_id] = i + 1
+        if (anterior) dist[p.asignacion_id] = distanciaKm(anterior, { lat: p.geo_lat!, lng: p.geo_lng! })
+        anterior = { lat: p.geo_lat!, lng: p.geo_lng! }
+      })
+      setOrdenParadas(orden)
+      setDistanciaEntreParadas(dist)
+    }
+    if (typeof window === 'undefined' || !navigator?.geolocation) { aplicar(null); return }
+    navigator.geolocation.getCurrentPosition(
+      pos => aplicar({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => aplicar(null),
+      { timeout: 6000 }
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pedidos.map(p => p.asignacion_id + p.estado).join(',')])
 
   async function confirmarTraspaso() {
     if (!repartidor) return
@@ -959,7 +1018,7 @@ export default function RepartidorPage() {
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50/50">
           <div className="flex items-center gap-2">
             <span className="w-5 h-5 rounded-full bg-slate-800 text-white text-[10px] font-extrabold flex items-center justify-center shrink-0">
-              {pedidos.filter(x => x.estado === 'en_ruta' || x.estado === 'asignado').findIndex(x => x.asignacion_id === p.asignacion_id) + 1}
+              {ordenParadas[p.asignacion_id] ?? (pedidos.filter(x => x.estado === 'en_ruta' || x.estado === 'asignado').findIndex(x => x.asignacion_id === p.asignacion_id) + 1)}
             </span>
             <Package size={15} className="text-slate-400" />
             <span className="font-bold text-slate-800 text-xs">Pedido #{numPedido}</span>
@@ -1077,7 +1136,8 @@ export default function RepartidorPage() {
                 <div className="grid grid-cols-2 gap-1.5">
                   <a
                     href={`https://wa.me/${formatWhatsApp(p.telefono)}?text=${encodeURIComponent(
-                      "Hola " + p.nombre_cliente + ", te saluda " + (repartidor?.nombre || "tu Repartidor") + " de La Crayola. Tu pedido #" + p.numero + " va en camino a tu domicilio. Por favor estar atento."
+                      "Hola " + p.nombre_cliente + ", te saluda " + (repartidor?.nombre || "tu Repartidor") + " de La Crayola. Tu pedido #" + p.numero + " va en camino a tu domicilio."
+                      + (distanciaEntreParadas[p.asignacion_id] ? ` Llego en aproximadamente ${minutosEstimados(distanciaEntreParadas[p.asignacion_id])} minutos.` : ' Por favor estar atento.')
                     )}`}
                     target="_blank" rel="noopener noreferrer"
                     className="bg-green-50 hover:bg-green-100 border border-green-200 text-green-700 text-[10px] font-bold py-2 rounded-xl text-center flex items-center justify-center gap-1"
@@ -1499,15 +1559,18 @@ export default function RepartidorPage() {
         </div>
       )}
 
-      {/* Ruta combinada: cuando hay 2+ entregas en camino, sugiere el orden por cercanía */}
+      {/* Ruta combinada en Google Maps: opción secundaria para ver el trayecto
+          completo de un vistazo (Google Maps rotula las paradas A/B/C, no con
+          el nombre del cliente -- para eso está la vista de mapa/lista de
+          abajo, con el número real por cercanía y los datos de cada pedido). */}
       {modo === 'repartidor' && pedidos.filter(p => p.estado === 'en_ruta' && p.geo_lat && p.geo_lng).length > 1 && (
         <div className="px-4 pt-4">
           <button
             onClick={abrirRutaCombinada}
-            className="w-full flex items-center justify-center gap-2 bg-orange-50 hover:bg-orange-100 border border-orange-200 text-orange-700 font-bold py-3 rounded-2xl text-sm transition cursor-pointer"
+            className="w-full flex items-center justify-center gap-2 bg-orange-50 hover:bg-orange-100 border border-orange-200 text-orange-700 font-bold py-2.5 rounded-2xl text-xs transition cursor-pointer"
           >
-            <Navigation size={15} />
-            Ver ruta combinada ({pedidos.filter(p => p.estado === 'en_ruta' && p.geo_lat && p.geo_lng).length} paradas)
+            <Navigation size={13} />
+            Ver trayecto completo en Google Maps
           </button>
         </div>
       )}
