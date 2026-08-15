@@ -502,31 +502,28 @@ export default function RepartidorPage() {
   async function aceptarPedido(pedidoId: string, numero: number, nombreCliente: string, telefonoCliente: string) {
     if (!repartidor) return
     setProcesando(pedidoId)
-    
-    // 1. Crear la asignación en rep_asignaciones (decoupled Shopper/Rider)
-    const { data: asig, error: errAsig } = await supabase
-      .from('rep_asignaciones')
-      .insert({
-        pedido_id:     pedidoId,
-        repartidor_id: repartidor.id,
-        shopper_id:    repartidor.id,
-        estado:        'asignado',
-        notas:         'Auto-asignado por el Comprador desde el celular',
-        prioridad:     1,
-      })
-      .select('id')
-      .single()
 
-    if (errAsig) {
-      alert('Error al auto-asignar el pedido: ' + errAsig.message)
+    // RPC atómica: bloquea el pedido, valida que el repartidor esté
+    // activo/aprobado/no bloqueado, exige estado='pendiente', crea la
+    // asignación y actualiza ol_pedidos.estado en una sola transacción,
+    // y es reintentable con el mismo request_id si falla la conexión
+    // (migration_aceptar_pedido_atomico.sql).
+    const requestKey = `aceptar-request:${pedidoId}`
+    const requestId = sessionStorage.getItem(requestKey) || crypto.randomUUID()
+    sessionStorage.setItem(requestKey, requestId)
+
+    const { error } = await supabase.rpc('aceptar_pedido_shopper', {
+      p_pedido_id: pedidoId,
+      p_request_id: requestId,
+    })
+
+    if (error) {
+      alert('Error al auto-asignar el pedido: ' + error.message)
       setProcesando(null)
       return
     }
 
-    // 2. Cambiar el estado de ol_pedidos a 'confirmado'
-    await supabase.from('ol_pedidos').update({ estado: 'confirmado' }).eq('id', pedidoId)
-
-    // 3. Recargar datos
+    sessionStorage.removeItem(requestKey)
     await cargar(user!.id)
     setProcesando(null)
   }
@@ -535,23 +532,26 @@ export default function RepartidorPage() {
     if (!repartidor) return
     setProcesando(pedidoId)
 
-    // 1. Marcar la asignacion como "compra iniciada" (pasa de Aceptadas -> Preparando
-    // en la clasificacion interna del comprador)
-    const { error: errUpdate } = await supabase
-      .from('rep_asignaciones')
-      .update({ compra_iniciada_at: new Date().toISOString() })
-      .eq('id', asignacionId)
+    // RPC atómica: valida que seas el shopper responsable, que el pago por
+    // transferencia ya esté conciliado, y actualiza rep_asignaciones y
+    // ol_pedidos.estado en una sola transacción (idempotente por request_id).
+    const requestKey = `iniciar-compra-request:${asignacionId}`
+    const requestId = sessionStorage.getItem(requestKey) || crypto.randomUUID()
+    sessionStorage.setItem(requestKey, requestId)
 
-    if (errUpdate) {
-      alert('Error al iniciar la compra: ' + errUpdate.message)
+    const { error } = await supabase.rpc('iniciar_compra_shopper', {
+      p_asignacion_id: asignacionId,
+      p_request_id: requestId,
+    })
+
+    if (error) {
+      alert('Error al iniciar la compra: ' + error.message)
       setProcesando(null)
       return
     }
+    sessionStorage.removeItem(requestKey)
 
-    // 1b. Reflejar tambien en ol_pedidos para que el cliente vea "Preparando" en su seguimiento
-    await supabase.from('ol_pedidos').update({ estado: 'preparado' }).eq('id', pedidoId)
-
-    // 2. Recargar datos
+    // Recargar datos
     await cargar(user!.id)
     setProcesando(null)
 
@@ -704,63 +704,13 @@ export default function RepartidorPage() {
     setProcesando(null)
   }
 
-  async function entregar(asignacionId: string, pedidoId: string) {
-    const monto = parseFloat(cobro[asignacionId] || '0')
-    if (!monto) { alert('Ingresa el monto cobrado'); return }
-    setProcesando(asignacionId)
-
-    const geo = await new Promise<{ lat: number; lng: number } | null>(res => {
-      if (typeof window === 'undefined' || !navigator?.geolocation) {
-        res(null)
-        return
-      }
-      navigator.geolocation.getCurrentPosition(
-        p => res({ lat: p.coords.latitude, lng: p.coords.longitude }),
-        () => res(null),
-        { timeout: 5000 }
-      )
-    })
-
-    await supabase.from('rep_asignaciones').update({
-      estado: 'entregado', updated_at: new Date().toISOString()
-    }).eq('id', asignacionId)
-
-    await supabase.from('ol_pedidos').update({ estado: 'entregado' }).eq('id', pedidoId)
-
-    await supabase.from('rep_entregas').update({
-      entregado_at:  new Date().toISOString(),
-      monto_cobrado: monto,
-      metodo_pago:   'efectivo',
-      geo_lat:       geo?.lat,
-      geo_lng:       geo?.lng,
-    }).eq('asignacion_id', asignacionId)
-
-    // Registrar cuenta por cobrar
-    if (repartidor) {
-      await supabase.from('rep_cuentas_cobrar').insert({
-        pedido_id:     pedidoId,
-        asignacion_id: asignacionId,
-        repartidor_id: repartidor.id,
-        monto_pedido:  pedidos.find(p => p.asignacion_id === asignacionId)?.total ?? 0,
-        monto_cobrado: monto,
-        metodo_pago:   'efectivo',
-        estado:        'cobrado',
-        cobrado_at:    new Date().toISOString(),
-      })
-
-      // Registrar ingreso en la caja chica del repartidor
-      await supabase.from('rep_transacciones_caja').insert({
-        repartidor_id: repartidor.id,
-        pedido_id:     pedidoId,
-        tipo:          'ingreso_entrega',
-        monto:         monto,
-        estado:        'pendiente'
-      })
-    }
-
-    await cargar(user!.id)
-    setProcesando(null)
-  }
+  // NOTA (auditoria_plan_correcciones_ia.md, punto 6/15): existía aquí una
+  // función `entregar()` que escribía por separado en rep_asignaciones,
+  // ol_pedidos, rep_entregas, rep_cuentas_cobrar y rep_transacciones_caja
+  // sin transacción ni evidencia. No tenía ningún botón que la invocara
+  // (superada por finalizarEntregaConPOD(), que sí usa la RPC atómica
+  // finalizar_entrega_atomica con foto y firma obligatorias). Se eliminó
+  // para no dejar un camino alterno de entrega bypasseando la evidencia.
 
   useEffect(() => {
     if (!entregaModal) return
@@ -858,10 +808,9 @@ export default function RepartidorPage() {
         return
       }
 
-      const { data: fotoUrlData } = supabase.storage
-        .from('comprobantes-proveedores')
-        .getPublicUrl(fotoName)
-      const fotoEntregaUrl = fotoUrlData?.publicUrl || ''
+      // Bucket privado (punto 10 de la auditoría): se guarda la ruta, no
+      // una URL pública -- se firma bajo demanda al mostrarla.
+      const fotoEntregaUrl = fotoName
 
       const firmaBlob = await new Promise<Blob | null>(resolve => canvas.toBlob(blob => resolve(blob), 'image/png'))
       if (!firmaBlob) {
@@ -883,10 +832,7 @@ export default function RepartidorPage() {
         return
       }
 
-      const { data: firmaUrlData } = supabase.storage
-        .from('comprobantes-proveedores')
-        .getPublicUrl(firmaName)
-      const firmaClienteUrl = firmaUrlData?.publicUrl || ''
+      const firmaClienteUrl = firmaName
 
       const geo = await new Promise<{ lat: number; lng: number } | null>(res => {
         if (typeof window === 'undefined' || !navigator?.geolocation) {

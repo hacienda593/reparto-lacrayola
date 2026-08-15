@@ -270,8 +270,25 @@ export default function PickingPage() {
 
   async function iniciarRuta() {
     setGuardando(true)
-    await supabase.from('rep_asignaciones').update({ estado: 'en_ruta', updated_at: new Date().toISOString() }).eq('id', id)
-    await supabase.from('ol_pedidos').update({ estado: 'enviado' }).eq('id', asignacion.pedido_id)
+    // RPC atómica: valida en el servidor que seas el shopper responsable,
+    // que la compra ya haya iniciado y que todos los ítems estén resueltos
+    // (antes solo se chequeaba "listo" del lado del cliente), y actualiza
+    // rep_asignaciones y ol_pedidos.estado en una sola transacción, con
+    // idempotencia por request_id (migration_finalizar_compra_atomica.sql).
+    const requestKey = `finalizar-compra-request:${id}`
+    const requestId = sessionStorage.getItem(requestKey) || crypto.randomUUID()
+    sessionStorage.setItem(requestKey, requestId)
+
+    const { error } = await supabase.rpc('finalizar_compra_shopper', {
+      p_asignacion_id: id,
+      p_request_id: requestId,
+    })
+    if (error) {
+      alert('No se pudo finalizar la compra: ' + error.message)
+      setGuardando(false)
+      return
+    }
+    sessionStorage.removeItem(requestKey)
     router.push(`/entrega/${id}`)
   }
 

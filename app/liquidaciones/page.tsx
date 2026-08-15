@@ -171,11 +171,9 @@ export default function LiquidacionesPage() {
 
       if (error) throw error
 
-      const { data: { publicUrl } } = supabase.storage
-        .from('comprobantes-proveedores')
-        .getPublicUrl(fileName)
-
-      setFotoUrl(publicUrl)
+      // Bucket privado (punto 10 de la auditoría): se guarda la ruta, no
+      // una URL pública -- se firma bajo demanda al mostrarla.
+      setFotoUrl(fileName)
     } catch (err: unknown) {
       alert('Error al subir la imagen: ' + mensajeError(err))
     } finally {

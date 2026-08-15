@@ -293,16 +293,23 @@ export default function AsignacionesPage() {
     setProcesando(true)
     setError('')
     try {
-      const { error } = await supabase
-        .from('ol_pedidos')
-        .update({ pago_confirmado: true })
-        .eq('id', pedidoId)
+      // RPC atómica: valida capacidad del rol, bloquea el pedido, actualiza
+      // pago_confirmado y registra la bitácora de auditoría en una sola
+      // transacción de Postgres (migration_confirmacion_pago_atomica.sql).
+      const { error } = await supabase.rpc('confirmar_pago_admin', {
+        p_pedido_id: pedidoId,
+        p_referencia: refNumber,
+        p_banco: bancoInput,
+        p_fecha: fechaDepositoInput || null,
+        p_evidencia_path: null,
+        p_request_id: crypto.randomUUID(),
+      })
       if (error) throw error
 
       setPedidos(prev => prev.map(p => p.id === pedidoId ? { ...p, pago_confirmado: true } as any : p))
       setModalPedido(prev => prev && prev.id === pedidoId ? { ...prev, pago_confirmado: true } as any : prev)
       setMensaje('✓ Pago validado y registrado en el sistema.')
-      registrarAuditoria('confirmado', { banco: bancoInput, fecha_deposito: fechaDepositoInput || undefined })
+      cargarHistorial(pedidoId)
     } catch (err: any) {
       setError(`Error al confirmar pago: ${err.message}`)
     } finally {
@@ -324,16 +331,19 @@ export default function AsignacionesPage() {
     setRevirtiendoPago(true)
     setError('')
     try {
-      const { error } = await supabase
-        .from('ol_pedidos')
-        .update({ pago_confirmado: false })
-        .eq('id', pedidoId)
+      // RPC atómica: exige motivo, bloquea el pedido y registra el reverso
+      // en la misma transacción (migration_confirmacion_pago_atomica.sql).
+      const { error } = await supabase.rpc('revertir_pago_admin', {
+        p_pedido_id: pedidoId,
+        p_motivo: motivo.trim(),
+        p_request_id: crypto.randomUUID(),
+      })
       if (error) throw error
 
       setPedidos(prev => prev.map(p => p.id === pedidoId ? { ...p, pago_confirmado: false } as any : p))
       setModalPedido(prev => prev && prev.id === pedidoId ? { ...prev, pago_confirmado: false } as any : prev)
       setMensaje('↩️ Verificación de pago anulada.')
-      registrarAuditoria('anulado', { notas: motivo.trim() })
+      cargarHistorial(pedidoId)
     } catch (err: any) {
       setError(`Error al anular verificación: ${err.message}`)
     } finally {

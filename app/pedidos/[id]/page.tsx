@@ -39,6 +39,21 @@ export default async function PedidoDetallePage({ params }: { params: Promise<{ 
     ? await supabase.from('rep_entregas').select('*').eq('asignacion_id', asignacion.id).maybeSingle()
     : { data: null }
 
+  // Bucket privado (punto 10 de la auditoría): las evidencias ya no tienen
+  // URL pública permanente. Como este es un componente de servidor, se
+  // firman aquí mismo antes de renderizar, en vez de exponer la ruta cruda
+  // al navegador.
+  const { extraerRutaStorage } = await import('@/lib/supabase/signedUrl')
+  async function firmar(valor: string | null | undefined) {
+    const ruta = extraerRutaStorage(valor)
+    if (!ruta) return null
+    const { data } = await supabase.storage.from('comprobantes-proveedores').createSignedUrl(ruta, 3600)
+    return data?.signedUrl ?? null
+  }
+  const comprobantesFirmados = await Promise.all(
+    (comprobantes ?? []).map(async c => ({ ...c, prov_factura_url_firmada: await firmar(c.prov_factura_url) }))
+  )
+
   const totalItems = (items ?? []).reduce((s, it) => s + (it.cantidad ?? 1), 0)
   const repartidorNombre = (asignacion as any)?.rep_repartidores?.nombre
   const repartidorTelefono = (asignacion as any)?.rep_repartidores?.telefono
@@ -126,15 +141,15 @@ export default async function PedidoDetallePage({ params }: { params: Promise<{ 
         )}
 
         {/* Comprobantes de proveedor */}
-        {comprobantes && comprobantes.length > 0 && (
+        {comprobantesFirmados.length > 0 && (
           <div className="bg-[#181d24] border border-[#2d3748] rounded-2xl p-4 space-y-3">
             <p className="text-gray-500 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5"><Receipt size={12} /> Comprobantes de proveedor</p>
-            {comprobantes.map((c: any) => (
+            {comprobantesFirmados.map((c: any) => (
               <div key={c.id} className="bg-[#0c0f12] border border-[#2d3748] rounded-xl p-3 text-xs space-y-1">
                 <div className="flex justify-between"><span className="text-gray-500">Factura</span><span className="text-white font-mono">{c.prov_establecimiento}-{c.prov_punto_emision}-{c.prov_secuencial}</span></div>
                 <div className="flex justify-between"><span className="text-gray-500">RUC Proveedor</span><span className="text-white font-mono">{c.prov_ruc}</span></div>
                 <div className="flex justify-between"><span className="text-gray-500">Monto real</span><span className="text-[#00b074] font-bold">{fmt(c.prov_costo_real)}</span></div>
-                {c.prov_factura_url && <a href={c.prov_factura_url} target="_blank" rel="noopener noreferrer" className="text-[#00b074] hover:underline block pt-1">Ver foto del ticket →</a>}
+                {c.prov_factura_url_firmada && <a href={c.prov_factura_url_firmada} target="_blank" rel="noopener noreferrer" className="text-[#00b074] hover:underline block pt-1">Ver foto del ticket → (enlace válido 1h)</a>}
               </div>
             ))}
           </div>

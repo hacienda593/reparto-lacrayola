@@ -309,7 +309,7 @@ export default function CajaPage() {
         const fileExt = imagenFile.name.split('.').pop() || 'jpg'
         const fileName = `${pedido.id}_${Date.now()}.${fileExt}`
         
-        const { data: uploadData, error: uploadError } = await supabase.storage
+        const { error: uploadError } = await supabase.storage
           .from('comprobantes-proveedores')
           .upload(fileName, imagenFile, { upsert: true })
 
@@ -318,78 +318,58 @@ export default function CajaPage() {
           setGuardando(false)
           return
         }
-        
-        const { data: publicUrlData } = supabase.storage
-          .from('comprobantes-proveedores')
-          .getPublicUrl(fileName)
-        
-        fotoUrl = publicUrlData?.publicUrl || ''
+
+        // El bucket es privado (punto 10 de la auditoría): se guarda la
+        // ruta, no una URL pública -- la vista la firma bajo demanda.
+        fotoUrl = fileName
       }
 
-      // 1. Guardar la información estructurada de la factura SRI en la columna 'notas' del pedido
+      // Guardar una nota legible en el pedido (solo texto informativo; los
+      // datos que importan para auditoría/contabilidad ya no viven aquí,
+      // sino en ol_pedidos_comprobantes_proveedor, escrito por el servidor).
       const provRucFinal = provRuc || ruc
       const notaSRI = `[SRI-BILLING] Factura: ${facturaCompleta} | RUC: ${provRucFinal} | Clave: ${claveAcceso} | Pago: ${metodoPago} | Total Facturado: $${parseFloat(montoFacturado).toFixed(2)}`
       const notasActuales = pedido.notas ? `${pedido.notas} \n${notaSRI}` : notaSRI
 
-      // 2. Insertar comprobante del proveedor en la tabla relacional
-      const { error: insertErr } = await supabase.from('ol_pedidos_comprobantes_proveedor').insert({
-        pedido_id: pedido.id,
-        tienda_id: tiendaId || '37f0c318-ef34-439b-9362-1c4c9fb4d1bd', // fallback a Tía si no hay ID
-        prov_establecimiento: cleanEstab,
-        prov_punto_emision: cleanPtoEmi,
-        prov_secuencial: cleanSecuencial,
-        prov_costo_real: parseFloat(montoFacturado),
-        prov_factura_url: fotoUrl || null,
-        prov_clave_acceso: claveAcceso || null,
-        prov_ruc: provRucFinal,
-        metodo_pago: metodoPago,
-        sri_estado: facturaSri.estado,
-        sri_fecha_autorizacion: facturaSri.fechaAutorizacion,
-        sri_xml: facturaSri.xml,
-        sri_xml_sha256: facturaSri.sha256,
-        sri_razon_social_emisor: facturaSri.razonSocialEmisor,
-        sri_identificacion_comprador: facturaSri.identificacionComprador,
-        sri_subtotal: facturaSri.subtotal,
-        sri_iva: facturaSri.iva,
-        sri_total: facturaSri.total,
-        sri_ambiente: facturaSri.ambiente,
-        sri_consultado_at: new Date().toISOString(),
-        conciliacion_estado: Math.abs(facturaSri.total-parseFloat(montoFacturado))<=0.01?'coincide':'con_diferencia',
-        conciliacion_diferencias: Math.abs(facturaSri.total-parseFloat(montoFacturado))<=0.01?[]:[`XML ${facturaSri.total.toFixed(2)} / digitado ${parseFloat(montoFacturado).toFixed(2)}`]
-      })
+      // La persistencia real (comprobante, caja chica, ol_pedidos.estado,
+      // rep_asignaciones.estado) ocurre atómicamente en el servidor, que
+      // vuelve a consultar el SRI y recalcula xml/hash/totales en vez de
+      // confiar en lo que este navegador tiene en memoria
+      // (auditoria_plan_correcciones_ia.md, punto 8). Idempotente por
+      // requestId ante reintentos por mala señal.
+      const requestKey = `factura-compra-request:${id}`
+      const requestId = sessionStorage.getItem(requestKey) || crypto.randomUUID()
+      sessionStorage.setItem(requestKey, requestId)
 
-      if (insertErr) {
-        setError('Error al registrar ticket de proveedor: ' + insertErr.message)
+      const res = await fetch('/api/sri/registrar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          asignacionId: id,
+          claveAcceso,
+          montoDigitado: parseFloat(montoFacturado),
+          metodoPago,
+          fotoPath: fotoUrl || null,
+          tiendaId: tiendaId || '37f0c318-ef34-439b-9362-1c4c9fb4d1bd',
+          provRuc: provRucFinal,
+          provEstablecimiento: cleanEstab,
+          provPuntoEmision: cleanPtoEmi,
+          provSecuencial: cleanSecuencial,
+          requestId,
+        }),
+      })
+      const resultado = await res.json()
+      if (!res.ok) {
+        setError(resultado.error || 'Error al registrar la factura de compra')
         setGuardando(false)
         return
       }
+      sessionStorage.removeItem(requestKey)
 
-      // Registrar egreso en la caja del shopper si el método de pago fue caja chica (efectivo)
-      if (metodoPago === 'efectivo_caja_chica' && asignacion) {
-        await supabase.from('rep_transacciones_caja').insert({
-          repartidor_id: asignacion.repartidor_id,
-          pedido_id:     pedido.id,
-          tipo:          'egreso_compra',
-          monto:         parseFloat(montoFacturado),
-          comprobante_url: fotoUrl || null,
-          estado:        'pendiente'
-        })
-      }
+      // Nota informativa en el pedido (no crítica: si falla, no se reintenta el registro).
+      await supabase.from('ol_pedidos').update({ notas: notasActuales }).eq('id', pedido.id)
 
-      // 3. Actualizar el pedido en Supabase a estado 'preparado' (picking finalizado, listo para entrega)
-      await supabase.from('ol_pedidos')
-        .update({ 
-          estado: 'preparado', 
-          notas: notasActuales
-        })
-        .eq('id', pedido.id)
-
-      // 4. Actualizar la asignación a estado 'recolectado'
-      await supabase.from('rep_asignaciones')
-        .update({ estado: 'recolectado', updated_at: new Date().toISOString() })
-        .eq('id', id)
-
-      // 5. Redireccionar al dashboard para proceder con el traspaso o la entrega
+      // Redireccionar al dashboard para proceder con el traspaso o la entrega
       router.push('/repartidor?modo=comprador')
     } catch (e) {
       setError('Ocurrió un error al guardar en la base de datos de Supabase.')

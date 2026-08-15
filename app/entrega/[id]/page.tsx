@@ -304,10 +304,9 @@ export default function EntregaPage() {
         return
       }
 
-      const { data: fotoUrlData } = sb.storage
-        .from('comprobantes-proveedores')
-        .getPublicUrl(fotoName)
-      const fotoEntregaUrl = fotoUrlData?.publicUrl || ''
+      // Bucket privado (punto 10 de la auditoría): se guarda la ruta, no
+      // una URL pública -- se firma bajo demanda al mostrarla.
+      const fotoEntregaUrl = fotoName
 
       const firmaBlob = await new Promise<Blob | null>(resolve => canvas.toBlob(blob => resolve(blob), 'image/png'))
       if (!firmaBlob) {
@@ -329,10 +328,7 @@ export default function EntregaPage() {
         return
       }
 
-      const { data: firmaUrlData } = sb.storage
-        .from('comprobantes-proveedores')
-        .getPublicUrl(firmaName)
-      const firmaClienteUrl = firmaUrlData?.publicUrl || ''
+      const firmaClienteUrl = firmaName
 
       const geoFinal = corrigiendoGps && nuevaGeo ? nuevaGeo : { lat: pedido.geo_lat, lng: pedido.geo_lng }
       const referenciasFinal = corrigiendoGps && referenciaNueva.trim()

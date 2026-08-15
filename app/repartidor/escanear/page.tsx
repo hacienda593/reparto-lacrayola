@@ -9,7 +9,7 @@ export default function EscanearPage() {
   const router = useRouter()
   const { user } = useAuth()
 
-  const [pin, setPin] = useState(['', '', '', ''])
+  const [pin, setPin] = useState(['', '', '', '', '', ''])
   const [repartidor, setRepartidor] = useState<any>(null)
   const [procesando, setProcesando] = useState(false)
   const [error, setError] = useState('')
@@ -88,14 +88,13 @@ export default function EscanearPage() {
     try {
       const barcodes = await detectorRef.current.detect(videoRef.current)
       if (barcodes.length > 0) {
-        const valor = barcodes[0].rawValue as string
-        // El QR contiene el UUID de la asignación — extraemos los últimos 4 chars como PIN
-        const pinExtraido = valor.slice(-4).toUpperCase()
+        // El QR contiene el token de 128 bits de rep_handoffs (ya no el
+        // UUID de la asignación) -- se valida server-side vía RPC.
+        const valor = (barcodes[0].rawValue as string).trim()
         scanningRef.current = false
         detenerCamara()
         setVista('pin')
-        setPin(pinExtraido.split(''))
-        await procesarTraspaso(pinExtraido)
+        await procesarTraspaso(valor)
         return
       }
     } catch {
@@ -112,7 +111,7 @@ export default function EscanearPage() {
     const newPin = [...pin]
     newPin[index] = value.toUpperCase()
     setPin(newPin)
-    if (value && index < 3) {
+    if (value && index < 5) {
       document.getElementById(`pin-${index + 1}`)?.focus()
     }
   }
@@ -123,70 +122,66 @@ export default function EscanearPage() {
     }
   }
 
-  async function procesarTraspaso(pinCompleto: string) {
+  async function procesarTraspaso(codigo: string) {
     setError('')
     setProcesando(true)
 
-    try {
-      const { data: recolectados, error: errAsig } = await supabase
-        .from('rep_asignaciones')
-        .select('*, ol_pedidos(numero, nombre_cliente, total, telefono)')
-        .eq('estado', 'recolectado')
+    // RPC atómica (migration_traspaso_seguro.sql): valida el token/código
+    // contra rep_handoffs con bloqueo de fila, expiración de 8 minutos,
+    // límite de intentos y un solo uso -- ya no se trae la lista completa
+    // de asignaciones "recolectado" ni se compara en el navegador.
+    const requestKey = `traspaso-request:${codigo}`
+    const requestId = sessionStorage.getItem(requestKey) || crypto.randomUUID()
+    sessionStorage.setItem(requestKey, requestId)
 
-      if (errAsig || !recolectados) {
-        setError('Error al conectar con la base de datos de repartos.')
-        setProcesando(false)
-        return
-      }
+    const geo = await new Promise<{ lat: number; lng: number } | null>(res => {
+      if (typeof window === 'undefined' || !navigator?.geolocation) { res(null); return }
+      navigator.geolocation.getCurrentPosition(
+        p => res({ lat: p.coords.latitude, lng: p.coords.longitude }),
+        () => res(null),
+        { timeout: 5000 }
+      )
+    })
 
-      const asigValida = recolectados.find((a: any) => a.id.slice(-4).toUpperCase() === pinCompleto)
+    const { data: handoff, error: errRpc } = await supabase.rpc('aceptar_traspaso_rider', {
+      p_token: codigo,
+      p_request_id: requestId,
+      p_lat: geo?.lat ?? null,
+      p_lng: geo?.lng ?? null,
+    })
 
-      if (!asigValida) {
-        setError('Código PIN inválido o el pedido ya fue entregado/traspasado.')
-        setProcesando(false)
-        return
-      }
-
-      const { error: errUpdateAsig } = await supabase
-        .from('rep_asignaciones')
-        .update({
-          repartidor_id: repartidor.id,
-          rider_id:      repartidor.id,
-          handoff_at:    new Date().toISOString(),
-          estado:        'en_ruta',
-          updated_at:    new Date().toISOString()
-        })
-        .eq('id', asigValida.id)
-
-      if (errUpdateAsig) {
-        setError('Error al actualizar el repartidor de la entrega.')
-        setProcesando(false)
-        return
-      }
-
-      await supabase.from('ol_pedidos')
-        .update({ estado: 'enviado' })
-        .eq('id', asigValida.pedido_id)
-
-      setPedidoNum(String(asigValida.ol_pedidos?.numero).padStart(4, '0'))
-      setExito(true)
+    if (errRpc) {
+      setError(errRpc.message || 'Código inválido o expirado.')
       setProcesando(false)
+      return
+    }
+    sessionStorage.removeItem(requestKey)
 
-      const msg = `🛵 *La Crayola - ¡Tu pedido va en camino!* \n\nHola *${asigValida.ol_pedidos?.nombre_cliente}*, tu pedido *#${String(asigValida.ol_pedidos?.numero).padStart(4,'0')}* ya fue comprado y va en camino a cargo del motorizado *${repartidor.nombre}*. 📍 ¡Llegaré en unos minutos!`
-      const cleanPhone = asigValida.ol_pedidos?.telefono?.replace(/\D/g,'') || ''
+    const { data: asigInfo } = await supabase
+      .from('rep_asignaciones')
+      .select('*, ol_pedidos(numero, nombre_cliente, telefono)')
+      .eq('id', handoff.asignacion_id)
+      .single()
+
+    setPedidoNum(String(asigInfo?.ol_pedidos?.numero ?? '').padStart(4, '0'))
+    setExito(true)
+    setProcesando(false)
+
+    const nombreCliente = asigInfo?.ol_pedidos?.nombre_cliente
+    const numero = asigInfo?.ol_pedidos?.numero
+    const telefono = asigInfo?.ol_pedidos?.telefono
+    if (nombreCliente && numero && telefono) {
+      const msg = `🛵 *La Crayola - ¡Tu pedido va en camino!* \n\nHola *${nombreCliente}*, tu pedido *#${String(numero).padStart(4,'0')}* ya fue comprado y va en camino a cargo del motorizado *${repartidor.nombre}*. 📍 ¡Llegaré en unos minutos!`
+      const cleanPhone = telefono.replace(/\D/g,'') || ''
       const formattedPhone = cleanPhone.startsWith('0') ? '593' + cleanPhone.slice(1) : (cleanPhone.startsWith('9') && cleanPhone.length === 9 ? '593' + cleanPhone : cleanPhone)
       window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(msg)}`, '_blank')
-
-    } catch {
-      setError('Ocurrió un error inesperado al procesar el traspaso.')
-      setProcesando(false)
     }
   }
 
   function submitPin() {
     const pinString = pin.join('').trim()
-    if (pinString.length !== 4) {
-      setError('Por favor ingresa el PIN de 4 caracteres completo.')
+    if (pinString.length !== 6) {
+      setError('Por favor ingresa el código de 6 caracteres completo.')
       return
     }
     procesarTraspaso(pinString)
@@ -256,7 +251,7 @@ export default function EscanearPage() {
             {vista === 'pin' ? (
               <div className="bg-[#181d24] border border-[#2d3748] rounded-3xl p-6 space-y-5 w-full">
                 <p className="text-gray-400 text-xs leading-normal">
-                  Ingresa el PIN de 4 caracteres que se muestra en el celular del Shopper.
+                  Ingresa el código de 6 caracteres que se muestra en el celular del Shopper.
                 </p>
                 <div className="flex justify-center gap-3">
                   {pin.map((char, index) => (
