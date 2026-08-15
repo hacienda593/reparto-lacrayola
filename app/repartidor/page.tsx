@@ -930,13 +930,20 @@ export default function RepartidorPage() {
         )
       })
 
-      const monto = parseFloat(montoCobradoModal || '0')
+      // Si ya pagó por transferencia (y admin ya lo validó), no hay nada
+      // que cobrar en la puerta -- antes se pedía igual el monto en
+      // efectivo aunque el cliente ya hubiera pagado. La RPC ya sabía
+      // manejar 'transferencia' correctamente; el bug era que el
+      // frontend nunca se lo mandaba.
+      const yaPagoPorTransferencia = entregaModal.metodo_pago === 'transferencia' && entregaModal.pago_confirmado === true
+      const metodoReal = yaPagoPorTransferencia ? 'transferencia' : 'efectivo'
+      const monto = yaPagoPorTransferencia ? 0 : parseFloat(montoCobradoModal || '0')
 
       const requestKey = `entrega-request:${asignacionId}`
       const requestId = sessionStorage.getItem(requestKey) || crypto.randomUUID()
       sessionStorage.setItem(requestKey, requestId)
       const { error: cierreError } = await supabase.rpc('finalizar_entrega_atomica', {
-        p_request_id: requestId,p_asignacion_id:asignacionId,p_monto:monto,p_metodo:'efectivo',
+        p_request_id: requestId,p_asignacion_id:asignacionId,p_monto:monto,p_metodo:metodoReal,
         p_lat:geo?.lat??null,p_lng:geo?.lng??null,p_foto_url:fotoEntregaUrl,
         p_firma_url:firmaClienteUrl,p_referencias:null,
       })
@@ -978,6 +985,22 @@ export default function RepartidorPage() {
         alert('No se pudo obtener la ubicación GPS actual. Activa el GPS de tu celular e intenta nuevamente.')
         setProcesando(null)
         return
+      }
+
+      // Comparar contra la ubicación que el sistema ya tenía registrada
+      // ANTES de sobrescribirla -- antes este botón pisaba la coordenada a
+      // ciegas, sin mostrarle al repartidor si coincidía con la dirección
+      // del cliente o no.
+      if (p.geo_lat && p.geo_lng) {
+        const distanciaM = Math.round(distanciaKm({ lat: p.geo_lat, lng: p.geo_lng }, geo) * 1000)
+        const lejos = distanciaM > 150
+        const continuar = confirm(
+          (lejos
+            ? `⚠️ Tu posición actual está a ${distanciaM} metros de la ubicación registrada del pedido — podría ser la casa equivocada.\n\n`
+            : `✓ Tu posición actual está a ${distanciaM} metros de la ubicación registrada (coincide razonablemente).\n\n`)
+          + '¿Confirmar esta ubicación como la definitiva de entrega?'
+        )
+        if (!continuar) { setProcesando(null); return }
       }
 
       // 1. Actualizar coordenadas del pedido en ol_pedidos
@@ -2211,21 +2234,33 @@ export default function RepartidorPage() {
               </div>
             </div>
 
-            {/* Paso 3: Monto Cobrado (si aplica) */}
-            <div>
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Paso 3: Monto cobrado en efectivo</label>
-              <div className="relative mt-1">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">$</span>
-                <input
-                  type="number" step="0.01" min="0"
-                  value={montoCobradoModal}
-                  onChange={e => setMontoCobradoModal(e.target.value)}
-                  placeholder={entregaModal.total.toFixed(2)}
-                  disabled={guardandoEntrega}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-7 pr-3 py-2.5 text-sm font-bold text-slate-800 focus:outline-none focus:border-green-500"
-                />
+            {/* Paso 3: Monto Cobrado -- solo si el cliente paga contraentrega.
+                Si ya pagó por transferencia y admin lo validó, no hay nada
+                que cobrar en la puerta. */}
+            {entregaModal.metodo_pago === 'transferencia' && entregaModal.pago_confirmado === true ? (
+              <div className="bg-emerald-50 border border-emerald-200 rounded-2xl px-4 py-3 flex items-center gap-2.5">
+                <span className="text-emerald-600 text-lg">✓</span>
+                <div>
+                  <p className="text-xs font-bold text-emerald-700">Pago ya confirmado por transferencia</p>
+                  <p className="text-[10px] text-emerald-600">No necesitas cobrar nada en la puerta — solo entrega el pedido.</p>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Paso 3: Monto cobrado en efectivo</label>
+                <div className="relative mt-1">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">$</span>
+                  <input
+                    type="number" step="0.01" min="0"
+                    value={montoCobradoModal}
+                    onChange={e => setMontoCobradoModal(e.target.value)}
+                    placeholder={entregaModal.total.toFixed(2)}
+                    disabled={guardandoEntrega}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-7 pr-3 py-2.5 text-sm font-bold text-slate-800 focus:outline-none focus:border-green-500"
+                  />
+                </div>
+              </div>
+            )}
 
             <button
               onClick={finalizarEntregaConPOD}

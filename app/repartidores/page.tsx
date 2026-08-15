@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
 import { RepRepartidor } from '@/lib/types'
+import { validarCedulaEcuador, validarCelularEcuador } from '@/lib/cedula'
 import Sidebar from '@/components/Sidebar'
 import {
   Plus, Pencil, Loader2, Phone, MapPin,
@@ -66,6 +67,14 @@ export default function RepartidoresPage() {
     if (!form.nombre?.trim())   { setError('El nombre es obligatorio');   return }
     if (!form.telefono?.trim()) { setError('El teléfono es obligatorio'); return }
     if (!form.email?.trim())    { setError('El Gmail es obligatorio');    return }
+    // Misma validación que /registrar (punto de la auditoría: no dejar
+    // entrar cédulas/celulares inventados, sea autoservicio o alta manual).
+    if (form.cedula?.trim() && !validarCedulaEcuador(form.cedula)) {
+      setError('La cédula ingresada no es válida'); return
+    }
+    if (!validarCelularEcuador(form.telefono)) {
+      setError('El teléfono debe tener el formato 09XXXXXXXX'); return
+    }
     setGuardando(true); setError('')
 
     const payload: any = { ...form }

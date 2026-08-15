@@ -16,7 +16,7 @@ type Pedido = { id: string; numero: number; nombre_cliente: string; total: numbe
 type Persona = { nombre?: string } | null
 type Asignacion = { id: string; pedido_id: string; estado: string; asignado_at: string; updated_at?: string; shopper_id?: string | null; rider_id?: string | null; shopper?: Persona; rider?: Persona; repartidor?: Persona }
 type Entrega = { pedido_id: string; repartidor_id: string; monto_cobrado: number; exitosa: boolean; entregado_at: string; salida_at?: string | null; tiempo_entrega?: number | null }
-type Repartidor = { id: string; nombre: string; activo: boolean; efectivo_en_mano: number; estado?: string | null }
+type Repartidor = { id: string; nombre: string; activo: boolean; efectivo_en_mano: number; estado?: string | null; comision_valor?: number | null }
 
 export default function Dashboard() {
   const [pedidos, setPedidos] = useState<Pedido[]>([])
@@ -34,7 +34,7 @@ export default function Dashboard() {
       supabase.from('ol_pedidos').select('id,numero,nombre_cliente,total,estado,created_at,geo_lat,geo_lng,metodo_pago,pago_confirmado').gte('created_at', desde.toISOString()).order('created_at', { ascending: false }),
       supabase.from('rep_asignaciones').select('id,pedido_id,estado,asignado_at,updated_at,shopper_id,rider_id,shopper:rep_repartidores!rep_asignaciones_shopper_id_fkey(nombre),rider:rep_repartidores!rep_asignaciones_rider_id_fkey(nombre),repartidor:rep_repartidores!rep_asignaciones_repartidor_id_fkey(nombre)').gte('asignado_at', desde.toISOString()),
       supabase.from('rep_entregas').select('pedido_id,repartidor_id,monto_cobrado,exitosa,entregado_at,salida_at,tiempo_entrega').gte('entregado_at', desde.toISOString()),
-      supabase.from('rep_repartidores').select('id,nombre,activo,estado,efectivo_en_mano').eq('activo', true).order('nombre'),
+      supabase.from('rep_repartidores').select('id,nombre,activo,estado,efectivo_en_mano,comision_valor').eq('activo', true).order('nombre'),
     ])
     const firstError = p.error || a.error || e.error || r.error
     if (firstError) setError(firstError.message)
@@ -65,7 +65,10 @@ export default function Dashboard() {
     const datosIncompletos = entregasHoy.filter(e => e.monto_cobrado == null || (e.salida_at && new Date(e.salida_at) > new Date(e.entregado_at))).length
     const ranking = repartidores.map(rep => {
       const mine = entregas.filter(e => e.repartidor_id === rep.id && e.exitosa)
-      return { ...rep, entregas: mine.length, cobrado: mine.reduce((s,e) => s + Number(e.monto_cobrado || 0), 0) }
+      // Comisión ganada, no solo lo cobrado al cliente -- antes no se veía
+      // en ningún lado cuánto le corresponde a cada repartidor.
+      const comision = mine.length * Number(rep.comision_valor ?? 1)
+      return { ...rep, entregas: mine.length, cobrado: mine.reduce((s,e) => s + Number(e.monto_cobrado || 0), 0), comision }
     }).sort((x,y) => y.entregas - x.entregas).slice(0, 5)
     return { asigByPedido, pedidosHoy, entregasHoy, entregasAyer, sinAsignar, transferencias, sinUbicacion, enRuta, demorados, efectivo, avgMin, datosIncompletos, ranking }
   }, [pedidos, asignaciones, entregas, repartidores])
@@ -76,15 +79,17 @@ export default function Dashboard() {
     { label: 'En ruta demorados', value: data.demorados.length, detail: 'Más de 60 minutos sin cierre', href: '/asignaciones', icon: Clock3 },
     { label: 'Sin ubicación GPS', value: data.sinUbicacion.length, detail: 'Confirmar dirección con el cliente', href: '/asignaciones', icon: MapPin },
   ]
+  // Cada tarjeta lleva a la pantalla donde de verdad se gestiona ese dato
+  // -- antes eran solo números fijos sin ninguna acción posible.
   const summaryCards = [
-    { label: 'Pedidos hoy', value: data.pedidosHoy.length, icon: Package, tone: 'text-blue-600 bg-blue-50' },
-    { label: 'Entregados hoy', value: data.entregasHoy.length, icon: CheckCircle2, tone: 'text-green-600 bg-green-50' },
-    { label: 'En ruta', value: data.enRuta.length, icon: Bike, tone: 'text-orange-600 bg-orange-50' },
-    { label: 'Cobrado hoy', value: money(data.entregasHoy.reduce((s,e)=>s+Number(e.monto_cobrado||0),0)), icon: TrendingUp, tone: 'text-emerald-600 bg-emerald-50' },
-    { label: 'Tiempo promedio', value: data.avgMin ? `${data.avgMin} min` : '—', icon: Clock3, tone: 'text-violet-600 bg-violet-50' },
-    { label: 'Efectivo en calle', value: money(data.efectivo), icon: DollarSign, tone: 'text-amber-600 bg-amber-50' },
-    { label: 'Personal activo', value: repartidores.length, icon: Users, tone: 'text-cyan-600 bg-cyan-50' },
-    { label: 'Vs. ayer', value: `${data.entregasHoy.length - data.entregasAyer.length >= 0 ? '+' : ''}${data.entregasHoy.length - data.entregasAyer.length}`, icon: ShoppingBasket, tone: 'text-indigo-600 bg-indigo-50' },
+    { label: 'Pedidos hoy', value: data.pedidosHoy.length, icon: Package, tone: 'text-blue-600 bg-blue-50', href: '/pedidos' },
+    { label: 'Entregados hoy', value: data.entregasHoy.length, icon: CheckCircle2, tone: 'text-green-600 bg-green-50', href: '/pedidos' },
+    { label: 'En ruta', value: data.enRuta.length, icon: Bike, tone: 'text-orange-600 bg-orange-50', href: '/asignaciones' },
+    { label: 'Cobrado hoy', value: money(data.entregasHoy.reduce((s,e)=>s+Number(e.monto_cobrado||0),0)), icon: TrendingUp, tone: 'text-emerald-600 bg-emerald-50', href: '/reportes' },
+    { label: 'Tiempo promedio', value: data.avgMin ? `${data.avgMin} min` : '—', icon: Clock3, tone: 'text-violet-600 bg-violet-50', href: '/reportes' },
+    { label: 'Efectivo en calle', value: money(data.efectivo), icon: DollarSign, tone: 'text-amber-600 bg-amber-50', href: '/liquidaciones' },
+    { label: 'Personal activo', value: repartidores.length, icon: Users, tone: 'text-cyan-600 bg-cyan-50', href: '/repartidores' },
+    { label: 'Vs. ayer', value: `${data.entregasHoy.length - data.entregasAyer.length >= 0 ? '+' : ''}${data.entregasHoy.length - data.entregasAyer.length}`, icon: ShoppingBasket, tone: 'text-indigo-600 bg-indigo-50', href: '/reportes' },
   ]
 
   return <div className="space-y-6 text-slate-900">
@@ -97,14 +102,14 @@ export default function Dashboard() {
     {data.datosIncompletos > 0 && <Link href="/reportes" className="flex gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800"><AlertTriangle size={18}/><span><strong>{data.datosIncompletos} entrega(s)</strong> de hoy tienen monto o tiempos incompletos. Se excluyen los tiempos inválidos del promedio.</span><ArrowRight size={16} className="ml-auto"/></Link>}
 
     <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-      {summaryCards.map(({label,value,icon:Icon,tone}) => <div key={label} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className={`mb-3 flex h-9 w-9 items-center justify-center rounded-xl ${tone}`}><Icon size={17}/></div><div className="text-xl font-black">{loading ? <Loader2 size={18} className="animate-spin"/> : value}</div><div className="text-xs text-slate-500">{label}</div></div>)}
+      {summaryCards.map(({label,value,icon:Icon,tone,href}) => <Link href={href} key={label} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm hover:-translate-y-0.5 hover:shadow-md transition-transform"><div className={`mb-3 flex h-9 w-9 items-center justify-center rounded-xl ${tone}`}><Icon size={17}/></div><div className="text-xl font-black">{loading ? <Loader2 size={18} className="animate-spin"/> : value}</div><div className="text-xs text-slate-500">{label}</div></Link>)}
     </section>
 
     <section><div className="mb-3 flex items-center justify-between"><div><h2 className="font-black">Requiere atención</h2><p className="text-xs text-slate-500">Acciones que pueden detener la operación.</p></div><Link href="/asignaciones" className="text-xs font-bold text-green-700">Abrir operación →</Link></div><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">{actions.map(({label,value,detail,href,icon:Icon}) => <Link href={href} key={label} className={`group rounded-2xl border bg-white p-4 shadow-sm hover:-translate-y-0.5 hover:shadow-md ${value ? 'border-red-200' : 'border-slate-200'}`}><div className="flex items-center justify-between"><Icon size={18} className={value ? 'text-red-500' : 'text-slate-400'}/><span className={`text-2xl font-black ${value ? 'text-slate-900' : 'text-slate-300'}`}>{value}</span></div><p className="mt-3 text-sm font-bold">{label}</p><p className="text-xs text-slate-500">{detail}</p><ArrowRight size={15} className="mt-3 text-slate-300 group-hover:text-green-600"/></Link>)}</div></section>
 
     <section className="grid gap-4 xl:grid-cols-[1.35fr_.65fr]">
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"><div className="flex items-center justify-between border-b border-slate-100 px-5 py-4"><div><h2 className="font-black">Operación en curso</h2><p className="text-xs text-slate-500">Pedidos activos y responsables.</p></div><Link href="/asignaciones" className="text-xs font-bold text-green-700">Gestionar</Link></div><div className="divide-y divide-slate-100">{pedidos.filter(p=>!['entregado','cancelado'].includes(p.estado)).slice(0,8).map(p=>{const a=data.asigByPedido.get(p.id); return <Link href="/asignaciones" key={p.id} className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50"><div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100"><Package size={15}/></div><div className="min-w-0 flex-1"><p className="truncate text-sm font-bold">#{String(p.numero).padStart(4,'0')} · {p.nombre_cliente}</p><p className="truncate text-xs text-slate-500">{a?.shopper?.nombre || a?.repartidor?.nombre || 'Sin comprador'}{a?.rider?.nombre ? ` → ${a.rider.nombre}` : ''}</p></div><div className="text-right"><p className="text-sm font-black">{money(p.total)}</p><p className="text-[10px] font-bold uppercase text-slate-400">{a?.estado || p.estado}</p></div></Link>})}{!loading && pedidos.length===0 && <p className="p-8 text-center text-sm text-slate-400">No hay actividad reciente.</p>}</div></div>
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="mb-4"><h2 className="font-black">Rendimiento · 30 días</h2><p className="text-xs text-slate-500">Entregas exitosas por repartidor.</p></div><div className="space-y-4">{data.ranking.map((r,i)=><div key={r.id} className="flex items-center gap-3"><span className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 text-xs font-black">{i+1}</span><div className="min-w-0 flex-1"><div className="flex justify-between gap-2"><span className="truncate text-sm font-bold">{r.nombre}</span><span className="text-sm font-black">{r.entregas}</span></div><div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-green-500" style={{width:`${Math.max(5,(r.entregas/(data.ranking[0]?.entregas||1))*100)}%`}}/></div><p className="mt-1 text-[10px] text-slate-400">{money(r.cobrado)} cobrado</p></div></div>)}</div><Link href="/reportes" className="mt-5 flex items-center justify-center gap-2 rounded-xl bg-slate-900 py-2.5 text-xs font-bold text-white">Ver analítica completa <ArrowRight size={14}/></Link></div>
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="mb-4"><h2 className="font-black">Rendimiento · 30 días</h2><p className="text-xs text-slate-500">Entregas exitosas por repartidor.</p></div><div className="space-y-4">{data.ranking.map((r,i)=><div key={r.id} className="flex items-center gap-3"><span className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 text-xs font-black">{i+1}</span><div className="min-w-0 flex-1"><div className="flex justify-between gap-2"><span className="truncate text-sm font-bold">{r.nombre}</span><span className="text-sm font-black">{r.entregas}</span></div><div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-green-500" style={{width:`${Math.max(5,(r.entregas/(data.ranking[0]?.entregas||1))*100)}%`}}/></div><p className="mt-1 text-[10px] text-slate-400">{money(r.cobrado)} cobrado · <span className="font-bold text-green-600">{money(r.comision)} comisión</span></p></div></div>)}</div><Link href="/reportes" className="mt-5 flex items-center justify-center gap-2 rounded-xl bg-slate-900 py-2.5 text-xs font-bold text-white">Ver analítica completa <ArrowRight size={14}/></Link></div>
     </section>
   </div>
 }
