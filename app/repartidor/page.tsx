@@ -566,26 +566,51 @@ export default function RepartidorPage() {
     router.push(`/picking/${asignacionId}`)
   }
 
+  // Punto unificado (auditoria_plan_correcciones_ia.md, puntos 5/15): antes
+  // había 3 copias de estas mismas 2 escrituras sueltas (autotraspaso,
+  // enRuta, activarParada), sin validar responsable/rol/estado. Ahora una
+  // sola RPC atómica e idempotente cubre los dos casos reales del negocio:
+  // shopper que compró y sigue como rider (venía de 'recolectado'), o rider
+  // con asignación directa (venía de 'asignado').
+  async function iniciarRutaRepartidor(asignacionId: string) {
+    const geo = await new Promise<{ lat: number; lng: number } | null>(res => {
+      if (typeof window === 'undefined' || !navigator?.geolocation) { res(null); return }
+      navigator.geolocation.getCurrentPosition(
+        p => res({ lat: p.coords.latitude, lng: p.coords.longitude }),
+        () => res(null),
+        { timeout: 5000 }
+      )
+    })
+    const requestKey = `iniciar-ruta-request:${asignacionId}`
+    const requestId = sessionStorage.getItem(requestKey) || crypto.randomUUID()
+    sessionStorage.setItem(requestKey, requestId)
+
+    const { error } = await supabase.rpc('iniciar_ruta_repartidor', {
+      p_asignacion_id: asignacionId,
+      p_request_id: requestId,
+      p_lat: geo?.lat ?? null,
+      p_lng: geo?.lng ?? null,
+    })
+    if (!error) sessionStorage.removeItem(requestKey)
+    return error
+  }
+
   async function autotraspaso(asignacionId: string, pedidoId: string, numero: number, nombreCliente: string, telefonoCliente: string) {
     if (!repartidor) return
     setProcesando(asignacionId)
-    
-    // 1. Cambiar estado de asignación a en_ruta y asignar rider_id (autotraspaso)
-    await supabase.from('rep_asignaciones').update({
-      rider_id:   repartidor.id,
-      estado:     'en_ruta',
-      updated_at: new Date().toISOString()
-    }).eq('id', asignacionId)
 
-    // 2. Cambiar estado del pedido a enviado
-    await supabase.from('ol_pedidos').update({ estado: 'enviado' }).eq('id', pedidoId)
+    const error = await iniciarRutaRepartidor(asignacionId)
+    if (error) {
+      alert('No se pudo iniciar la ruta: ' + error.message)
+      setProcesando(null)
+      return
+    }
 
     // La entrega se registra únicamente al finalizarla con evidencia.
     setModo('repartidor')
     setProcesando(null)
     router.push(`/entrega/${asignacionId}`)
 
-    // 5. Abrir WhatsApp para avisar al cliente
     const msg = `🛵 *La Crayola - ¡Tu pedido va en camino!* \n\nHola *${nombreCliente}*, tu pedido *#${String(numero).padStart(4,'0')}* ya fue comprado y va en camino a cargo de *${repartidor.nombre}*. 📍 Puedes seguir mi trayecto y contactarme directamente. ¡Llegaré en unos minutos!`
     window.open(`https://wa.me/${formatWhatsApp(telefonoCliente)}?text=${encodeURIComponent(msg)}`, '_blank')
   }
@@ -637,24 +662,9 @@ export default function RepartidorPage() {
   async function enRuta(asignacionId: string, pedidoId: string) {
     if (!repartidor) return
     setProcesando(asignacionId)
-    const geo = await new Promise<{ lat: number; lng: number } | null>(res => {
-      if (typeof window === 'undefined' || !navigator?.geolocation) {
-        res(null)
-        return
-      }
-      navigator.geolocation.getCurrentPosition(
-        p => res({ lat: p.coords.latitude, lng: p.coords.longitude }),
-        () => res(null),
-        { timeout: 5000 }
-      )
-    })
-    await supabase.from('rep_asignaciones').update({
-      rider_id:   repartidor.id,
-      estado:     'en_ruta',
-      updated_at: new Date().toISOString()
-    }).eq('id', asignacionId)
-    await supabase.from('ol_pedidos').update({ estado: 'enviado' }).eq('id', pedidoId)
+    const error = await iniciarRutaRepartidor(asignacionId)
     setProcesando(null)
+    if (error) { alert('No se pudo iniciar la ruta: ' + error.message); return }
     router.push(`/entrega/${asignacionId}`)
   }
 
@@ -668,14 +678,8 @@ export default function RepartidorPage() {
     if (p.estado === 'asignado') {
       setProcesando(p.asignacion_id)
       try {
-        await supabase.from('rep_asignaciones').update({
-          rider_id:   repartidor.id,
-          estado:     'en_ruta',
-          updated_at: new Date().toISOString()
-        }).eq('id', p.asignacion_id)
-        
-        await supabase.from('ol_pedidos').update({ estado: 'enviado' }).eq('id', p.pedido_id)
-        
+        const error = await iniciarRutaRepartidor(p.asignacion_id)
+        if (error) { console.error('Error al activar parada:', error.message); return }
         await cargar(user!.id)
       } catch (err) {
         console.error("Error al activar parada:", err)
