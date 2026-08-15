@@ -290,6 +290,9 @@ export default function CajaPage() {
       const f=data.factura as SriFactura;setFacturaSri(f);setConciliacionSri(data.conciliacion);setSriGenerado(true)
       if(!provRuc)setProvRuc(f.rucEmisor)
       if(!montoFacturado.trim())setMontoFacturado(f.total.toFixed(2))
+      // Si el SRI SÍ autorizó de verdad, ya no aplica ninguna excepción
+      // (aunque el shopper hubiera entrado a ese modo en un intento previo).
+      if(f.estado==='AUTORIZADO'){setModoExcepcion(null);setMotivoExcepcion('')}
     }catch(e){
       setSriGenerado(false)
       // No se guarda el mensaje sin más: queda disponible para que, si el
