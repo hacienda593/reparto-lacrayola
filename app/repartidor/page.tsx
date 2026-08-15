@@ -125,6 +125,11 @@ export default function RepartidorPage() {
   // Envíos Flex states
   const [vistaRepartidor, setVistaRepartidor] = useState<'listado' | 'mapa'>('listado')
   const [paradaActivaId, setParadaActivaId] = useState<string | null>(null)
+  // Antes "Listas para recoger" (pool, sin custodia aún) y "Mis pedidos en
+  // camino" (ya en custodia) vivían apiladas en la misma pantalla con
+  // scroll -- se sentía todo mezclado. Ahora son pestañas separadas, igual
+  // que ya existían para el modo comprador.
+  const [pestanaRepartidor, setPestanaRepartidor] = useState<'recoger' | 'entregar'>('recoger')
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -1559,25 +1564,40 @@ export default function RepartidorPage() {
         </div>
       )}
 
-      {/* Ruta combinada en Google Maps: opción secundaria para ver el trayecto
-          completo de un vistazo (Google Maps rotula las paradas A/B/C, no con
-          el nombre del cliente -- para eso está la vista de mapa/lista de
-          abajo, con el número real por cercanía y los datos de cada pedido). */}
-      {modo === 'repartidor' && pedidos.filter(p => p.estado === 'en_ruta' && p.geo_lat && p.geo_lng).length > 1 && (
-        <div className="px-4 pt-4">
+      {/* Pestañas: "Por recoger" (pool, aún sin custodia) vs "En camino"
+          (ya recibido, rumbo al cliente) -- antes ambas secciones estaban
+          apiladas en una sola pantalla con scroll y se sentían mezcladas. */}
+      {modo === 'repartidor' && (
+        <div className="px-4 pt-4 grid grid-cols-2 gap-2">
           <button
-            onClick={abrirRutaCombinada}
-            className="w-full flex items-center justify-center gap-2 bg-orange-50 hover:bg-orange-100 border border-orange-200 text-orange-700 font-bold py-2.5 rounded-2xl text-xs transition cursor-pointer"
+            onClick={() => setPestanaRepartidor('recoger')}
+            className={`relative py-2.5 rounded-xl text-xs font-bold transition-all text-center border cursor-pointer ${
+              pestanaRepartidor === 'recoger'
+                ? 'bg-orange-600 text-white border-orange-600 shadow-sm'
+                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+            }`}
           >
-            <Navigation size={13} />
-            Ver trayecto completo en Google Maps
+            📦 Por recoger ({poolEntregas.length})
+            {poolEntregas.length > 0 && pestanaRepartidor !== 'recoger' && (
+              <span className="absolute top-1.5 right-2 w-2 h-2 bg-red-500 rounded-full animate-ping" />
+            )}
+          </button>
+          <button
+            onClick={() => setPestanaRepartidor('entregar')}
+            className={`py-2.5 rounded-xl text-xs font-bold transition-all text-center border cursor-pointer ${
+              pestanaRepartidor === 'entregar'
+                ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+            }`}
+          >
+            🛵 En camino ({pedidos.filter(p => p.estado === 'en_ruta').length})
           </button>
         </div>
       )}
 
       {/* Pool de entregas listas para recoger: pedidos que un comprador ya pago en caja
           y todavia no tienen motorizado asignado. Independiente del modulo de comprador. */}
-      {modo === 'repartidor' && (
+      {modo === 'repartidor' && pestanaRepartidor === 'recoger' && (
         <div className="px-4 pt-4">
           <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
             📦 Listas para recoger
@@ -1657,7 +1677,7 @@ export default function RepartidorPage() {
 
       {/* Cabecera de ruta al estilo "lista numerada de paquetes" (inspirado en apps
           de logistica de paquetes): cuantas entregas hay en camino ahora mismo. */}
-      {modo === 'repartidor' && (pedidos.filter(p => p.estado === 'en_ruta').length > 0 || entregasHoy.exitosas + entregasHoy.fallidas > 0) && (
+      {modo === 'repartidor' && pestanaRepartidor === 'entregar' && (pedidos.filter(p => p.estado === 'en_ruta').length > 0 || entregasHoy.exitosas + entregasHoy.fallidas > 0) && (
         <div className="px-4 pt-4">
           <div className="bg-white border border-slate-100 rounded-2xl px-4 py-3 shadow-xs space-y-1">
             <div className="flex items-center justify-between">
@@ -1678,7 +1698,24 @@ export default function RepartidorPage() {
           </div>
         </div>
       )}
-      {modo === 'repartidor' && (
+
+      {/* Ruta combinada en Google Maps: opción secundaria para ver el trayecto
+          completo de un vistazo (Google Maps rotula las paradas A/B/C, no con
+          el nombre del cliente -- para eso está la vista de mapa/lista de
+          abajo, con el número real por cercanía y los datos de cada pedido). */}
+      {modo === 'repartidor' && pestanaRepartidor === 'entregar' && pedidos.filter(p => p.estado === 'en_ruta' && p.geo_lat && p.geo_lng).length > 1 && (
+        <div className="px-4 pt-3">
+          <button
+            onClick={abrirRutaCombinada}
+            className="w-full flex items-center justify-center gap-2 bg-orange-50 hover:bg-orange-100 border border-orange-200 text-orange-700 font-bold py-2.5 rounded-2xl text-xs transition cursor-pointer"
+          >
+            <Navigation size={13} />
+            Ver trayecto completo en Google Maps
+          </button>
+        </div>
+      )}
+
+      {modo === 'repartidor' && pestanaRepartidor === 'entregar' && (
         <div className="px-4 pt-3 flex gap-2">
           <button
             onClick={() => setVistaRepartidor('listado')}
@@ -1906,6 +1943,10 @@ export default function RepartidorPage() {
                 </div>
               ))
             )
+          ) : modo === 'repartidor' && pestanaRepartidor === 'recoger' ? (
+            /* La pestaña "Por recoger" ya se renderiza arriba (pool); esta
+               columna de Listado/Mapa es solo para "En camino". */
+            null
           ) : (
             /* VISTA: MIS PEDIDOS (REPARTIDOR) - Listado/Mapa estilo Envíos Flex */
             vistaRepartidor === 'mapa' ? (
