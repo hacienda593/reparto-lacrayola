@@ -60,6 +60,15 @@ export default function CajaPage() {
   const [facturaSri,setFacturaSri]                    = useState<SriFactura|null>(null)
   const [conciliacionSri,setConciliacionSri]          = useState<{receptorCorrecto:boolean;ambienteProduccion:boolean;rucEsperado:string}|null>(null)
 
+  // Excepciones (caso excepcional, no la norma): el shopper no debe quedar
+  // bloqueado en caja si el SRI aún no autoriza una factura electrónica
+  // real, o si el proveedor sencillamente no emite comprobante (ej. compra
+  // en una verdulería informal). Ambas exigen motivo obligatorio y quedan
+  // marcadas para que admin/contabilidad les preste más atención.
+  const [ultimoErrorSri, setUltimoErrorSri]           = useState('')
+  const [modoExcepcion, setModoExcepcion]             = useState<null | 'electronica_pendiente_sri' | 'sin_comprobante'>(null)
+  const [motivoExcepcion, setMotivoExcepcion]         = useState('')
+
   // Datos del Proveedor para armar clave SRI
   const [provRuc, setProvRuc]                         = useState('')
   const [provCodigoNumerico, setProvCodigoNumerico]   = useState('00000001')
@@ -247,9 +256,19 @@ export default function CajaPage() {
     if (digitoVerificador === 10) digitoVerificador = 1
 
     const claveCompleta = `${claveSinDigito}${digitoVerificador}`
-    setClaveAcceso(claveCompleta)
     setFactura(`${cleanEstab}-${cleanPtoEmi}-${cleanSecuencial}`)
-    setSriGenerado(true)
+    // Si la clave recién calculada es igual a la que ya estaba, no tocar
+    // nada más (evita re-renders y, sobre todo, invalidar una validación
+    // real que ya se hizo contra el SRI para esta misma clave). Si cambió
+    // -- porque el operador corrigió algún dato del ticket -- sí hay que
+    // invalidar la validación anterior: ya no aplica a la clave nueva.
+    setClaveAcceso(prev => {
+      if (prev === claveCompleta) return prev
+      setSriGenerado(false)
+      setFacturaSri(null)
+      setConciliacionSri(null)
+      return claveCompleta
+    })
   }, [fechaEmision, provRuc, provEstablecimiento, provPuntoEmision, provSecuencial, provCodigoNumerico, tiendaId])
 
 
@@ -262,7 +281,7 @@ export default function CajaPage() {
   // (/api/sri/registrar vuelve a consultar el SRI de cero, ver punto 8 de
   // la auditoría).
   async function consultarSri(){
-    setError('');setFacturaSri(null);setConciliacionSri(null)
+    setError('');setFacturaSri(null);setConciliacionSri(null);setUltimoErrorSri('')
     const clave=claveAcceso.replace(/\D/g,'');if(clave.length!==49){setError('La clave de acceso debe tener 49 dígitos (se genera sola al llenar los datos del ticket, o pégala manualmente si el ticket trae una distinta)');return}
     setConsultandoSri(true)
     try{
@@ -271,48 +290,73 @@ export default function CajaPage() {
       const f=data.factura as SriFactura;setFacturaSri(f);setConciliacionSri(data.conciliacion);setSriGenerado(true)
       if(!provRuc)setProvRuc(f.rucEmisor)
       if(!montoFacturado.trim())setMontoFacturado(f.total.toFixed(2))
-    }catch(e){setSriGenerado(false);setError(e instanceof Error?e.message:'No se pudo validar la clave contra el SRI')}finally{setConsultandoSri(false)}
+    }catch(e){
+      setSriGenerado(false)
+      // No se guarda el mensaje sin más: queda disponible para que, si el
+      // shopper decide continuar como excepción, admin sepa exactamente
+      // por qué el SRI no autorizó todavía esta factura.
+      const msg = e instanceof Error?e.message:'No se pudo validar la clave contra el SRI'
+      setError(msg)
+      setUltimoErrorSri(msg)
+    }finally{setConsultandoSri(false)}
   }
 
   async function registrarFacturacion() {
     setError('')
-    
-    const cleanEstab = provEstablecimiento.padStart(3, '0')
-    const cleanPtoEmi = provPuntoEmision.padStart(3, '0')
-    const cleanSecuencial = provSecuencial.padStart(9, '0')
-    const facturaCompleta = `${cleanEstab}-${cleanPtoEmi}-${cleanSecuencial}`
 
-    // Validaciones
-    if (cleanEstab.length !== 3 || isNaN(Number(cleanEstab))) {
-      setError('El establecimiento debe tener exactamente 3 dígitos numéricos')
+    const cleanEstab = modoExcepcion === 'sin_comprobante' ? '' : provEstablecimiento.padStart(3, '0')
+    const cleanPtoEmi = modoExcepcion === 'sin_comprobante' ? '' : provPuntoEmision.padStart(3, '0')
+    const cleanSecuencial = modoExcepcion === 'sin_comprobante' ? '' : provSecuencial.padStart(9, '0')
+    const facturaCompleta = modoExcepcion === 'sin_comprobante' ? 'Sin comprobante' : `${cleanEstab}-${cleanPtoEmi}-${cleanSecuencial}`
+
+    // Validaciones normales (factura electrónica válida, caso general).
+    if (modoExcepcion === null) {
+      if (cleanEstab.length !== 3 || isNaN(Number(cleanEstab))) {
+        setError('El establecimiento debe tener exactamente 3 dígitos numéricos')
+        return
+      }
+      if (cleanPtoEmi.length !== 3 || isNaN(Number(cleanPtoEmi))) {
+        setError('El punto de emisión debe tener exactamente 3 dígitos numéricos')
+        return
+      }
+      if (cleanSecuencial.length !== 9 || isNaN(Number(cleanSecuencial))) {
+        setError('El secuencial de la factura debe tener exactamente 9 dígitos numéricos')
+        return
+      }
+      if (claveAcceso.length !== 49 || isNaN(Number(claveAcceso))) {
+        setError('La clave de acceso SRI debe tener exactamente 49 dígitos numéricos')
+        return
+      }
+      if (!facturaSri || facturaSri.claveAcceso !== claveAcceso) {
+        setError('Primero valida esta clave con el SRI (o usa una excepción si el SRI aún no la autoriza / el proveedor no da factura)')
+        return
+      }
+      if (!conciliacionSri?.receptorCorrecto || !conciliacionSri.ambienteProduccion) {
+        setError('La factura no está emitida para el RUC de La Crayola o no pertenece al ambiente de producción')
+        return
+      }
+    }
+
+    // Excepción A: hay clave de 49 dígitos pero el SRI aún no la autoriza.
+    if (modoExcepcion === 'electronica_pendiente_sri' && (claveAcceso.length !== 49 || isNaN(Number(claveAcceso)))) {
+      setError('La clave de acceso debe tener 49 dígitos aunque el SRI aún no la autorice')
       return
     }
-    if (cleanPtoEmi.length !== 3 || isNaN(Number(cleanPtoEmi))) {
-      setError('El punto de emisión debe tener exactamente 3 dígitos numéricos')
+
+    // Ambas excepciones exigen motivo obligatorio.
+    if (modoExcepcion !== null && !motivoExcepcion.trim()) {
+      setError('Debes indicar el motivo de la excepción')
       return
     }
-    if (cleanSecuencial.length !== 9 || isNaN(Number(cleanSecuencial))) {
-      setError('El secuencial de la factura debe tener exactamente 9 dígitos numéricos')
-      return
-    }
-    if (claveAcceso.length !== 49 || isNaN(Number(claveAcceso))) {
-      setError('La clave de acceso SRI debe tener exactamente 49 dígitos numéricos')
-      return
-    }
-    if (!facturaSri || facturaSri.claveAcceso !== claveAcceso) {
-      setError('Primero consulta y valida esta clave directamente con el SRI')
-      return
-    }
-    if (!conciliacionSri?.receptorCorrecto || !conciliacionSri.ambienteProduccion) {
-      setError('La factura no está emitida para el RUC de La Crayola o no pertenece al ambiente de producción')
-      return
-    }
+
     if (!montoFacturado.trim() || isNaN(parseFloat(montoFacturado)) || parseFloat(montoFacturado) <= 0) {
       setError('Ingrese un monto real facturado válido')
       return
     }
     if (!fotoSubida) {
-      setError('Debe tomar y adjuntar una foto del comprobante físico')
+      setError(modoExcepcion === 'sin_comprobante'
+        ? 'Debe tomar una foto de evidencia de la compra (el puesto, el producto, lo que exista)'
+        : 'Debe tomar y adjuntar una foto del comprobante físico')
       return
     }
 
@@ -367,11 +411,17 @@ export default function CajaPage() {
           metodoPago,
           fotoPath: fotoUrl || null,
           tiendaId: tiendaId || '37f0c318-ef34-439b-9362-1c4c9fb4d1bd',
-          provRuc: provRucFinal,
+          // Sin comprobante: si el operador no escribió el RUC del
+          // proveedor, no usar el fallback (que es el RUC de La Crayola
+          // como compradora, no del proveedor) -- mejor dejar que el
+          // servidor use "S/N".
+          provRuc: modoExcepcion === 'sin_comprobante' && !provRuc ? '' : provRucFinal,
           provEstablecimiento: cleanEstab,
           provPuntoEmision: cleanPtoEmi,
           provSecuencial: cleanSecuencial,
           requestId,
+          tipoComprobante: modoExcepcion || 'electronica',
+          motivoExcepcion: modoExcepcion ? motivoExcepcion.trim() : null,
         }),
       })
       const resultado = await res.json()
@@ -566,9 +616,48 @@ export default function CajaPage() {
             <p className="text-[10px] text-blue-300/80">Confirma contra el SRI real que la clave es válida y trae fecha, proveedor, comprador e importe total correctos antes de poder registrar la compra.</p>
           </div>
 
-          {!sriGenerado && claveAcceso.length===49 && (
+          {!sriGenerado && claveAcceso.length===49 && modoExcepcion===null && (
             <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3 text-[11px] text-amber-300 font-semibold">
               ⚠️ La clave ya tiene 49 dígitos pero todavía no fue validada contra el SRI. Presiona &quot;Validar clave con el SRI&quot; antes de registrar la compra.
+            </div>
+          )}
+
+          {/* Excepciones -- caso excepcional, no la norma. El shopper no debe
+              quedarse trabado en caja si el SRI aún no autoriza una factura
+              real, o si el proveedor sencillamente no da comprobante. */}
+          {modoExcepcion === null ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <button type="button"
+                onClick={()=>{setModoExcepcion('electronica_pendiente_sri');setMotivoExcepcion(ultimoErrorSri?`El SRI respondió: ${ultimoErrorSri}`:'')}}
+                disabled={claveAcceso.length!==49 || !ultimoErrorSri}
+                title={!ultimoErrorSri?'Primero intenta \"Validar clave con el SRI\" arriba':undefined}
+                className="rounded-xl border border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/10 disabled:opacity-40 disabled:cursor-not-allowed text-amber-300 text-[11px] font-bold px-3 py-2.5">
+                ⏳ El SRI aún no autoriza esta factura — continuar así
+              </button>
+              <button type="button"
+                onClick={()=>{setModoExcepcion('sin_comprobante');setMotivoExcepcion('')}}
+                className="rounded-xl border border-orange-500/30 bg-orange-500/5 hover:bg-orange-500/10 text-orange-300 text-[11px] font-bold px-3 py-2.5">
+                🚫 El proveedor no entrega factura
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-2 rounded-2xl border border-orange-500/40 bg-orange-500/10 p-4">
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-bold uppercase tracking-wider text-orange-300">
+                  {modoExcepcion==='sin_comprobante' ? 'Excepción: sin comprobante del proveedor' : 'Excepción: SRI aún no autoriza esta factura'}
+                </label>
+                <button type="button" onClick={()=>{setModoExcepcion(null);setMotivoExcepcion('')}} className="text-[10px] text-gray-400 hover:text-white underline">Cancelar excepción</button>
+              </div>
+              <p className="text-[11px] text-orange-200/90">
+                Esto queda marcado para que administración/contabilidad le dé seguimiento aparte. Explica brevemente qué pasó (obligatorio).
+              </p>
+              <textarea
+                value={motivoExcepcion}
+                onChange={e=>setMotivoExcepcion(e.target.value)}
+                rows={2}
+                placeholder={modoExcepcion==='sin_comprobante' ? 'Ej: verdulería informal, no emite ningún comprobante' : 'Ej: el SRI muestra la factura en proceso, aún no autorizada'}
+                className="w-full resize-none rounded-xl border border-[#2d3748] bg-[#0c0f12] p-3 text-xs text-white"
+              />
             </div>
           )}
 
