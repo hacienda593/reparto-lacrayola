@@ -59,6 +59,10 @@ export default function CajaPage() {
   const [consultandoSri,setConsultandoSri]            = useState(false)
   const [facturaSri,setFacturaSri]                    = useState<SriFactura|null>(null)
   const [conciliacionSri,setConciliacionSri]          = useState<{receptorCorrecto:boolean;ambienteProduccion:boolean;rucEsperado:string}|null>(null)
+  // Clave exacta que quedó validada contra el SRI (nuestro propio registro,
+  // no lo que el SRI devuelva en su XML) -- así el chequeo final no depende
+  // de si el campo interno del comprobante coincide carácter por carácter.
+  const [claveValidada,setClaveValidada]              = useState('')
 
   // Excepciones (caso excepcional, no la norma): el shopper no debe quedar
   // bloqueado en caja si el SRI aún no autoriza una factura electrónica
@@ -194,6 +198,7 @@ export default function CajaPage() {
     if (!fechaEmision || !provRuc || !provEstablecimiento || !provPuntoEmision || !provSecuencial || !provCodigoNumerico) {
       setClaveAcceso('')
       setSriGenerado(false)
+      setClaveValidada('')
       return
     }
 
@@ -267,6 +272,7 @@ export default function CajaPage() {
       setSriGenerado(false)
       setFacturaSri(null)
       setConciliacionSri(null)
+      setClaveValidada('')
       return claveCompleta
     })
   }, [fechaEmision, provRuc, provEstablecimiento, provPuntoEmision, provSecuencial, provCodigoNumerico, tiendaId])
@@ -281,13 +287,18 @@ export default function CajaPage() {
   // (/api/sri/registrar vuelve a consultar el SRI de cero, ver punto 8 de
   // la auditoría).
   async function consultarSri(){
-    setError('');setFacturaSri(null);setConciliacionSri(null);setUltimoErrorSri('')
+    setError('');setFacturaSri(null);setConciliacionSri(null);setUltimoErrorSri('');setClaveValidada('')
     const clave=claveAcceso.replace(/\D/g,'');if(clave.length!==49){setError('La clave de acceso debe tener 49 dígitos (se genera sola al llenar los datos del ticket, o pégala manualmente si el ticket trae una distinta)');return}
     setConsultandoSri(true)
     try{
       const res=await fetch('/api/sri/comprobante',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({clave,asignacionId:id})})
       const data=await res.json();if(!res.ok)throw new Error(data.error||'No se pudo validar la clave contra el SRI')
       const f=data.factura as SriFactura;setFacturaSri(f);setConciliacionSri(data.conciliacion);setSriGenerado(true)
+      // Se guarda la clave que efectivamente se consultó (la nuestra, tal
+      // cual estaba en el campo en ese momento) -- el chequeo final compara
+      // contra esto, no contra el campo que devuelve el XML del SRI, que
+      // puede venir formateado distinto.
+      setClaveValidada(clave)
       if(!provRuc)setProvRuc(f.rucEmisor)
       if(!montoFacturado.trim())setMontoFacturado(f.total.toFixed(2))
       // Si el SRI SÍ autorizó de verdad, ya no aplica ninguna excepción
@@ -330,7 +341,7 @@ export default function CajaPage() {
         setError('La clave de acceso SRI debe tener exactamente 49 dígitos numéricos')
         return
       }
-      if (!facturaSri || facturaSri.claveAcceso !== claveAcceso) {
+      if (!facturaSri || claveValidada !== claveAcceso) {
         setError('Primero valida esta clave con el SRI (o usa una excepción si el SRI aún no la autoriza / el proveedor no da factura)')
         return
       }
@@ -614,7 +625,7 @@ export default function CajaPage() {
             <p className="text-[11px] text-blue-200/90 font-semibold">
               Se genera sola al llenar fecha, RUC, establecimiento, punto de emisión y secuencial más abajo. Solo edítala a mano si el ticket trae impresa una clave distinta a la generada.
             </p>
-            <textarea value={claveAcceso} onChange={e=>{setClaveAcceso(e.target.value.replace(/\D/g,'').slice(0,49));setSriGenerado(false);setFacturaSri(null)}} rows={2} inputMode="numeric" placeholder="Se genera al completar los datos del ticket abajo" className="w-full resize-none rounded-xl border border-[#2d3748] bg-[#0c0f12] p-3 font-mono text-xs tracking-wider text-white"/>
+            <textarea value={claveAcceso} onChange={e=>{setClaveAcceso(e.target.value.replace(/\D/g,'').slice(0,49));setSriGenerado(false);setFacturaSri(null);setClaveValidada('')}} rows={2} inputMode="numeric" placeholder="Se genera al completar los datos del ticket abajo" className="w-full resize-none rounded-xl border border-[#2d3748] bg-[#0c0f12] p-3 font-mono text-xs tracking-wider text-white"/>
             <button type="button" onClick={consultarSri} disabled={consultandoSri||claveAcceso.length!==49} className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 py-3 text-sm font-bold text-white disabled:opacity-50">{consultandoSri?<Loader2 size={16} className="animate-spin"/>:<Shield size={16}/>} {consultandoSri?'Validando con el SRI…':'Validar clave con el SRI'}</button>
             <p className="text-[10px] text-blue-300/80">Confirma contra el SRI real que la clave es válida y trae fecha, proveedor, comprador e importe total correctos antes de poder registrar la compra.</p>
           </div>
