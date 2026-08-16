@@ -76,6 +76,11 @@ export default function LiquidacionesPage() {
   const [reversando, setReversando] = useState<string | null>(null)
   const [avisoMigracion, setAvisoMigracion] = useState('')
 
+  // Depósitos que los repartidores registraron ellos mismos desde su
+  // celular (Mi Caja), pendientes de que admin los confirme o rechace.
+  const [depositosPendientes, setDepositosPendientes] = useState<any[]>([])
+  const [procesandoDeposito, setProcesandoDeposito] = useState<string | null>(null)
+
   async function cargar() {
     setCargando(true)
     const limites = limitesDiaEcuador(fecha)
@@ -153,7 +158,37 @@ export default function LiquidacionesPage() {
     setDiagnostico((diag ?? []) as DiagnosticoCaja[])
     setAvisoMigracion(movError || diagError ? 'Falta aplicar la migración financiera más reciente en Supabase.' : '')
 
+    const { data: depsPend } = await supabase.from('rep_depositos_repartidor')
+      .select('*, rep_repartidores(nombre)').eq('estado', 'pendiente').order('registrado_at', { ascending: true })
+    setDepositosPendientes(depsPend ?? [])
+
     setCargando(false)
+  }
+
+  async function confirmarDeposito(dep: any) {
+    const recibidoPor = window.prompt('¿Quién confirma la recepción del depósito?')?.trim()
+    if (!recibidoPor) return
+    setProcesandoDeposito(dep.id)
+    const { error } = await supabase.rpc('confirmar_deposito_repartidor', { p_deposito_id: dep.id, p_recibido_por: recibidoPor })
+    setProcesandoDeposito(null)
+    if (error) { alert('No se pudo confirmar: ' + error.message); return }
+    await cargar()
+  }
+
+  async function rechazarDeposito(dep: any) {
+    const motivo = window.prompt('Motivo del rechazo (obligatorio, se le comunicará al repartidor):')?.trim()
+    if (!motivo) return
+    setProcesandoDeposito(dep.id)
+    const { error } = await supabase.rpc('rechazar_deposito_repartidor', { p_deposito_id: dep.id, p_motivo: motivo })
+    setProcesandoDeposito(null)
+    if (error) { alert('No se pudo rechazar: ' + error.message); return }
+    await cargar()
+  }
+
+  async function verComprobanteDeposito(path: string) {
+    const { data } = await supabase.storage.from('comprobantes-proveedores').createSignedUrl(path, 3600)
+    if (!data?.signedUrl) { alert('No se pudo generar el enlace del comprobante'); return }
+    window.open(data.signedUrl, '_blank', 'noopener,noreferrer')
   }
 
   useEffect(() => { const timer = window.setTimeout(() => void cargar(), 0); return () => window.clearTimeout(timer) }, [fecha])
@@ -303,6 +338,41 @@ export default function LiquidacionesPage() {
             </div>
           ))}
         </div>
+
+        {/* Depósitos autoiniciados por repartidores (Mi Caja), pendientes de verificar */}
+        {depositosPendientes.length > 0 && (
+          <div className="bg-[#181d24] rounded-2xl border border-blue-500/30 overflow-hidden">
+            <div className="px-4 py-3.5 border-b border-[#2d3748] flex items-center gap-2">
+              <Upload size={15} className="text-blue-400" />
+              <span className="font-bold text-white text-sm">Depósitos por verificar ({depositosPendientes.length})</span>
+            </div>
+            <div className="divide-y divide-[#2d3748]">
+              {depositosPendientes.map(dep => (
+                <div key={dep.id} className="px-4 py-3 flex flex-wrap items-center gap-3 text-sm">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-bold text-white">{dep.rep_repartidores?.nombre ?? 'Repartidor'} · {fmt(Number(dep.monto))}</p>
+                    <p className="text-xs text-gray-500">
+                      {new Date(dep.registrado_at).toLocaleString('es-EC', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                      {dep.referencia ? ` · Ref. ${dep.referencia}` : ''}
+                    </p>
+                  </div>
+                  <button onClick={() => verComprobanteDeposito(dep.comprobante_path)}
+                    className="text-[10px] font-bold text-blue-400 border border-blue-500/30 rounded-lg px-2.5 py-1.5 hover:bg-blue-500/10">
+                    Ver comprobante
+                  </button>
+                  <button onClick={() => confirmarDeposito(dep)} disabled={procesandoDeposito === dep.id}
+                    className="text-[10px] font-bold text-white bg-green-600 hover:bg-green-700 disabled:opacity-50 rounded-lg px-2.5 py-1.5">
+                    {procesandoDeposito === dep.id ? '...' : 'Confirmar'}
+                  </button>
+                  <button onClick={() => rechazarDeposito(dep)} disabled={procesandoDeposito === dep.id}
+                    className="text-[10px] font-bold text-red-400 border border-red-500/30 rounded-lg px-2.5 py-1.5 hover:bg-red-500/10 disabled:opacity-50">
+                    Rechazar
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Traspasos de efectivo entre colaboradores */}
         {traspasosDia.length > 0 && (

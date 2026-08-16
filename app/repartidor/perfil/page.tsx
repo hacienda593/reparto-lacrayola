@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '@/context/AuthContext'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
-import { Loader2, Check, ArrowLeft, Phone, MapPin, Bike, User, LogOut, PackageCheck, PackageX } from 'lucide-react'
+import { Loader2, Check, ArrowLeft, Phone, MapPin, Bike, User, LogOut, PackageCheck, PackageX, Wallet, Upload, X } from 'lucide-react'
 import { logout } from '@/actions/auth'
 
 const VEHICULOS = [
@@ -25,6 +25,65 @@ export default function PerfilRepartidorPage() {
   const [guardado,  setGuardado]  = useState(false)
   const [error,     setError]     = useState('')
   const [entregas,  setEntregas]  = useState<any[]>([])
+
+  // Mi Caja: antes solo el admin veía saldo/comisión/depósitos; ahora el
+  // repartidor ve su propio estado de cuenta y puede iniciar un depósito
+  // con comprobante, mismo patrón que ya existe para pagos de clientes
+  // (el admin solo verifica, no hace todo el trabajo).
+  const [estadoCuenta, setEstadoCuenta] = useState<any>(null)
+  const [depositos,    setDepositos]    = useState<any[]>([])
+  const [modalDeposito, setModalDeposito] = useState(false)
+  const [montoDeposito, setMontoDeposito] = useState('')
+  const [referenciaDeposito, setReferenciaDeposito] = useState('')
+  const [comprobanteFile, setComprobanteFile] = useState<File | null>(null)
+  const [enviandoDeposito, setEnviandoDeposito] = useState(false)
+  const [errorDeposito, setErrorDeposito] = useState('')
+
+  async function cargarCaja() {
+    const [{ data: estado }, { data: deps }] = await Promise.all([
+      supabase.rpc('mi_estado_cuenta'),
+      supabase.from('rep_depositos_repartidor').select('*').order('registrado_at', { ascending: false }).limit(10),
+    ])
+    setEstadoCuenta(Array.isArray(estado) ? estado[0] : estado)
+    setDepositos(deps ?? [])
+  }
+
+  function abrirModalDeposito() {
+    setMontoDeposito('')
+    setReferenciaDeposito('')
+    setComprobanteFile(null)
+    setErrorDeposito('')
+    setModalDeposito(true)
+  }
+
+  async function enviarDeposito() {
+    setErrorDeposito('')
+    const monto = parseFloat(montoDeposito)
+    if (!Number.isFinite(monto) || monto <= 0) { setErrorDeposito('Ingresa un monto válido'); return }
+    if (!comprobanteFile) { setErrorDeposito('Adjunta la foto del comprobante de depósito/transferencia'); return }
+    setEnviandoDeposito(true)
+    try {
+      const ext = comprobanteFile.name.split('.').pop() || 'jpg'
+      const fileName = `depositos/${repartidorId}_${Date.now()}.${ext}`
+      const { error: upErr } = await supabase.storage.from('comprobantes-proveedores').upload(fileName, comprobanteFile)
+      if (upErr) throw upErr
+
+      const { error: rpcErr } = await supabase.rpc('crear_deposito_repartidor', {
+        p_monto: monto,
+        p_referencia: referenciaDeposito.trim() || null,
+        p_comprobante_path: fileName,
+        p_request_id: crypto.randomUUID(),
+      })
+      if (rpcErr) throw rpcErr
+
+      setModalDeposito(false)
+      await cargarCaja()
+    } catch (e: any) {
+      setErrorDeposito(e.message || 'No se pudo registrar el depósito')
+    } finally {
+      setEnviandoDeposito(false)
+    }
+  }
 
   useEffect(() => {
     if (authEstado === 'cargando') return
@@ -57,6 +116,8 @@ export default function PerfilRepartidorPage() {
       .order('entregado_at', { ascending: false })
       .limit(20)
       .then(({ data }) => setEntregas(data ?? []))
+
+    cargarCaja()
   }, [user, authEstado, repartidorId])
 
   function set(k: string, v: string) { setForm(f => ({ ...f, [k]: v })) }
@@ -194,6 +255,51 @@ export default function PerfilRepartidorPage() {
           </button>
         </div>
 
+        {/* Mi Caja: saldo, comisión acumulada, y depósito autoiniciado con
+            comprobante (el admin solo verifica, no hace todo el trabajo). */}
+        <div className="bg-white rounded-2xl border border-slate-100 p-4 space-y-3 shadow-sm">
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+            <Wallet size={13} /> Mi caja
+          </p>
+          <div className="grid grid-cols-2 gap-2.5">
+            <div className="bg-orange-50 border border-orange-100 rounded-xl p-3">
+              <div className="text-lg font-black text-orange-600">${Number(estadoCuenta?.efectivo_en_mano ?? 0).toFixed(2)}</div>
+              <div className="text-[10px] text-slate-500">Efectivo en mano</div>
+            </div>
+            <div className="bg-green-50 border border-green-100 rounded-xl p-3">
+              <div className="text-lg font-black text-green-700">${Number(estadoCuenta?.ganancias ?? 0).toFixed(2)}</div>
+              <div className="text-[10px] text-slate-500">Comisión ganada (histórico)</div>
+            </div>
+          </div>
+
+          {Number(estadoCuenta?.efectivo_en_mano ?? 0) > 0 && (
+            <button onClick={abrirModalDeposito}
+              className="w-full flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-xl text-xs transition cursor-pointer">
+              <Upload size={13} /> Registrar depósito a la empresa
+            </button>
+          )}
+
+          {depositos.length > 0 && (
+            <div className="pt-2 border-t border-slate-100 space-y-1.5">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Mis depósitos recientes</p>
+              {depositos.map(d => (
+                <div key={d.id} className="flex items-center justify-between text-xs">
+                  <div>
+                    <span className="font-semibold text-slate-700">${Number(d.monto).toFixed(2)}</span>
+                    <span className="text-slate-400 ml-1.5">{new Date(d.registrado_at).toLocaleDateString('es-EC', { day: '2-digit', month: 'short' })}</span>
+                  </div>
+                  <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${
+                    d.estado === 'confirmado' ? 'bg-green-100 text-green-700' :
+                    d.estado === 'rechazado' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'
+                  }`}>
+                    {d.estado === 'confirmado' ? 'Confirmado' : d.estado === 'rechazado' ? 'Rechazado' : 'Por verificar'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
         {/* Historial de mis entregas */}
         <div className="bg-white rounded-2xl border border-slate-100 p-4 space-y-3 shadow-sm">
           <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Mis últimas entregas</p>
@@ -231,6 +337,57 @@ export default function PerfilRepartidorPage() {
           </button>
         </form>
       </div>
+
+      {/* Modal: registrar depósito (queda "por verificar" hasta que admin lo confirme) */}
+      {modalDeposito && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-white rounded-t-3xl sm:rounded-3xl p-5 w-full sm:max-w-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-black text-slate-800 text-base flex items-center gap-1.5">
+                <Upload size={16} className="text-blue-600" /> Registrar depósito
+              </h3>
+              <button onClick={() => setModalDeposito(false)} className="text-slate-400 p-1 cursor-pointer"><X size={18} /></button>
+            </div>
+
+            <div className="bg-slate-50 border border-slate-100 rounded-xl px-3 py-2.5 text-xs text-slate-500">
+              Tienes <span className="font-black text-slate-800">${Number(estadoCuenta?.efectivo_en_mano ?? 0).toFixed(2)}</span> en mano.
+              Sube el comprobante del depósito/transferencia a la cuenta de la empresa — quedará "por verificar" hasta que administración lo confirme.
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-slate-600 block mb-1">Monto depositado</label>
+              <input type="number" step="0.01" min="0.01" value={montoDeposito} onChange={e => setMontoDeposito(e.target.value)}
+                placeholder="0.00"
+                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-green-500" />
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-slate-600 block mb-1">Referencia / número de comprobante</label>
+              <input type="text" value={referenciaDeposito} onChange={e => setReferenciaDeposito(e.target.value)}
+                placeholder="Opcional"
+                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-green-500" />
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-slate-600 block mb-1">Foto del comprobante *</label>
+              <label className="flex items-center justify-center gap-2 border border-slate-200 rounded-xl py-3 cursor-pointer hover:bg-slate-50 text-slate-500 text-sm">
+                <Upload size={14} />
+                {comprobanteFile ? comprobanteFile.name : 'Tomar o elegir foto'}
+                <input type="file" accept="image/*" className="hidden"
+                  onChange={e => setComprobanteFile(e.target.files?.[0] ?? null)} />
+              </label>
+            </div>
+
+            {errorDeposito && <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{errorDeposito}</div>}
+
+            <button onClick={enviarDeposito} disabled={enviandoDeposito}
+              className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-bold py-3 rounded-xl text-sm transition cursor-pointer">
+              {enviandoDeposito ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />}
+              Enviar para verificación
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

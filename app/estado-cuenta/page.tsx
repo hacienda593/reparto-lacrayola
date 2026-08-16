@@ -15,7 +15,10 @@ export default function EstadoCuentaPage(){
  const [seleccion,setSeleccion]=useState(''),[loading,setLoading]=useState(true),[syncing,setSyncing]=useState(false),[error,setError]=useState('')
  const hoy=new Date(), lunes=new Date(hoy);lunes.setDate(hoy.getDate()-((hoy.getDay()+6)%7)-7);const domingo=new Date(lunes);domingo.setDate(lunes.getDate()+6)
  const [desde,setDesde]=useState(iso(lunes)),[hasta,setHasta]=useState(iso(domingo))
- const cargar=useCallback(async()=>{setLoading(true);setError('');const [e,m,p]=await Promise.all([supabase.from('rep_estado_cuenta').select('*').order('nombre'),supabase.from('rep_ledger_movimientos').select('*').order('fecha_operacion',{ascending:false}).limit(500),supabase.from('rep_periodos_pago').select('*').order('hasta',{ascending:false}).limit(100)]);const err=e.error||m.error||p.error;if(err)setError(err.message);setEstados((e.data||[]) as Estado[]);setMovs((m.data||[]) as Mov[]);setPeriodos((p.data||[]) as Periodo[]);setSeleccion(s=>s||e.data?.[0]?.repartidor_id||'');setLoading(false)},[])
+ // rep_estado_cuenta ya no se consulta directo (no tenía ningún filtro por
+ // fila -- cualquier autenticado veía la caja/ganancias de todos). Ahora
+ // pasa por admin_estados_cuenta(), que exige rep_puede_ver_finanzas().
+ const cargar=useCallback(async()=>{setLoading(true);setError('');const [e,m,p]=await Promise.all([supabase.rpc('admin_estados_cuenta'),supabase.from('rep_ledger_movimientos').select('*').order('fecha_operacion',{ascending:false}).limit(500),supabase.from('rep_periodos_pago').select('*').order('hasta',{ascending:false}).limit(100)]);const err=e.error||m.error||p.error;if(err)setError(err.message);setEstados(((e.data||[]) as Estado[]).slice().sort((a,b)=>a.nombre.localeCompare(b.nombre)));setMovs((m.data||[]) as Mov[]);setPeriodos((p.data||[]) as Periodo[]);setSeleccion(s=>s||e.data?.[0]?.repartidor_id||'');setLoading(false)},[])
  useEffect(()=>{const t=setTimeout(()=>void cargar(),0);return()=>clearTimeout(t)},[cargar])
  const actual=estados.find(e=>e.repartidor_id===seleccion), detalle=useMemo(()=>movs.filter(m=>m.repartidor_id===seleccion),[movs,seleccion])
  async function sincronizar(){setSyncing(true);const {error}=await supabase.rpc('sincronizar_ledger_financiero');setSyncing(false);if(error){setError(error.message);return}await cargar()}
