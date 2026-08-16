@@ -1690,30 +1690,73 @@ export default function RepartidorPage() {
               </button>
             </div>
           )}
-          <div className="flex gap-2.5 pt-2 overflow-x-auto no-scrollbar">
-            <div className="bg-white/20 rounded-xl px-3 py-1.5 text-[11px] font-semibold shrink-0">
-              📦 {pedidos.length} asignados
+          {/* En modo comprador se deja la fila de pastillas de siempre
+              (poca prisa, se usa parado en el super). En modo repartidor
+              se reemplaza por una columna de accesos grandes -- la fila
+              horizontal con scroll obligaba a usar las dos manos (una
+              sostiene, otra apunta al deslizar), justo lo que no se puede
+              hacer manejando. Referencia: mockup PeYa Rider/Tipti Shopper. */}
+          {modo === 'comprador' && (
+            <div className="flex gap-2.5 pt-2 overflow-x-auto no-scrollbar">
+              <div className="bg-white/20 rounded-xl px-3 py-1.5 text-[11px] font-semibold shrink-0">
+                📦 {pedidos.length} asignados
+              </div>
+              <button
+                onClick={() => router.push('/repartidor/comisiones')}
+                className="bg-white/20 hover:bg-white/30 rounded-xl px-3 py-1.5 text-[11px] font-semibold shrink-0 transition cursor-pointer"
+              >
+                💵 Comisión: ${repartidor?.comision_valor ?? 1}/v
+              </button>
+              <button
+                onClick={abrirTraspaso}
+                className="bg-white/20 hover:bg-white/30 rounded-xl px-3 py-1.5 text-[11px] font-semibold shrink-0 text-yellow-300 border border-yellow-400/25 flex items-center gap-1 transition cursor-pointer"
+              >
+                💰 Caja: {fmt(repartidor?.efectivo_en_mano ?? 0)}
+                <ArrowRightLeft size={11} className="text-yellow-300/80" />
+              </button>
             </div>
-            {modo === 'repartidor' && (
-              <a href="/repartidor/escanear"
-                className="bg-yellow-500 hover:bg-yellow-600 text-slate-900 rounded-xl px-3 py-1.5 text-[11px] font-bold shrink-0 flex items-center gap-1 shadow-sm transition-all">
-                📷 Recibir Traspaso
-              </a>
-            )}
-            <button
-              onClick={() => router.push('/repartidor/comisiones')}
-              className="bg-white/20 hover:bg-white/30 rounded-xl px-3 py-1.5 text-[11px] font-semibold shrink-0 transition cursor-pointer"
-            >
-              💵 Comisión: ${repartidor?.comision_valor ?? 1}/v
-            </button>
-            <button
-              onClick={abrirTraspaso}
-              className="bg-white/20 hover:bg-white/30 rounded-xl px-3 py-1.5 text-[11px] font-semibold shrink-0 text-yellow-300 border border-yellow-400/25 flex items-center gap-1 transition cursor-pointer"
-            >
-              💰 Caja: {fmt(repartidor?.efectivo_en_mano ?? 0)}
-              <ArrowRightLeft size={11} className="text-yellow-300/80" />
-            </button>
-          </div>
+          )}
+        </div>
+      )}
+
+      {/* Accesos rápidos en modo repartidor: una columna, filas anchas de
+          alto completo -- cualquier toque en la franja funciona, sin
+          puntería fina ni deslizar. */}
+      {modo === 'repartidor' && (
+        <div className="px-4 pt-3 space-y-2">
+          {poolEntregas.length > 0 && (
+            <a href="/repartidor/escanear"
+              className="flex items-center gap-3 bg-yellow-500 hover:bg-yellow-600 text-slate-900 rounded-2xl px-4 py-3.5 shadow-sm transition-all active:scale-[0.98]">
+              <span className="text-2xl shrink-0">📷</span>
+              <div className="flex-1 text-left">
+                <div className="font-extrabold text-sm">Recibir traspaso</div>
+                <div className="text-[11px] opacity-80">Escanear código del comprador</div>
+              </div>
+              <span className="text-lg">›</span>
+            </a>
+          )}
+          <button
+            onClick={abrirTraspaso}
+            className="w-full flex items-center gap-3 bg-white border border-orange-200 rounded-2xl px-4 py-3.5 shadow-sm transition-all active:scale-[0.98] cursor-pointer"
+          >
+            <span className="text-2xl shrink-0">💰</span>
+            <div className="flex-1 text-left">
+              <div className="font-extrabold text-sm text-slate-800">Caja: {fmt(repartidor?.efectivo_en_mano ?? 0)}</div>
+              <div className="text-[11px] text-slate-400">Entregar o depositar efectivo</div>
+            </div>
+            <ArrowRightLeft size={16} className="text-orange-500 shrink-0" />
+          </button>
+          <button
+            onClick={() => router.push('/repartidor/comisiones')}
+            className="w-full flex items-center gap-3 bg-white border border-green-200 rounded-2xl px-4 py-3.5 shadow-sm transition-all active:scale-[0.98] cursor-pointer"
+          >
+            <span className="text-2xl shrink-0">💵</span>
+            <div className="flex-1 text-left">
+              <div className="font-extrabold text-sm text-slate-800">Mis comisiones</div>
+              <div className="text-[11px] text-slate-400">${repartidor?.comision_valor ?? 1}/entrega · historial y reclamos</div>
+            </div>
+            <span className="text-slate-300 text-lg">›</span>
+          </button>
         </div>
       )}
 
