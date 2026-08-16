@@ -25,6 +25,11 @@ export default function PerfilRepartidorPage() {
   const [guardado,  setGuardado]  = useState(false)
   const [error,     setError]     = useState('')
   const [entregas,  setEntregas]  = useState<any[]>([])
+  // Config de comisión propia, para poder mostrar cuánto ganó en CADA
+  // entrega del historial (inspirado en "Earning per order" de apps como
+  // PedidosYa Rider) -- antes solo se veía el efectivo cobrado, no la
+  // ganancia real del repartidor por ese pedido puntual.
+  const [comisionConfig, setComisionConfig] = useState<{ tipo: string; valor: number }>({ tipo: 'fijo', valor: 0 })
 
   // Mi Caja: antes solo el admin veía saldo/comisión/depósitos; ahora el
   // repartidor también los ve aquí. El formulario completo para REGISTRAR
@@ -82,6 +87,7 @@ export default function PerfilRepartidorPage() {
         }
         setNombre(data.nombre)
         setCedula(data.cedula ?? '')
+        setComisionConfig({ tipo: data.comision_tipo ?? 'fijo', valor: Number(data.comision_valor ?? 0) })
         setForm({
           telefono:       data.telefono       ?? '',
           vehiculo:       data.vehiculo       ?? 'moto',
@@ -95,7 +101,7 @@ export default function PerfilRepartidorPage() {
     // habia entregado/cobrado sin pedirselo al admin.
     supabase
       .from('rep_entregas')
-      .select('id,pedido_id,entregado_at,monto_cobrado,exitosa,motivo_fallo,ol_pedidos(numero,nombre_cliente)')
+      .select('id,pedido_id,entregado_at,monto_cobrado,exitosa,motivo_fallo,ol_pedidos(numero,nombre_cliente,total)')
       .eq('repartidor_id', repartidorId)
       .order('entregado_at', { ascending: false })
       .limit(20)
@@ -105,6 +111,15 @@ export default function PerfilRepartidorPage() {
   }, [user, authEstado, repartidorId])
 
   function set(k: string, v: string) { setForm(f => ({ ...f, [k]: v })) }
+
+  // Ganancia de ESTA entrega puntual, misma fórmula que usa la base de
+  // datos (mi_comision_pendiente / sincronizar_ledger_financiero).
+  function gananciaEntrega(e: any) {
+    if (comisionConfig.tipo === 'porcentaje') {
+      return Math.round(Number(e.ol_pedidos?.total ?? 0) * comisionConfig.valor) / 100
+    }
+    return comisionConfig.valor
+  }
 
   async function guardar() {
     if (!form.telefono.trim()) { setError('El teléfono es obligatorio'); return }
@@ -332,8 +347,13 @@ export default function PerfilRepartidorPage() {
                       {!e.exitosa && e.motivo_fallo ? ` · ${e.motivo_fallo}` : ''}
                     </div>
                   </div>
-                  {e.exitosa && e.monto_cobrado > 0 && (
-                    <span className="text-xs font-bold text-green-700">${Number(e.monto_cobrado).toFixed(2)}</span>
+                  {e.exitosa && (
+                    <div className="text-right shrink-0">
+                      {e.monto_cobrado > 0 && (
+                        <div className="text-xs font-bold text-slate-700">${Number(e.monto_cobrado).toFixed(2)} cobrado</div>
+                      )}
+                      <div className="text-[10px] font-bold text-green-700">+${gananciaEntrega(e).toFixed(2)} ganancia</div>
+                    </div>
                   )}
                 </div>
               ))}

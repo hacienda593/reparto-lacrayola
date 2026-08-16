@@ -1269,6 +1269,10 @@ export default function RepartidorPage() {
                 <input type="file" accept="image/*" className="hidden" onChange={e => setComprobanteTraspasoFile(e.target.files?.[0] ?? null)} />
               </label>
             </div>
+
+            <p className="text-[9.5px] text-slate-400 leading-snug">
+              ⚠️ Verifica el monto y la foto antes de enviar: si el depósito reportado no coincide con lo recibido en la cuenta de la empresa, la diferencia queda a tu cargo hasta que se aclare.
+            </p>
           </>
         )}
 
