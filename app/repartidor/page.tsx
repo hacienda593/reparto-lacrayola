@@ -154,6 +154,10 @@ export default function RepartidorPage() {
   const [referenciaTraspaso, setReferenciaTraspaso] = useState('')
   const [comprobanteTraspasoFile, setComprobanteTraspasoFile] = useState<File | null>(null)
   const [entregasSinLiquidar, setEntregasSinLiquidar] = useState<any[]>([])
+  // Comisión ganada y aún no pagada -- se muestra dentro de este mismo modal
+  // porque es lo primero que el repartidor quiere ver al tocar "Caja", junto
+  // con el efectivo en mano (antes solo estaba en Perfil, escondido).
+  const [comisionPendiente, setComisionPendiente] = useState(0)
   const [entregasSeleccionadas, setEntregasSeleccionadas] = useState<Set<string>>(new Set())
 
   async function cargarEntregasSinLiquidar() {
@@ -204,6 +208,8 @@ export default function RepartidorPage() {
       .order('nombre')
     setColegas(data ?? [])
     await cargarEntregasSinLiquidar()
+    const { data: comisionPend } = await supabase.rpc('mi_comision_pendiente')
+    setComisionPendiente(Number(comisionPend ?? 0))
   }
 
   // Ruta combinada: ordena las entregas 'en_ruta' por cercanía (vecino más próximo) desde
@@ -1148,9 +1154,19 @@ export default function RepartidorPage() {
           <button onClick={() => setShowTraspaso(false)} className="text-slate-400 p-1 cursor-pointer"><X size={18} /></button>
         </div>
 
-        <div className="bg-slate-50 border border-slate-100 rounded-xl px-3 py-2.5 text-xs text-slate-500">
-          Tienes <span className="font-black text-slate-800">{fmt(repartidor?.efectivo_en_mano ?? 0)}</span> en mano.
+        <div className="grid grid-cols-2 gap-2">
+          <div className="bg-orange-50 border border-orange-100 rounded-xl px-3 py-2.5">
+            <div className="text-sm font-black text-orange-600">{fmt(repartidor?.efectivo_en_mano ?? 0)}</div>
+            <div className="text-[9.5px] text-slate-500">Efectivo en mano</div>
+          </div>
+          <div className="bg-green-50 border border-green-100 rounded-xl px-3 py-2.5">
+            <div className="text-sm font-black text-green-700">{fmt(comisionPendiente)}</div>
+            <div className="text-[9.5px] text-slate-500">Comisión por cobrar</div>
+          </div>
         </div>
+        <Link href="/repartidor/perfil" className="block text-center text-[10px] font-bold text-blue-600 hover:underline -mt-2">
+          Ver historial de comisiones cobradas →
+        </Link>
 
         <div className="grid grid-cols-3 gap-1.5">
           {[
@@ -1684,7 +1700,7 @@ export default function RepartidorPage() {
               💵 Comisión: ${repartidor?.comision_valor ?? 1}/v
             </div>
             <button
-              onClick={() => router.push('/repartidor/perfil')}
+              onClick={abrirTraspaso}
               className="bg-white/20 hover:bg-white/30 rounded-xl px-3 py-1.5 text-[11px] font-semibold shrink-0 text-yellow-300 border border-yellow-400/25 flex items-center gap-1 transition cursor-pointer"
             >
               💰 Caja: {fmt(repartidor?.efectivo_en_mano ?? 0)}
