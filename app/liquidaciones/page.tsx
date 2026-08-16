@@ -159,7 +159,8 @@ export default function LiquidacionesPage() {
     setAvisoMigracion(movError || diagError ? 'Falta aplicar la migración financiera más reciente en Supabase.' : '')
 
     const { data: depsPend } = await supabase.from('rep_depositos_repartidor')
-      .select('*, rep_repartidores(nombre)').eq('estado', 'pendiente').order('registrado_at', { ascending: true })
+      .select('*, rep_repartidores(nombre), rep_liquidacion_items(monto, rep_entregas(pedido_id, ol_pedidos(numero, nombre_cliente)))')
+      .eq('estado', 'pendiente').order('registrado_at', { ascending: true })
     setDepositosPendientes(depsPend ?? [])
 
     setCargando(false)
@@ -348,26 +349,40 @@ export default function LiquidacionesPage() {
             </div>
             <div className="divide-y divide-[#2d3748]">
               {depositosPendientes.map(dep => (
-                <div key={dep.id} className="px-4 py-3 flex flex-wrap items-center gap-3 text-sm">
-                  <div className="min-w-0 flex-1">
-                    <p className="font-bold text-white">{dep.rep_repartidores?.nombre ?? 'Repartidor'} · {fmt(Number(dep.monto))}</p>
-                    <p className="text-xs text-gray-500">
-                      {new Date(dep.registrado_at).toLocaleString('es-EC', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                      {dep.referencia ? ` · Ref. ${dep.referencia}` : ''}
-                    </p>
+                <div key={dep.id} className="px-4 py-3 space-y-2 text-sm">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-bold text-white">
+                        {dep.rep_repartidores?.nombre ?? 'Repartidor'} · {fmt(Number(dep.monto))}
+                        <span className="ml-1.5 text-[9px] font-bold text-blue-400 uppercase">{dep.metodo === 'deposito_banco' ? 'Depósito' : 'Transferencia'}</span>
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {new Date(dep.registrado_at).toLocaleString('es-EC', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                        {dep.banco ? ` · ${dep.banco}` : ''}{dep.referencia ? ` · Ref. ${dep.referencia}` : ''}
+                      </p>
+                    </div>
+                    <button onClick={() => verComprobanteDeposito(dep.comprobante_path)}
+                      className="text-[10px] font-bold text-blue-400 border border-blue-500/30 rounded-lg px-2.5 py-1.5 hover:bg-blue-500/10">
+                      Ver comprobante
+                    </button>
+                    <button onClick={() => confirmarDeposito(dep)} disabled={procesandoDeposito === dep.id}
+                      className="text-[10px] font-bold text-white bg-green-600 hover:bg-green-700 disabled:opacity-50 rounded-lg px-2.5 py-1.5">
+                      {procesandoDeposito === dep.id ? '...' : 'Confirmar'}
+                    </button>
+                    <button onClick={() => rechazarDeposito(dep)} disabled={procesandoDeposito === dep.id}
+                      className="text-[10px] font-bold text-red-400 border border-red-500/30 rounded-lg px-2.5 py-1.5 hover:bg-red-500/10 disabled:opacity-50">
+                      Rechazar
+                    </button>
                   </div>
-                  <button onClick={() => verComprobanteDeposito(dep.comprobante_path)}
-                    className="text-[10px] font-bold text-blue-400 border border-blue-500/30 rounded-lg px-2.5 py-1.5 hover:bg-blue-500/10">
-                    Ver comprobante
-                  </button>
-                  <button onClick={() => confirmarDeposito(dep)} disabled={procesandoDeposito === dep.id}
-                    className="text-[10px] font-bold text-white bg-green-600 hover:bg-green-700 disabled:opacity-50 rounded-lg px-2.5 py-1.5">
-                    {procesandoDeposito === dep.id ? '...' : 'Confirmar'}
-                  </button>
-                  <button onClick={() => rechazarDeposito(dep)} disabled={procesandoDeposito === dep.id}
-                    className="text-[10px] font-bold text-red-400 border border-red-500/30 rounded-lg px-2.5 py-1.5 hover:bg-red-500/10 disabled:opacity-50">
-                    Rechazar
-                  </button>
+                  {dep.rep_liquidacion_items?.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 pl-0.5">
+                      {dep.rep_liquidacion_items.map((it: any, i: number) => (
+                        <span key={i} className="text-[9.5px] font-semibold bg-[#0c0f12] border border-[#2d3748] text-gray-400 rounded-lg px-2 py-1">
+                          #{String(it.rep_entregas?.ol_pedidos?.numero ?? 0).padStart(4, '0')} {it.rep_entregas?.ol_pedidos?.nombre_cliente ?? ''} · {fmt(Number(it.monto))}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

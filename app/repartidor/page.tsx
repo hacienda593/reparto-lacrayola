@@ -144,11 +144,57 @@ export default function RepartidorPage() {
   const [procesandoTraspaso, setProcesandoTraspaso] = useState(false)
   const [errorTraspaso, setErrorTraspaso] = useState('')
 
+  // Trazabilidad real de la liquidación (auditoria_plan_correcciones_ia.md
+  // + pedido del negocio): además de entregar a un colega, ahora se puede
+  // depositar/transferir directo a la empresa desde este mismo formulario,
+  // marcando EXACTAMENTE qué pedidos cobrados en efectivo cubre -- no un
+  // monto suelto sin respaldo.
+  const [metodoTraspaso, setMetodoTraspaso] = useState<'colega' | 'deposito_banco' | 'transferencia'>('colega')
+  const [bancoTraspaso, setBancoTraspaso] = useState('')
+  const [referenciaTraspaso, setReferenciaTraspaso] = useState('')
+  const [comprobanteTraspasoFile, setComprobanteTraspasoFile] = useState<File | null>(null)
+  const [entregasSinLiquidar, setEntregasSinLiquidar] = useState<any[]>([])
+  const [entregasSeleccionadas, setEntregasSeleccionadas] = useState<Set<string>>(new Set())
+
+  async function cargarEntregasSinLiquidar() {
+    if (!repartidor) return
+    const { data: entregas } = await supabase
+      .from('rep_entregas')
+      .select('id, pedido_id, monto_cobrado, entregado_at, ol_pedidos(numero, nombre_cliente)')
+      .eq('repartidor_id', repartidor.id)
+      .eq('exitosa', true)
+      .eq('metodo_pago', 'efectivo')
+      .order('entregado_at', { ascending: true })
+    const { data: yaLiquidadas } = await supabase
+      .from('rep_liquidacion_items')
+      .select('entrega_id, deposito_id, rep_depositos_repartidor!inner(repartidor_id)')
+      .eq('rep_depositos_repartidor.repartidor_id', repartidor.id)
+    const idsLiquidados = new Set((yaLiquidadas ?? []).map((l: any) => l.entrega_id))
+    setEntregasSinLiquidar((entregas ?? []).filter(e => !idsLiquidados.has(e.id)))
+    setEntregasSeleccionadas(new Set())
+  }
+
+  const totalSeleccionadoTraspaso = entregasSinLiquidar
+    .filter(e => entregasSeleccionadas.has(e.id))
+    .reduce((s, e) => s + Number(e.monto_cobrado || 0), 0)
+
+  function toggleEntregaSeleccionada(id: string) {
+    setEntregasSeleccionadas(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+
   async function abrirTraspaso() {
     setErrorTraspaso('')
     setMontoTraspaso('')
     setNotasTraspaso('')
     setDestinoTraspaso('')
+    setMetodoTraspaso('colega')
+    setBancoTraspaso('')
+    setReferenciaTraspaso('')
+    setComprobanteTraspasoFile(null)
     setShowTraspaso(true)
     const { data } = await supabase
       .from('rep_repartidores')
@@ -157,6 +203,7 @@ export default function RepartidorPage() {
       .neq('id', repartidor?.id ?? '')
       .order('nombre')
     setColegas(data ?? [])
+    await cargarEntregasSinLiquidar()
   }
 
   // Ruta combinada: ordena las entregas 'en_ruta' por cercanía (vecino más próximo) desde
@@ -277,26 +324,62 @@ export default function RepartidorPage() {
 
   async function confirmarTraspaso() {
     if (!repartidor) return
-    const monto = parseFloat(montoTraspaso)
-    if (!destinoTraspaso) { setErrorTraspaso('Selecciona a quién le entregas el efectivo'); return }
-    if (!montoTraspaso.trim() || isNaN(monto) || monto <= 0) { setErrorTraspaso('Ingresa un monto válido'); return }
-    if (monto > (repartidor.efectivo_en_mano ?? 0)) { setErrorTraspaso('No puedes entregar más de lo que tienes en mano'); return }
+
+    if (metodoTraspaso === 'colega') {
+      const monto = parseFloat(montoTraspaso)
+      if (!destinoTraspaso) { setErrorTraspaso('Selecciona a quién le entregas el efectivo'); return }
+      if (!montoTraspaso.trim() || isNaN(monto) || monto <= 0) { setErrorTraspaso('Ingresa un monto válido'); return }
+      if (monto > (repartidor.efectivo_en_mano ?? 0)) { setErrorTraspaso('No puedes entregar más de lo que tienes en mano'); return }
+
+      setProcesandoTraspaso(true)
+      setErrorTraspaso('')
+      const { error } = await supabase.rpc('transferir_efectivo_repartidor', {
+        p_origen_id: repartidor.id,
+        p_destino_id: destinoTraspaso,
+        p_monto: monto,
+        p_notas: notasTraspaso.trim() || null,
+        p_request_id: crypto.randomUUID(),
+      })
+      setProcesandoTraspaso(false)
+      if (error) { setErrorTraspaso(error.message); return }
+      setShowTraspaso(false)
+      await cargar(user!.id)
+      return
+    }
+
+    // Depósito/transferencia a la empresa: exige marcar exactamente qué
+    // pedidos cobrados en efectivo cubre, y el comprobante -- trazabilidad
+    // real en vez de un monto suelto (auditoria_plan_correcciones_ia.md).
+    if (entregasSeleccionadas.size === 0) { setErrorTraspaso('Marca los pedidos en efectivo que cubre este depósito'); return }
+    if (!referenciaTraspaso.trim()) { setErrorTraspaso('Ingresa el número de referencia del depósito/transferencia'); return }
+    if (!comprobanteTraspasoFile) { setErrorTraspaso('Adjunta la foto del comprobante'); return }
 
     setProcesandoTraspaso(true)
     setErrorTraspaso('')
-    const { error } = await supabase.rpc('transferir_efectivo_repartidor', {
-      p_origen_id: repartidor.id,
-      p_destino_id: destinoTraspaso,
-      p_monto: monto,
-      p_notas: notasTraspaso.trim() || null,
-      p_request_id: crypto.randomUUID(),
-    })
-    setProcesandoTraspaso(false)
+    try {
+      const ext = comprobanteTraspasoFile.name.split('.').pop() || 'jpg'
+      const fileName = `depositos/${repartidor.id}_${Date.now()}.${ext}`
+      const { error: upErr } = await supabase.storage.from('comprobantes-proveedores').upload(fileName, comprobanteTraspasoFile)
+      if (upErr) throw upErr
 
-    if (error) { setErrorTraspaso(error.message); return }
+      const { error: rpcErr } = await supabase.rpc('crear_deposito_repartidor', {
+        p_monto: totalSeleccionadoTraspaso,
+        p_referencia: referenciaTraspaso.trim(),
+        p_comprobante_path: fileName,
+        p_request_id: crypto.randomUUID(),
+        p_metodo: metodoTraspaso,
+        p_banco: bancoTraspaso.trim() || null,
+        p_entrega_ids: Array.from(entregasSeleccionadas),
+      })
+      if (rpcErr) throw rpcErr
 
-    setShowTraspaso(false)
-    await cargar(user!.id)
+      setShowTraspaso(false)
+      await cargar(user!.id)
+    } catch (e: any) {
+      setErrorTraspaso(e.message || 'No se pudo registrar el depósito')
+    } finally {
+      setProcesandoTraspaso(false)
+    }
   }
 
   function formatWhatsApp(phone: string | null | undefined): string {
@@ -1050,6 +1133,143 @@ export default function RepartidorPage() {
     }
   }
 
+  // Modal "Entregar efectivo": estaba duplicado dos veces en este archivo
+  // (idéntico en modo comprador y modo repartidor). Se unifica aquí y
+  // ahora ofrece 3 métodos: a un colega (como antes), depósito bancario, o
+  // transferencia -- estas dos últimas exigen marcar qué pedidos cobrados
+  // en efectivo cubren, y comprobante con foto.
+  const renderModalTraspaso = () => !showTraspaso ? null : (
+    <div className="fixed inset-0 bg-black/60 z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4 text-left">
+      <div className="bg-white rounded-t-3xl sm:rounded-3xl p-5 w-full sm:max-w-sm space-y-4 max-h-[92vh] overflow-y-auto">
+        <div className="flex items-center justify-between">
+          <h3 className="font-black text-slate-800 text-base flex items-center gap-1.5">
+            <ArrowRightLeft size={16} className="text-green-600" /> Entregar efectivo
+          </h3>
+          <button onClick={() => setShowTraspaso(false)} className="text-slate-400 p-1 cursor-pointer"><X size={18} /></button>
+        </div>
+
+        <div className="bg-slate-50 border border-slate-100 rounded-xl px-3 py-2.5 text-xs text-slate-500">
+          Tienes <span className="font-black text-slate-800">{fmt(repartidor?.efectivo_en_mano ?? 0)}</span> en mano.
+        </div>
+
+        <div className="grid grid-cols-3 gap-1.5">
+          {[
+            { k: 'colega', label: 'A un colega' },
+            { k: 'deposito_banco', label: 'Depósito' },
+            { k: 'transferencia', label: 'Transferencia' },
+          ].map(m => (
+            <button key={m.k} type="button" onClick={() => setMetodoTraspaso(m.k as any)}
+              className={`py-2 rounded-xl border text-[10.5px] font-bold text-center transition ${
+                metodoTraspaso === m.k ? 'bg-green-50 border-green-500 text-green-700' : 'bg-slate-50 border-slate-200 text-slate-500'
+              }`}>
+              {m.label}
+            </button>
+          ))}
+        </div>
+
+        {metodoTraspaso === 'colega' ? (
+          <>
+            <div>
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">¿A quién se lo entregas?</label>
+              <select
+                value={destinoTraspaso}
+                onChange={e => setDestinoTraspaso(e.target.value)}
+                className="w-full mt-1 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:border-green-500"
+              >
+                <option value="">-- Selecciona --</option>
+                {colegas.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+              </select>
+              <p className="text-[9px] text-slate-400 mt-1">Solo para entrega física a otro colaborador de campo, no a la oficina.</p>
+            </div>
+
+            <div>
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Monto a entregar</label>
+              <div className="relative mt-1">
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-green-600 font-bold text-sm">$</span>
+                <input
+                  type="number" step="0.01" min="0"
+                  value={montoTraspaso}
+                  onChange={e => setMontoTraspaso(e.target.value)}
+                  placeholder={(repartidor?.efectivo_en_mano ?? 0).toFixed(2)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-7 pr-3 py-2.5 text-sm font-bold text-slate-800 focus:outline-none focus:border-green-500"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Notas (opcional)</label>
+              <input
+                type="text"
+                value={notasTraspaso}
+                onChange={e => setNotasTraspaso(e.target.value)}
+                placeholder="Ej: entregado en caja de Tuti"
+                className="w-full mt-1 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-green-500"
+              />
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-[11px] text-blue-700">
+              Marca exactamente qué pedidos cobrados en efectivo cubre este {metodoTraspaso === 'deposito_banco' ? 'depósito' : 'transferencia'} — queda ligado a ellos, no se puede reutilizar para otros cobros.
+            </div>
+
+            {entregasSinLiquidar.length === 0 ? (
+              <p className="text-xs text-slate-400 text-center py-3">No tienes cobros en efectivo pendientes de liquidar.</p>
+            ) : (
+              <div className="space-y-1.5 max-h-40 overflow-y-auto border border-slate-100 rounded-xl p-2">
+                {entregasSinLiquidar.map(e => (
+                  <label key={e.id} className="flex items-center gap-2 text-xs px-1.5 py-1 rounded-lg hover:bg-slate-50 cursor-pointer">
+                    <input type="checkbox" checked={entregasSeleccionadas.has(e.id)} onChange={() => toggleEntregaSeleccionada(e.id)} className="accent-green-600" />
+                    <span className="flex-1 truncate">#{String(e.ol_pedidos?.numero ?? 0).padStart(4, '0')} · {e.ol_pedidos?.nombre_cliente ?? 'Cliente'}</span>
+                    <span className="font-bold text-slate-700 shrink-0">${Number(e.monto_cobrado).toFixed(2)}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+
+            <div className="flex justify-between items-center text-xs bg-slate-50 rounded-xl px-3 py-2">
+              <span className="text-slate-500">Total seleccionado</span>
+              <span className="font-black text-slate-800">${totalSeleccionadoTraspaso.toFixed(2)}</span>
+            </div>
+
+            <div>
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Banco</label>
+              <input type="text" value={bancoTraspaso} onChange={e => setBancoTraspaso(e.target.value)}
+                placeholder="Ej: Pichincha"
+                className="w-full mt-1 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:border-green-500" />
+            </div>
+
+            <div>
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Número de referencia *</label>
+              <input type="text" value={referenciaTraspaso} onChange={e => setReferenciaTraspaso(e.target.value)}
+                placeholder="Nro. de comprobante"
+                className="w-full mt-1 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:border-green-500" />
+            </div>
+
+            <div>
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Foto del comprobante *</label>
+              <label className="flex items-center justify-center gap-2 border border-slate-200 rounded-xl py-2.5 mt-1 cursor-pointer hover:bg-slate-50 text-slate-500 text-xs">
+                {comprobanteTraspasoFile ? comprobanteTraspasoFile.name : 'Tomar o elegir foto'}
+                <input type="file" accept="image/*" className="hidden" onChange={e => setComprobanteTraspasoFile(e.target.files?.[0] ?? null)} />
+              </label>
+            </div>
+          </>
+        )}
+
+        {errorTraspaso && <p className="text-red-500 text-xs text-center">{errorTraspaso}</p>}
+
+        <button
+          onClick={confirmarTraspaso}
+          disabled={procesandoTraspaso}
+          className="w-full bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white font-bold py-3 rounded-xl text-sm flex items-center justify-center gap-2 cursor-pointer"
+        >
+          {procesandoTraspaso ? <Loader2 size={16} className="animate-spin" /> : <ArrowRightLeft size={15} />}
+          {procesandoTraspaso ? 'Registrando...' : metodoTraspaso === 'colega' ? 'Confirmar entrega de efectivo' : 'Enviar para verificación'}
+        </button>
+      </div>
+    </div>
+  )
+
   const renderCardRepartidor = (p: any, isActive: boolean) => {
     const numPedido = String(p.numero).padStart(4, '0')
     return (
@@ -1345,73 +1565,7 @@ export default function RepartidorPage() {
         </div>
 
         {/* Modal: Entregar efectivo en mano */}
-        {showTraspaso && (
-          <div className="fixed inset-0 bg-black/60 z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4 text-left">
-            <div className="bg-white rounded-t-3xl sm:rounded-3xl p-5 w-full sm:max-w-sm space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="font-black text-slate-800 text-base flex items-center gap-1.5">
-                  <ArrowRightLeft size={16} className="text-green-600" /> Entregar efectivo
-                </h3>
-                <button onClick={() => setShowTraspaso(false)} className="text-slate-400 p-1 cursor-pointer"><X size={18} /></button>
-              </div>
-
-              <div className="bg-slate-50 border border-slate-100 rounded-xl px-3 py-2.5 text-xs text-slate-500">
-                Tienes <span className="font-black text-slate-800">{fmt(repartidor?.efectivo_en_mano ?? 0)}</span> en mano.
-                Registra a quién se lo entregas físicamente (otro colaborador, no la oficina).
-              </div>
-
-              <div>
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">¿A quién se lo entregas?</label>
-                <select
-                  value={destinoTraspaso}
-                  onChange={e => setDestinoTraspaso(e.target.value)}
-                  className="w-full mt-1 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:border-green-500"
-                >
-                  <option value="">-- Selecciona --</option>
-                  {colegas.map(c => (
-                    <option key={c.id} value={c.id}>{c.nombre}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Monto a entregar</label>
-                <div className="relative mt-1">
-                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-green-600 font-bold text-sm">$</span>
-                  <input
-                    type="number" step="0.01" min="0"
-                    value={montoTraspaso}
-                    onChange={e => setMontoTraspaso(e.target.value)}
-                    placeholder={(repartidor?.efectivo_en_mano ?? 0).toFixed(2)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-7 pr-3 py-2.5 text-sm font-bold text-slate-800 focus:outline-none focus:border-green-500"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Notas (opcional)</label>
-                <input
-                  type="text"
-                  value={notasTraspaso}
-                  onChange={e => setNotasTraspaso(e.target.value)}
-                  placeholder="Ej: entregado en caja de Tuti"
-                  className="w-full mt-1 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-green-500"
-                />
-              </div>
-
-              {errorTraspaso && <p className="text-red-500 text-xs text-center">{errorTraspaso}</p>}
-
-              <button
-                onClick={confirmarTraspaso}
-                disabled={procesandoTraspaso}
-                className="w-full bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white font-bold py-3 rounded-xl text-sm flex items-center justify-center gap-2 cursor-pointer"
-              >
-                {procesandoTraspaso ? <Loader2 size={16} className="animate-spin" /> : <ArrowRightLeft size={15} />}
-                {procesandoTraspaso ? 'Registrando...' : 'Confirmar entrega de efectivo'}
-              </button>
-            </div>
-          </div>
-        )}
+        {renderModalTraspaso()}
       </div>
     )
   }
@@ -2083,73 +2237,7 @@ export default function RepartidorPage() {
     </div>
 
       {/* Modal: Entregar efectivo en mano a un colega (comprador u otro repartidor) */}
-      {showTraspaso && (
-        <div className="fixed inset-0 bg-black/60 z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="bg-white rounded-t-3xl sm:rounded-3xl p-5 w-full sm:max-w-sm space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="font-black text-slate-800 text-base flex items-center gap-1.5">
-                <ArrowRightLeft size={16} className="text-green-600" /> Entregar efectivo
-              </h3>
-              <button onClick={() => setShowTraspaso(false)} className="text-slate-400 p-1 cursor-pointer"><X size={18} /></button>
-            </div>
-
-            <div className="bg-slate-50 border border-slate-100 rounded-xl px-3 py-2.5 text-xs text-slate-500">
-              Tienes <span className="font-black text-slate-800">{fmt(repartidor?.efectivo_en_mano ?? 0)}</span> en mano.
-              Registra a quién se lo entregas físicamente (otro colaborador, no la oficina).
-            </div>
-
-            <div>
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">¿A quién se lo entregas?</label>
-              <select
-                value={destinoTraspaso}
-                onChange={e => setDestinoTraspaso(e.target.value)}
-                className="w-full mt-1 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:border-green-500"
-              >
-                <option value="">-- Selecciona --</option>
-                {colegas.map(c => (
-                  <option key={c.id} value={c.id}>{c.nombre}</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Monto a entregar</label>
-              <div className="relative mt-1">
-                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-green-600 font-bold text-sm">$</span>
-                <input
-                  type="number" step="0.01" min="0"
-                  value={montoTraspaso}
-                  onChange={e => setMontoTraspaso(e.target.value)}
-                  placeholder={(repartidor?.efectivo_en_mano ?? 0).toFixed(2)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-7 pr-3 py-2.5 text-sm font-bold text-slate-800 focus:outline-none focus:border-green-500"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Notas (opcional)</label>
-              <input
-                type="text"
-                value={notasTraspaso}
-                onChange={e => setNotasTraspaso(e.target.value)}
-                placeholder="Ej: entregado en caja de Tuti"
-                className="w-full mt-1 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-green-500"
-              />
-            </div>
-
-            {errorTraspaso && <p className="text-red-500 text-xs text-center">{errorTraspaso}</p>}
-
-            <button
-              onClick={confirmarTraspaso}
-              disabled={procesandoTraspaso}
-              className="w-full bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white font-bold py-3 rounded-xl text-sm flex items-center justify-center gap-2 cursor-pointer"
-            >
-              {procesandoTraspaso ? <Loader2 size={16} className="animate-spin" /> : <ArrowRightLeft size={15} />}
-              {procesandoTraspaso ? 'Registrando...' : 'Confirmar entrega de efectivo'}
-            </button>
-          </div>
-        </div>
-      )}
+      {renderModalTraspaso()}
 
       {/* Modal de Confirmación de Entrega (Proof of Delivery) */}
       {entregaModal && (
