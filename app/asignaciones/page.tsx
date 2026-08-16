@@ -25,6 +25,8 @@ interface Pedido {
   created_at: string
   geo_lat?: number | null
   geo_lng?: number | null
+  costo_envio?: number | null
+  total_final?: number | null
   metodo_pago?: string | null
   pago_confirmado?: boolean | null
   referencia_transferencia?: string | null
@@ -85,6 +87,13 @@ export default function AsignacionesPage() {
   const [revirtiendoPago, setRevirtiendoPago] = useState(false)
   const [bancoInput, setBancoInput] = useState<'pichincha' | 'deuna' | 'otro'>('pichincha')
   const [fechaDepositoInput, setFechaDepositoInput] = useState('')
+  // Auditoría financiera (docs/auditoria_financiera_ruta_dinero.md, C1/A1):
+  // antes se confirmaba el pago sin registrar ni comparar ningún monto --
+  // se aprobaba una referencia a ojo. Ahora se exige el monto que el admin
+  // ve en el comprobante/banco, y se compara contra total + envío.
+  const [montoConfirmadoInput, setMontoConfirmadoInput] = useState('')
+  const [motivoDiferenciaInput, setMotivoDiferenciaInput] = useState('')
+  const [calculandoEnvio, setCalculandoEnvio] = useState(false)
   const [historialVerif, setHistorialVerif] = useState<any[]>([])
   const [mostrarHistorial, setMostrarHistorial] = useState(false)
 
@@ -180,7 +189,25 @@ export default function AsignacionesPage() {
     setHistorialVerif([])
     setMostrarHistorial(false)
     setCargandoDirecciones(true)
+    setMontoConfirmadoInput('')
+    setMotivoDiferenciaInput('')
     cargarHistorial(p.id)
+
+    // El envío tiene que estar calculado ANTES de poder confirmar el pago
+    // (confirmar_pago_admin ahora lo exige) -- se dispara acá si todavía
+    // falta, en vez de esperar a que alguien más lo abra primero.
+    if (p.costo_envio == null && p.geo_lat != null && p.geo_lng != null) {
+      setCalculandoEnvio(true)
+      fetch('/api/envio/calcular-pedido', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pedidoId: p.id }),
+      }).then(res => res.json()).then(data => {
+        if (typeof data?.envio === 'number') {
+          setModalPedido(prev => prev && prev.id === p.id ? { ...prev, costo_envio: data.envio } as any : prev)
+          setPedidos(prev => prev.map(x => x.id === p.id ? { ...x, costo_envio: data.envio } as any : x))
+        }
+      }).catch(() => {}).finally(() => setCalculandoEnvio(false))
+    }
 
     // Chequeo proactivo de comprobante duplicado: si el numero ya vino cargado
     // desde el checkout (no fue tecleado a mano aqui), nunca pasaba por el
@@ -290,18 +317,26 @@ export default function AsignacionesPage() {
   }
 
   async function confirmarPagoPedido(pedidoId: string) {
+    const monto = parseFloat(montoConfirmadoInput)
+    if (!montoConfirmadoInput.trim() || isNaN(monto) || monto <= 0) {
+      setError('Ingresa el monto que confirmaste en el comprobante/banco')
+      return
+    }
     setProcesando(true)
     setError('')
     try {
       // RPC atómica: valida capacidad del rol, bloquea el pedido, actualiza
       // pago_confirmado y registra la bitácora de auditoría en una sola
-      // transacción de Postgres (migration_confirmacion_pago_atomica.sql).
+      // transacción de Postgres. Ahora exige el monto y lo compara contra
+      // total + envío (docs/auditoria_financiera_ruta_dinero.md, C1/A1).
       const { error } = await supabase.rpc('confirmar_pago_admin', {
         p_pedido_id: pedidoId,
         p_referencia: refNumber,
+        p_monto: monto,
         p_banco: bancoInput,
         p_fecha: fechaDepositoInput || null,
         p_evidencia_path: null,
+        p_motivo_diferencia: motivoDiferenciaInput.trim() || null,
         p_request_id: crypto.randomUUID(),
       })
       if (error) throw error
@@ -1233,6 +1268,48 @@ export default function AsignacionesPage() {
                           </div>
                         )}
 
+                        {/* Monto confirmado: antes se aprobaba una referencia sin comparar
+                            ningún número contra el total real (productos + envío). Ahora
+                            es obligatorio y se valida contra total_final del lado del
+                            servidor (docs/auditoria_financiera_ruta_dinero.md, C1/A1). */}
+                        {!modalPedido.pago_confirmado && (
+                          <div className="bg-black/20 border border-gray-800 rounded-xl p-3 space-y-2">
+                            <div className="flex items-center justify-between text-[10px]">
+                              <span className="text-gray-400 uppercase font-black tracking-wide">Total a cobrar (productos + envío)</span>
+                              <span className="font-black text-white">
+                                {calculandoEnvio ? 'Calculando envío...' : modalPedido.costo_envio == null
+                                  ? '⚠️ Envío sin calcular'
+                                  : `$${(modalPedido.total_final ?? (modalPedido.total + (modalPedido.costo_envio ?? 0))).toFixed(2)}`}
+                              </span>
+                            </div>
+                            <div>
+                              <label className="text-[9px] text-gray-400 uppercase font-black tracking-wide block mb-1">Monto confirmado en el comprobante/banco *</label>
+                              <input
+                                type="number" step="0.01" min="0"
+                                value={montoConfirmadoInput}
+                                onChange={e => setMontoConfirmadoInput(e.target.value)}
+                                placeholder={modalPedido.costo_envio != null ? (modalPedido.total_final ?? (modalPedido.total + modalPedido.costo_envio)).toFixed(2) : ''}
+                                className="w-full bg-[#0c0f12] border border-gray-800 rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-green-500"
+                              />
+                            </div>
+                            {montoConfirmadoInput.trim() && modalPedido.costo_envio != null &&
+                              Math.abs(parseFloat(montoConfirmadoInput) - (modalPedido.total_final ?? (modalPedido.total + modalPedido.costo_envio))) > 0.01 && (
+                              <div>
+                                <label className="text-[9px] text-amber-400 uppercase font-black tracking-wide block mb-1">
+                                  ⚠️ No coincide con el total — motivo de la diferencia *
+                                </label>
+                                <input
+                                  type="text"
+                                  value={motivoDiferenciaInput}
+                                  onChange={e => setMotivoDiferenciaInput(e.target.value)}
+                                  placeholder="Ej: cliente pagó con descuento acordado"
+                                  className="w-full bg-[#0c0f12] border border-amber-700/40 rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-amber-500"
+                                />
+                              </div>
+                            )}
+                          </div>
+                        )}
+
                         {/* Banco y fecha del deposito: quedan en la bitacora de auditoria
                             junto con quien confirmo y cuando -- necesarios para poder
                             distinguir un mismo numero de comprobante reutilizado en bancos
@@ -1281,7 +1358,11 @@ export default function AsignacionesPage() {
                         {!modalPedido.pago_confirmado ? (
                           <button
                             onClick={() => confirmarPagoPedido(modalPedido.id)}
-                            disabled={procesando || !refNumber || !!refDuplicadaEn || (esClienteNuevo && !confirmoPorWhatsapp)}
+                            disabled={
+                              procesando || !refNumber || !!refDuplicadaEn || (esClienteNuevo && !confirmoPorWhatsapp) ||
+                              !montoConfirmadoInput.trim() || modalPedido.costo_envio == null ||
+                              (Math.abs(parseFloat(montoConfirmadoInput || '0') - (modalPedido.total_final ?? (modalPedido.total + (modalPedido.costo_envio ?? 0)))) > 0.01 && !motivoDiferenciaInput.trim())
+                            }
                             className="w-full bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white font-black text-xs py-2.5 rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 shadow-md disabled:opacity-40 disabled:cursor-not-allowed">
                             {procesando ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
                             Confirmar Depósito Recibido
