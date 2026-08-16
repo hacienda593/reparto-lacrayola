@@ -7,6 +7,11 @@
 --    capacidad migrada -- lo mismo que ya corregimos en
 --    liquidar_repartidor_admin, se había quedado este.
 
+-- NOTA (corrección posterior, ver migration_fix_comision_pendiente_realtime.sql):
+-- esta versión original dependía de rep_ledger_movimientos, tabla que solo se
+-- llena cuando un admin cierra un período de pago -- mientras eso no pase, el
+-- repartidor veía siempre $0.00 aunque tuviera entregas cobradas. Se recalcula
+-- directo desde rep_entregas, en tiempo real, sin depender de ese paso manual.
 CREATE OR REPLACE FUNCTION public.mi_comision_pendiente()
 RETURNS NUMERIC
 LANGUAGE plpgsql
@@ -22,8 +27,16 @@ BEGIN
   v_repartidor_id := rep_mi_id();
   IF v_repartidor_id IS NULL THEN RETURN 0; END IF;
 
-  SELECT COALESCE(SUM(debito - credito), 0) INTO v_ganancias_totales
-  FROM rep_ledger_movimientos WHERE repartidor_id = v_repartidor_id AND cuenta = 'ganancia';
+  SELECT COALESCE(SUM(
+    CASE WHEN r.comision_tipo = 'porcentaje'
+      THEN ROUND(COALESCE(p.total, 0) * r.comision_valor / 100, 2)
+      ELSE r.comision_valor
+    END
+  ), 0) INTO v_ganancias_totales
+  FROM rep_entregas e
+  JOIN rep_repartidores r ON r.id = e.repartidor_id
+  LEFT JOIN ol_pedidos p ON p.id = e.pedido_id
+  WHERE e.repartidor_id = v_repartidor_id AND e.exitosa;
 
   SELECT COALESCE(SUM(ganancias), 0) INTO v_ya_pagado
   FROM rep_periodos_pago WHERE repartidor_id = v_repartidor_id AND estado = 'cerrado';
