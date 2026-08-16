@@ -7,7 +7,7 @@ import { useAuth } from '@/context/AuthContext'
 import { supabase } from '@/lib/supabase'
 import { logout } from '@/actions/auth'
 import { useRouter } from 'next/navigation'
-import { Loader2, MapPin, CheckCircle, Package, Phone, Navigation, DollarSign, UserCircle, ArrowRightLeft, X, AlertCircle, LogOut } from 'lucide-react'
+import { Loader2, MapPin, CheckCircle, Package, Phone, Navigation, DollarSign, UserCircle, ArrowRightLeft, X, AlertCircle, LogOut, Menu, Map as MapIcon, Target } from 'lucide-react'
 
 function fmt(n: number) { return '$' + (n ?? 0).toFixed(2) }
 
@@ -123,13 +123,13 @@ export default function RepartidorPage() {
   const isDrawingRef = useRef(false)
 
   // Envíos Flex states
-  const [vistaRepartidor, setVistaRepartidor] = useState<'listado' | 'mapa'>('listado')
   const [paradaActivaId, setParadaActivaId] = useState<string | null>(null)
-  // Antes "Listas para recoger" (pool, sin custodia aún) y "Mis pedidos en
-  // camino" (ya en custodia) vivían apiladas en la misma pantalla con
-  // scroll -- se sentía todo mezclado. Ahora son pestañas separadas, igual
-  // que ya existían para el modo comprador.
-  const [pestanaRepartidor, setPestanaRepartidor] = useState<'recoger' | 'entregar'>('recoger')
+  // Menú inferior fijo (estilo apps grandes) con 4 destinos, en vez de la
+  // pestaña de 2 arriba + el toggle Listado/Mapa escondido dentro de
+  // "entregar" -- ahora "Activo" y "Mapa" son su propio destino directo,
+  // alcanzable con el pulgar sin subpasos.
+  const [pestanaRepartidor, setPestanaRepartidor] = useState<'recoger' | 'entregar' | 'activo' | 'mapa'>('recoger')
+  const [menuAbierto, setMenuAbierto] = useState(false)
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -1625,7 +1625,7 @@ export default function RepartidorPage() {
 
   return (
     <>
-    <div className={`min-h-screen bg-slate-50 ${modo === 'comprador' ? 'pb-20' : ''}`}>
+    <div className={`min-h-screen bg-slate-50 pb-20`}>
       {/* Header completo: solo en Inicio (comprador) o siempre en modo repartidor */}
       {(modo === 'repartidor' || pestana === 'inicio') && (
         <div className="bg-green-700 text-white px-4 pt-10 pb-4 space-y-1">
@@ -1658,15 +1658,31 @@ export default function RepartidorPage() {
                   <div className="text-lg font-extrabold">{pedidos.length} pedidos</div>
                 </div>
               )}
-              <Link href="/repartidor/perfil"
-                className="w-9 h-9 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center transition shrink-0">
-                <UserCircle size={20} />
-              </Link>
-              <form action={logout} className="shrink-0">
-                <button type="submit" title="Cerrar sesión" className="w-9 h-9 bg-red-600/30 hover:bg-red-600/50 rounded-full flex items-center justify-center transition cursor-pointer text-white">
-                  <LogOut size={15} />
+              {modo === 'repartidor' ? (
+                // Menú hamburguesa: agrupa lo que se usa ocasionalmente
+                // (traspaso, caja, comisiones, perfil, salir) para que la
+                // pantalla de Inicio se quede solo con lo que se usa todo
+                // el tiempo. Badge rojo si hay algo que requiere atención.
+                <button onClick={() => setMenuAbierto(true)}
+                  className="relative w-9 h-9 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center transition shrink-0 cursor-pointer">
+                  <Menu size={19} />
+                  {(repartidor?.efectivo_en_mano ?? 0) > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-yellow-400 rounded-full border-2 border-green-700" />
+                  )}
                 </button>
-              </form>
+              ) : (
+                <>
+                  <Link href="/repartidor/perfil"
+                    className="w-9 h-9 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center transition shrink-0">
+                    <UserCircle size={20} />
+                  </Link>
+                  <form action={logout} className="shrink-0">
+                    <button type="submit" title="Cerrar sesión" className="w-9 h-9 bg-red-600/30 hover:bg-red-600/50 rounded-full flex items-center justify-center transition cursor-pointer text-white">
+                      <LogOut size={15} />
+                    </button>
+                  </form>
+                </>
+              )}
             </div>
           </div>
           {/* Dynamic Role Switcher (🧺 Compras / 🛵 Entregas) - Solo para rol híbrido 'comprador-repartidor' */}
@@ -1716,47 +1732,6 @@ export default function RepartidorPage() {
               </button>
             </div>
           )}
-        </div>
-      )}
-
-      {/* Accesos rápidos en modo repartidor: una columna, filas anchas de
-          alto completo -- cualquier toque en la franja funciona, sin
-          puntería fina ni deslizar. */}
-      {modo === 'repartidor' && (
-        <div className="px-4 pt-3 space-y-2">
-          {poolEntregas.length > 0 && (
-            <a href="/repartidor/escanear"
-              className="flex items-center gap-3 bg-yellow-500 hover:bg-yellow-600 text-slate-900 rounded-2xl px-4 py-3.5 shadow-sm transition-all active:scale-[0.98]">
-              <span className="text-2xl shrink-0">📷</span>
-              <div className="flex-1 text-left">
-                <div className="font-extrabold text-sm">Recibir traspaso</div>
-                <div className="text-[11px] opacity-80">Escanear código del comprador</div>
-              </div>
-              <span className="text-lg">›</span>
-            </a>
-          )}
-          <button
-            onClick={abrirTraspaso}
-            className="w-full flex items-center gap-3 bg-white border border-orange-200 rounded-2xl px-4 py-3.5 shadow-sm transition-all active:scale-[0.98] cursor-pointer"
-          >
-            <span className="text-2xl shrink-0">💰</span>
-            <div className="flex-1 text-left">
-              <div className="font-extrabold text-sm text-slate-800">Caja: {fmt(repartidor?.efectivo_en_mano ?? 0)}</div>
-              <div className="text-[11px] text-slate-400">Entregar o depositar efectivo</div>
-            </div>
-            <ArrowRightLeft size={16} className="text-orange-500 shrink-0" />
-          </button>
-          <button
-            onClick={() => router.push('/repartidor/comisiones')}
-            className="w-full flex items-center gap-3 bg-white border border-green-200 rounded-2xl px-4 py-3.5 shadow-sm transition-all active:scale-[0.98] cursor-pointer"
-          >
-            <span className="text-2xl shrink-0">💵</span>
-            <div className="flex-1 text-left">
-              <div className="font-extrabold text-sm text-slate-800">Mis comisiones</div>
-              <div className="text-[11px] text-slate-400">${repartidor?.comision_valor ?? 1}/entrega · historial y reclamos</div>
-            </div>
-            <span className="text-slate-300 text-lg">›</span>
-          </button>
         </div>
       )}
 
@@ -1820,37 +1795,6 @@ export default function RepartidorPage() {
               )}
             </button>
           ))}
-        </div>
-      )}
-
-      {/* Pestañas: "Por recoger" (pool, aún sin custodia) vs "En camino"
-          (ya recibido, rumbo al cliente) -- antes ambas secciones estaban
-          apiladas en una sola pantalla con scroll y se sentían mezcladas. */}
-      {modo === 'repartidor' && (
-        <div className="px-4 pt-4 grid grid-cols-2 gap-2">
-          <button
-            onClick={() => setPestanaRepartidor('recoger')}
-            className={`relative py-2.5 rounded-xl text-xs font-bold transition-all text-center border cursor-pointer ${
-              pestanaRepartidor === 'recoger'
-                ? 'bg-orange-600 text-white border-orange-600 shadow-sm'
-                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-            }`}
-          >
-            📦 Por recoger ({poolEntregas.length})
-            {poolEntregas.length > 0 && pestanaRepartidor !== 'recoger' && (
-              <span className="absolute top-1.5 right-2 w-2 h-2 bg-red-500 rounded-full animate-ping" />
-            )}
-          </button>
-          <button
-            onClick={() => setPestanaRepartidor('entregar')}
-            className={`py-2.5 rounded-xl text-xs font-bold transition-all text-center border cursor-pointer ${
-              pestanaRepartidor === 'entregar'
-                ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
-                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-            }`}
-          >
-            🛵 En camino ({pedidos.filter(p => p.estado === 'en_ruta').length})
-          </button>
         </div>
       )}
 
@@ -1962,7 +1906,7 @@ export default function RepartidorPage() {
           completo de un vistazo (Google Maps rotula las paradas A/B/C, no con
           el nombre del cliente -- para eso está la vista de mapa/lista de
           abajo, con el número real por cercanía y los datos de cada pedido). */}
-      {modo === 'repartidor' && pestanaRepartidor === 'entregar' && pedidos.filter(p => p.estado === 'en_ruta' && p.geo_lat && p.geo_lng).length > 1 && (
+      {modo === 'repartidor' && (pestanaRepartidor === 'entregar' || pestanaRepartidor === 'mapa') && pedidos.filter(p => p.estado === 'en_ruta' && p.geo_lat && p.geo_lng).length > 1 && (
         <div className="px-4 pt-3">
           <button
             onClick={abrirRutaCombinada}
@@ -1970,31 +1914,6 @@ export default function RepartidorPage() {
           >
             <Navigation size={13} />
             Ver trayecto completo en Google Maps
-          </button>
-        </div>
-      )}
-
-      {modo === 'repartidor' && pestanaRepartidor === 'entregar' && (
-        <div className="px-4 pt-3 flex gap-2">
-          <button
-            onClick={() => setVistaRepartidor('listado')}
-            className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all text-center border cursor-pointer ${
-              vistaRepartidor === 'listado'
-                ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
-                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-            }`}
-          >
-            📋 Listado Paradas
-          </button>
-          <button
-            onClick={() => setVistaRepartidor('mapa')}
-            className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all text-center border cursor-pointer ${
-              vistaRepartidor === 'mapa'
-                ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
-                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-            }`}
-          >
-            🗺️ Ver Mapa
           </button>
         </div>
       )}
@@ -2204,74 +2123,89 @@ export default function RepartidorPage() {
             )
           ) : modo === 'repartidor' && pestanaRepartidor === 'recoger' ? (
             /* La pestaña "Por recoger" ya se renderiza arriba (pool); esta
-               columna de Listado/Mapa es solo para "En camino". */
+               columna de Listado/Mapa/Activo es para las otras 3 pestañas. */
             null
+          ) : pestanaRepartidor === 'mapa' ? (
+            <div className="px-1 py-1">
+              <MapaRuta
+                paradas={pedidos.filter(p => p.estado === 'asignado' || p.estado === 'en_ruta').map(p => ({
+                  asignacion_id: p.asignacion_id,
+                  numero: p.numero,
+                  nombre_cliente: p.nombre_cliente,
+                  direccion: p.direccion,
+                  total: p.total,
+                  geo_lat: p.geo_lat,
+                  geo_lng: p.geo_lng
+                }))}
+                onSelectParada={activarParada}
+                paradaActivaId={paradaActivaId}
+              />
+            </div>
+          ) : pestanaRepartidor === 'activo' ? (
+            /* Pestaña "Activo": SOLO la parada de ahora mismo, sin lista --
+               es la que importa mientras se maneja, sin tener que buscarla
+               entre las demás. */
+            (() => {
+              const activeStop = pedidos.find(p => p.asignacion_id === paradaActivaId && (p.estado === 'asignado' || p.estado === 'en_ruta'))
+                ?? pedidos.find(p => p.estado === 'en_ruta')
+              if (!activeStop) {
+                return (
+                  <div className="text-center py-16 space-y-3 bg-white rounded-3xl border border-slate-100 p-5 shadow-xs">
+                    <Target size={40} className="text-slate-300 mx-auto" />
+                    <p className="font-semibold text-slate-600">Sin parada activa</p>
+                    <p className="text-sm text-slate-400">Cuando aceptes o vayas en camino a una entrega, aparecerá aquí.</p>
+                  </div>
+                )
+              }
+              return renderCardRepartidor(activeStop, true)
+            })()
           ) : (
-            /* VISTA: MIS PEDIDOS (REPARTIDOR) - Listado/Mapa estilo Envíos Flex */
-            vistaRepartidor === 'mapa' ? (
-              <div className="px-1 py-1">
-                <MapaRuta 
-                  paradas={pedidos.filter(p => p.estado === 'asignado' || p.estado === 'en_ruta').map(p => ({
-                    asignacion_id: p.asignacion_id,
-                    numero: p.numero,
-                    nombre_cliente: p.nombre_cliente,
-                    direccion: p.direccion,
-                    total: p.total,
-                    geo_lat: p.geo_lat,
-                    geo_lng: p.geo_lng
-                  }))} 
-                  onSelectParada={activarParada}
-                  paradaActivaId={paradaActivaId} 
-                />
-              </div>
-            ) : (
-              <div className="space-y-6">
-                {/* 📌 SECCIÓN: PRÓXIMA PARADA / EN CAMINO */}
-                {(() => {
-                  const activeStop = pedidos.find(p => p.asignacion_id === paradaActivaId && (p.estado === 'asignado' || p.estado === 'en_ruta'))
-                  if (!activeStop) return null
-                  return (
-                    <div className="space-y-2">
-                      <div className="text-[10px] font-black text-red-500 uppercase tracking-widest px-1 flex items-center gap-1.5 animate-pulse text-left">
-                        🚨 Próxima Parada (En Camino)
-                      </div>
-                      {renderCardRepartidor(activeStop, true)}
+            <div className="space-y-6">
+              {/* 📌 SECCIÓN: PRÓXIMA PARADA / EN CAMINO */}
+              {(() => {
+                const activeStop = pedidos.find(p => p.asignacion_id === paradaActivaId && (p.estado === 'asignado' || p.estado === 'en_ruta'))
+                if (!activeStop) return null
+                return (
+                  <div className="space-y-2">
+                    <div className="text-[10px] font-black text-red-500 uppercase tracking-widest px-1 flex items-center gap-1.5 animate-pulse text-left">
+                      🚨 Próxima Parada (En Camino)
                     </div>
-                  )
-                })()}
+                    {renderCardRepartidor(activeStop, true)}
+                  </div>
+                )
+              })()}
 
-                {/* 📋 SECCIÓN: OTRAS PARADAS PENDIENTES */}
-                {(() => {
-                  const pendingStops = pedidos.filter(p => p.asignacion_id !== paradaActivaId && (p.estado === 'asignado' || p.estado === 'en_ruta'))
-                  if (pendingStops.length === 0) {
-                    const hasActive = pedidos.some(p => p.asignacion_id === paradaActivaId && (p.estado === 'asignado' || p.estado === 'en_ruta'))
-                    if (!hasActive) {
-                      return (
-                        <div className="text-center py-16 space-y-3 bg-white rounded-3xl border border-slate-100 p-5 shadow-xs">
-                          <CheckCircle size={48} className="text-green-300 mx-auto" />
-                          <p className="font-semibold text-slate-600">Sin paradas activas</p>
-                          <p className="text-sm text-slate-400">Cuando te asignen entregas aparecerán aquí.</p>
-                        </div>
-                      )
-                    }
-                    return null
-                  }
-                  return (
-                    <div className="space-y-3">
-                      <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1 text-left">
-                        📋 Paradas Pendientes ({pendingStops.length})
+              {/* 📋 SECCIÓN: OTRAS PARADAS PENDIENTES */}
+              {(() => {
+                const pendingStops = pedidos.filter(p => p.asignacion_id !== paradaActivaId && (p.estado === 'asignado' || p.estado === 'en_ruta'))
+                if (pendingStops.length === 0) {
+                  const hasActive = pedidos.some(p => p.asignacion_id === paradaActivaId && (p.estado === 'asignado' || p.estado === 'en_ruta'))
+                  if (!hasActive) {
+                    return (
+                      <div className="text-center py-16 space-y-3 bg-white rounded-3xl border border-slate-100 p-5 shadow-xs">
+                        <CheckCircle size={48} className="text-green-300 mx-auto" />
+                        <p className="font-semibold text-slate-600">Sin paradas activas</p>
+                        <p className="text-sm text-slate-400">Cuando te asignen entregas aparecerán aquí.</p>
                       </div>
-                      {pendingStops.map(p => renderCardRepartidor(p, false))}
+                    )
+                  }
+                  return null
+                }
+                return (
+                  <div className="space-y-3">
+                    <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1 text-left">
+                      📋 Paradas Pendientes ({pendingStops.length})
                     </div>
-                  )
-                })()}
-              </div>
-            )
+                    {pendingStops.map(p => renderCardRepartidor(p, false))}
+                  </div>
+                )
+              })()}
+            </div>
           )
         )}
       </div>
 
-      {/* Menú inferior fijo (solo módulo comprador) */}
+      {/* Menú inferior fijo (comprador) */}
       {modo === 'comprador' && (
         <div className="fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 flex items-stretch z-[150] shadow-[0_-2px_10px_rgba(0,0,0,0.06)]">
           {[
@@ -2300,7 +2234,101 @@ export default function RepartidorPage() {
         </div>
       )}
 
+      {/* Menú inferior fijo (repartidor): 4 destinos con contador de
+          pedidos, tocables sin puntería fina. Reemplaza la pestaña de
+          arriba + el toggle Listado/Mapa que antes vivía escondido dentro
+          de "entregar". */}
+      {modo === 'repartidor' && (
+        <div className="fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 flex items-stretch z-[150] shadow-[0_-2px_10px_rgba(0,0,0,0.06)]">
+          {([
+            { key: 'recoger' as const,  label: 'Por recoger', icon: <Package size={20} />, count: poolEntregas.length },
+            { key: 'entregar' as const, label: 'En camino',   icon: <span className="text-xl leading-none">🛵</span>, count: pedidos.filter(p => p.estado === 'en_ruta').length },
+            { key: 'activo' as const,   label: 'Activo',      icon: <Target size={20} />, count: pedidos.some(p => p.estado === 'en_ruta') ? 1 : 0 },
+            { key: 'mapa' as const,     label: 'Mapa',         icon: <MapIcon size={20} />, count: 0 },
+          ]).map(item => (
+            <button
+              key={item.key}
+              onClick={() => setPestanaRepartidor(item.key)}
+              className={`relative flex-1 flex flex-col items-center justify-center gap-0.5 py-2.5 transition-colors cursor-pointer ${
+                pestanaRepartidor === item.key ? 'text-orange-600' : 'text-slate-400'
+              }`}
+            >
+              {item.icon}
+              <span className="text-[10px] font-bold">{item.label}</span>
+              {item.count > 0 && (
+                <span className="absolute top-1 right-[26%] min-w-[16px] h-4 px-1 bg-red-500 text-white text-[9px] font-black rounded-full flex items-center justify-center">
+                  {item.count}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+
     </div>
+
+      {/* Menú lateral (hamburguesa, modo repartidor): traspaso, caja,
+          comisiones -- lo que se usa ocasionalmente, fuera de la pantalla
+          principal para no competir con lo que se usa todo el tiempo. */}
+      {menuAbierto && (
+        <div className="fixed inset-0 z-[250] flex">
+          <div className="flex-1 bg-black/50" onClick={() => setMenuAbierto(false)} />
+          <div className="w-72 max-w-[80vw] bg-white h-full shadow-xl flex flex-col">
+            <div className="bg-green-700 text-white px-4 pt-10 pb-4 flex items-center justify-between">
+              <div>
+                <div className="font-extrabold">{repartidor?.nombre ?? 'Repartidor'}</div>
+                <div className="text-green-200 text-xs">{repartidor?.conectado ? '🟢 En turno' : '⚪ Desconectado'}</div>
+              </div>
+              <button onClick={() => setMenuAbierto(false)} className="p-1.5 hover:bg-white/10 rounded-lg cursor-pointer">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-3 space-y-2">
+              <a href="/repartidor/escanear"
+                className="flex items-center gap-3 bg-yellow-500 hover:bg-yellow-600 text-slate-900 rounded-2xl px-4 py-3.5 shadow-sm transition-all active:scale-[0.98]">
+                <span className="text-2xl shrink-0">📷</span>
+                <div className="flex-1 text-left">
+                  <div className="font-extrabold text-sm">Recibir traspaso</div>
+                  <div className="text-[11px] opacity-80">Escanear código del comprador</div>
+                </div>
+              </a>
+              <button
+                onClick={() => { setMenuAbierto(false); abrirTraspaso() }}
+                className="w-full flex items-center gap-3 bg-white border border-orange-200 rounded-2xl px-4 py-3.5 shadow-sm transition-all active:scale-[0.98] cursor-pointer"
+              >
+                <span className="text-2xl shrink-0">💰</span>
+                <div className="flex-1 text-left">
+                  <div className="font-extrabold text-sm text-slate-800">Caja: {fmt(repartidor?.efectivo_en_mano ?? 0)}</div>
+                  <div className="text-[11px] text-slate-400">Entregar o depositar efectivo</div>
+                </div>
+              </button>
+              <button
+                onClick={() => { setMenuAbierto(false); router.push('/repartidor/comisiones') }}
+                className="w-full flex items-center gap-3 bg-white border border-green-200 rounded-2xl px-4 py-3.5 shadow-sm transition-all active:scale-[0.98] cursor-pointer"
+              >
+                <span className="text-2xl shrink-0">💵</span>
+                <div className="flex-1 text-left">
+                  <div className="font-extrabold text-sm text-slate-800">Mis comisiones</div>
+                  <div className="text-[11px] text-slate-400">${repartidor?.comision_valor ?? 1}/entrega · historial y reclamos</div>
+                </div>
+              </button>
+              <div className="border-t border-slate-100 my-2" />
+              <Link href="/repartidor/perfil"
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-slate-50 transition text-slate-700">
+                <UserCircle size={20} className="text-slate-400" />
+                <span className="font-semibold text-sm">Mi perfil</span>
+              </Link>
+              <form action={logout}>
+                <button type="submit"
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-red-50 transition text-red-600 cursor-pointer">
+                  <LogOut size={18} />
+                  <span className="font-semibold text-sm">Cerrar sesión</span>
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal: Entregar efectivo en mano a un colega (comprador u otro repartidor) */}
       {renderModalTraspaso()}
