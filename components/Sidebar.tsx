@@ -14,7 +14,7 @@ const NAV = [
   { href: '/repartidores', label: 'Equipo', icon: Users, group: 'Personal', roles: ['superadmin','admin','supervisor','contador'] },
   { href: '/liquidaciones', label: 'Caja y liquidaciones', icon: Wallet, group: 'Finanzas', roles: ['superadmin','admin','supervisor','contador'] },
   { href: '/facturas-compra', label: 'Facturas de compra', icon: FileText, group: 'Finanzas', roles: ['superadmin','admin','contador'] },
-  { href: '/estado-cuenta', label: 'Estados de cuenta', icon: Scale, group: 'Finanzas', roles: ['superadmin','admin','contador'] },
+  { href: '/estado-cuenta', label: 'Liquidar comisiones', icon: Scale, group: 'Finanzas', roles: ['superadmin','admin','contador'] },
   { href: '/asignaciones/facturacion', label: 'Facturación SRI', icon: FileText, group: 'Finanzas', roles: ['superadmin','admin','supervisor','contador'] },
   { href: '/reportes', label: 'Analítica', icon: ClipboardList, group: 'Análisis', roles: ['superadmin','admin','contador'] },
   { href: '/usuarios', label: 'Usuarios', icon: ShieldCheck, group: 'Administración', roles: ['superadmin'] },
