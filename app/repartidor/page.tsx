@@ -1164,8 +1164,8 @@ export default function RepartidorPage() {
             <div className="text-[9.5px] text-slate-500">Comisión por cobrar</div>
           </div>
         </div>
-        <Link href="/repartidor/perfil" className="block text-center text-[10px] font-bold text-blue-600 hover:underline -mt-2">
-          Ver historial de comisiones cobradas →
+        <Link href="/repartidor/comisiones" className="block text-center text-[10px] font-bold text-blue-600 hover:underline -mt-2">
+          Ver desglose y reportar diferencias →
         </Link>
 
         <div className="grid grid-cols-3 gap-1.5">
@@ -1700,9 +1700,12 @@ export default function RepartidorPage() {
                 📷 Recibir Traspaso
               </a>
             )}
-            <div className="bg-white/20 rounded-xl px-3 py-1.5 text-[11px] font-semibold shrink-0">
+            <button
+              onClick={() => router.push('/repartidor/comisiones')}
+              className="bg-white/20 hover:bg-white/30 rounded-xl px-3 py-1.5 text-[11px] font-semibold shrink-0 transition cursor-pointer"
+            >
               💵 Comisión: ${repartidor?.comision_valor ?? 1}/v
-            </div>
+            </button>
             <button
               onClick={abrirTraspaso}
               className="bg-white/20 hover:bg-white/30 rounded-xl px-3 py-1.5 text-[11px] font-semibold shrink-0 text-yellow-300 border border-yellow-400/25 flex items-center gap-1 transition cursor-pointer"

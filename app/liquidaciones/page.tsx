@@ -81,6 +81,12 @@ export default function LiquidacionesPage() {
   const [depositosPendientes, setDepositosPendientes] = useState<any[]>([])
   const [procesandoDeposito, setProcesandoDeposito] = useState<string | null>(null)
 
+  // Reclamos que los repartidores reportan desde "Mis comisiones" cuando
+  // algo no les cuadra -- canal formal que copiamos de PeYa/Tipti ("Solicitar
+  // revisión de comisión" / "Reportar discrepancia").
+  const [reclamosAbiertos, setReclamosAbiertos] = useState<any[]>([])
+  const [procesandoReclamo, setProcesandoReclamo] = useState<string | null>(null)
+
   async function cargar() {
     setCargando(true)
     const limites = limitesDiaEcuador(fecha)
@@ -163,7 +169,20 @@ export default function LiquidacionesPage() {
       .eq('estado', 'pendiente').order('registrado_at', { ascending: true })
     setDepositosPendientes(depsPend ?? [])
 
+    const { data: reclamos } = await supabase.rpc('admin_reclamos_abiertos')
+    setReclamosAbiertos(reclamos ?? [])
+
     setCargando(false)
+  }
+
+  async function resolverReclamo(reclamo: any) {
+    const respuesta = window.prompt('Respuesta para el repartidor (qué se revisó / resolvió):')?.trim()
+    if (!respuesta) return
+    setProcesandoReclamo(reclamo.id)
+    const { error } = await supabase.rpc('resolver_reclamo', { p_reclamo_id: reclamo.id, p_respuesta: respuesta })
+    setProcesandoReclamo(null)
+    if (error) { alert('No se pudo resolver: ' + error.message); return }
+    await cargar()
   }
 
   async function confirmarDeposito(dep: any) {
@@ -383,6 +402,37 @@ export default function LiquidacionesPage() {
                       ))}
                     </div>
                   )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Reclamos de comisión/depósito que los repartidores reportan desde
+            "Mis comisiones" -- canal formal, no solo que se quede callado. */}
+        {reclamosAbiertos.length > 0 && (
+          <div className="bg-[#181d24] rounded-2xl border border-amber-500/30 overflow-hidden">
+            <div className="px-4 py-3.5 border-b border-[#2d3748] flex items-center gap-2">
+              <AlertCircle size={15} className="text-amber-400" />
+              <span className="font-bold text-white text-sm">Reclamos por revisar ({reclamosAbiertos.length})</span>
+            </div>
+            <div className="divide-y divide-[#2d3748]">
+              {reclamosAbiertos.map(rc => (
+                <div key={rc.id} className="px-4 py-3 space-y-1.5 text-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-bold text-white">
+                        {rc.repartidor_nombre}
+                        <span className="ml-1.5 text-[9px] font-bold text-amber-400 uppercase">{rc.tipo}</span>
+                      </p>
+                      <p className="text-xs text-gray-500">{new Date(rc.created_at).toLocaleString('es-EC', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>
+                    </div>
+                    <button onClick={() => resolverReclamo(rc)} disabled={procesandoReclamo === rc.id}
+                      className="text-[10px] font-bold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 rounded-lg px-2.5 py-1.5 shrink-0">
+                      {procesandoReclamo === rc.id ? '...' : 'Responder y cerrar'}
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-400 bg-[#0c0f12] border border-[#2d3748] rounded-lg px-3 py-2">{rc.mensaje}</p>
                 </div>
               ))}
             </div>

@@ -301,29 +301,14 @@ export default function PerfilRepartidorPage() {
             </div>
           )}
 
-          {/* Comisiones cobradas: cada período de pago ya cerrado por
-              admin. "Por cobrar" (arriba) y "cobradas" (aquí) separadas,
-              para que quede claro qué ya se pagó y qué falta. */}
-          <div className="pt-2 border-t border-slate-100 space-y-1.5">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-              Comisiones cobradas {!verTodoHistorial && '(últimos 3 meses)'}
-            </p>
-            {periodosPago.length === 0 ? (
-              <p className="text-xs text-slate-400 text-center py-2">Aún no tienes períodos de pago cerrados.</p>
-            ) : (
-              periodosPago.map(p => (
-                <div key={p.id} className="flex items-center justify-between text-xs">
-                  <span className="text-slate-500">{p.desde} → {p.hasta}</span>
-                  <span className="font-bold text-green-700">${Number(p.ganancias).toFixed(2)}</span>
-                </div>
-              ))
-            )}
-            {!verTodoHistorial && (
-              <button onClick={cargarHistorialCompleto} className="text-[10px] font-bold text-blue-600 hover:underline cursor-pointer">
-                Ver historial completo →
-              </button>
-            )}
-          </div>
+          {/* El desglose completo (ganado/pagado/pendiente), historial con
+              ganancia por entrega y el canal de reclamo viven en su propia
+              pantalla -- ver /repartidor/comisiones/page.tsx -- para no
+              duplicar una versión pobre de lo mismo aquí. */}
+          <button onClick={() => router.push('/repartidor/comisiones')}
+            className="w-full pt-2 border-t border-slate-100 text-center text-[11px] font-bold text-blue-600 hover:underline cursor-pointer">
+            Ver desglose completo de comisiones →
+          </button>
         </div>
 
         {/* Historial de mis entregas */}
