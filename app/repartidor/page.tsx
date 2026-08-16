@@ -1684,7 +1684,7 @@ export default function RepartidorPage() {
               💵 Comisión: ${repartidor?.comision_valor ?? 1}/v
             </div>
             <button
-              onClick={abrirTraspaso}
+              onClick={() => router.push('/repartidor/perfil')}
               className="bg-white/20 hover:bg-white/30 rounded-xl px-3 py-1.5 text-[11px] font-semibold shrink-0 text-yellow-300 border border-yellow-400/25 flex items-center gap-1 transition cursor-pointer"
             >
               💰 Caja: {fmt(repartidor?.efectivo_en_mano ?? 0)}
