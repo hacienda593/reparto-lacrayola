@@ -10,6 +10,12 @@ import { useRouter } from 'next/navigation'
 import { Loader2, MapPin, CheckCircle, Package, Phone, Navigation, DollarSign, UserCircle, ArrowRightLeft, X, AlertCircle, LogOut, Menu, Map as MapIcon, Target } from 'lucide-react'
 
 function fmt(n: number) { return '$' + (n ?? 0).toFixed(2) }
+// La app de tienda manda "total" SIN el envío incluido (confirmado con un
+// pedido real). Mientras no se corrija ahí, esto es lo que hay que cobrar
+// de verdad -- ver /api/envio/calcular-pedido, que rellena costo_envio.
+function montoACobrar(p: { total: number; costo_envio: number | null }) {
+  return Number(p.total ?? 0) + Number(p.costo_envio ?? 0)
+}
 
 function sonDireccionesSimilares(dir1: string | null | undefined, dir2: string | null | undefined): boolean {
   if (!dir1 || !dir2) return false
@@ -41,6 +47,7 @@ interface PedidoAsignado {
   ciudad:         string
   referencias:    string | null
   total:          number
+  costo_envio:    number | null
   geo_lat:        number | null
   geo_lng:        number | null
   notas:          string | null
@@ -73,7 +80,37 @@ export default function RepartidorPage() {
   const [repartidor, setRepartidor] = useState<{ id: string; nombre: string; comision_valor: number; efectivo_en_mano: number; estado: string; vehiculo: string | null; email: string | null; conectado: boolean } | null>(null)
   const [procesando, setProcesando] = useState<string | null>(null)
   const [cobro,      setCobro]      = useState<Record<string, string>>({})
-  
+
+  // La app de tienda no manda el costo de envío -- se calcula acá la
+  // primera vez que se ve un pedido sin costo_envio y con coordenadas, y
+  // se guarda para no recalcularlo cada vez. Sin esto, "total" se sigue
+  // usando solo (sin envío) y se repite la pérdida.
+  const envioSolicitado = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    const pendientes = pedidos.filter(p =>
+      p.costo_envio == null && p.geo_lat != null && p.geo_lng != null && !envioSolicitado.current.has(p.pedido_id)
+    )
+    if (pendientes.length === 0) return
+    pendientes.forEach(p => envioSolicitado.current.add(p.pedido_id))
+    ;(async () => {
+      let huboCambios = false
+      const resultados = await Promise.all(pendientes.map(async p => {
+        try {
+          const res = await fetch('/api/envio/calcular-pedido', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pedidoId: p.pedido_id }),
+          })
+          const data = await res.json()
+          if (res.ok && typeof data.envio === 'number') { huboCambios = true; return { pedido_id: p.pedido_id, envio: data.envio } }
+        } catch { /* si falla, se queda como null -- se reintenta la próxima carga */ }
+        return null
+      }))
+      if (!huboCambios) return
+      const mapa = new Map(resultados.filter(Boolean).map((r: any) => [r.pedido_id, r.envio]))
+      setPedidos(prev => prev.map(p => mapa.has(p.pedido_id) ? { ...p, costo_envio: mapa.get(p.pedido_id) } : p))
+    })()
+  }, [pedidos])
+
   // Selector dinámico de Rol: 'repartidor' (Entregas) o 'comprador' (Compras/Picking)
   const [modo, setModo] = useState<'repartidor' | 'comprador'>('repartidor')
   // 'repartidor' es solo un valor inicial arbitrario -- hasta que cargar() confirma
@@ -458,7 +495,7 @@ export default function RepartidorPage() {
       // de la lista del comprador/repartidor aunque siga activo).
       let queryAsigs = supabase
         .from('rep_asignaciones')
-        .select('id,estado,pedido_id,rider_id,shopper_id,compra_iniciada_at,ol_pedidos(numero,nombre_cliente,telefono,direccion,ciudad,referencias,total,geo_lat,geo_lng,notas,estado,metodo_pago,pago_confirmado)')
+        .select('id,estado,pedido_id,rider_id,shopper_id,compra_iniciada_at,ol_pedidos(numero,nombre_cliente,telefono,direccion,ciudad,referencias,total,costo_envio,geo_lat,geo_lng,notas,estado,metodo_pago,pago_confirmado,zona_id)')
 
       if (expectedModo === 'comprador') {
         // Trae todo el ciclo de vida del comprador, incluyendo lo ya entregado,
@@ -572,6 +609,7 @@ export default function RepartidorPage() {
           ciudad:         a.ol_pedidos?.ciudad,
           referencias:    a.ol_pedidos?.referencias,
           total:          a.ol_pedidos?.total,
+          costo_envio:    a.ol_pedidos?.costo_envio ?? null,
           geo_lat:        a.ol_pedidos?.geo_lat || matchDir?.geo_lat || null,
           geo_lng:        a.ol_pedidos?.geo_lng || matchDir?.geo_lng || null,
           notas:          a.ol_pedidos?.notas,
@@ -1033,9 +1071,10 @@ export default function RepartidorPage() {
       // antes de continuar. No bloquea entregas legítimas con diferencia,
       // pero ya no se puede cobrar de menos en silencio.
       let notaDiferencia: string | null = null
-      if (!yaPagoPorTransferencia && monto < entregaModal.total - 0.01) {
+      const totalConEnvio = montoACobrar(entregaModal)
+      if (!yaPagoPorTransferencia && monto < totalConEnvio - 0.01) {
         notaDiferencia = window.prompt(
-          `Estás cobrando ${fmt(monto)} pero el total del pedido es ${fmt(entregaModal.total)} (incluye envío).\n\nExplica el motivo de la diferencia para continuar:`
+          `Estás cobrando ${fmt(monto)} pero el total del pedido es ${fmt(totalConEnvio)} (incluye envío).\n\nExplica el motivo de la diferencia para continuar:`
         )
         if (!notaDiferencia || !notaDiferencia.trim()) {
           alert('Debes indicar el motivo de la diferencia, o corrige el monto para que coincida con el total.')
@@ -1327,7 +1366,7 @@ export default function RepartidorPage() {
               {p.estado === 'en_ruta' ? 'En camino' : 'Asignado'}
             </span>
           </div>
-          <span className="font-bold text-green-700 text-xs">{fmt(p.total)}</span>
+          <span className="font-bold text-green-700 text-xs">{fmt(montoACobrar(p))}</span>
         </div>
 
         {/* Banner de Pago Destacado */}
@@ -1338,12 +1377,12 @@ export default function RepartidorPage() {
         )}
         {p.metodo_pago === 'transferencia' && p.pago_confirmado !== true && (
           <div className="bg-yellow-500 text-slate-900 font-extrabold text-[10px] py-2 text-center shadow-inner animate-pulse">
-            ⚠️ TRANSFERENCIA POR CONFIRMAR: {fmt(p.total)}
+            ⚠️ TRANSFERENCIA POR CONFIRMAR: {fmt(montoACobrar(p))}
           </div>
         )}
         {(!p.metodo_pago || p.metodo_pago === 'efectivo') && (
           <div className="bg-orange-600 text-white font-extrabold text-[10px] py-2 text-center shadow-inner">
-            💵 COBRAR EN EFECTIVO: {fmt(p.total)}
+            💵 COBRAR EN EFECTIVO: {fmt(montoACobrar(p))}
           </div>
         )}
 
@@ -1405,7 +1444,7 @@ export default function RepartidorPage() {
                       // como el precio de los productos). Ahora arranca
                       // con el total real ya puesto; si cobra distinto,
                       // tiene que editarlo a propósito.
-                      value={cobro[p.asignacion_id] ?? p.total.toFixed(2)}
+                      value={cobro[p.asignacion_id] ?? montoACobrar(p).toFixed(2)}
                       onChange={e => setCobro(c => ({ ...c, [p.asignacion_id]: e.target.value }))}
                       className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-green-500"
                     />
@@ -1422,7 +1461,7 @@ export default function RepartidorPage() {
 
                   <button
                     onClick={() => {
-                      const valCobro = cobro[p.asignacion_id] || p.total.toFixed(2)
+                      const valCobro = cobro[p.asignacion_id] || montoACobrar(p).toFixed(2)
                       setMontoCobradoModal(valCobro)
                       setFotoFile(null)
                       setEntregaModal(p)
@@ -1613,7 +1652,7 @@ export default function RepartidorPage() {
   }
 
   const totalACobrar = pedidos.filter(p => p.estado === 'asignado' || p.estado === 'en_ruta')
-    .reduce((s, p) => s + p.total, 0)
+    .reduce((s, p) => s + montoACobrar(p), 0)
 
   // Clasificacion interna del comprador en las 6 pestañas
   const pedidosAceptadas    = pedidos.filter(p => p.estado === 'asignado' && !p.compra_iniciada_at)
@@ -1845,7 +1884,7 @@ export default function RepartidorPage() {
                 <div key={p.asignacion_id} className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 space-y-2.5">
                   <div className="flex justify-between items-center">
                     <span className="font-bold text-slate-800 text-sm">Pedido #{String(p.numero).padStart(4, '0')}</span>
-                    <span className="font-bold text-green-700 text-sm">{fmt(p.total)}</span>
+                    <span className="font-bold text-green-700 text-sm">{fmt(montoACobrar(p))}</span>
                   </div>
                   {/* Punto de recogida — lo primero que necesita saber el motorizado */}
                   <div className="bg-orange-50 border border-orange-200 rounded-xl px-3 py-2 flex items-start gap-2">
@@ -1963,7 +2002,7 @@ export default function RepartidorPage() {
               <div key={p.id} className="bg-white rounded-3xl shadow-sm border border-slate-100 p-5 space-y-4">
                 <div className="flex justify-between items-center border-b border-slate-50 pb-2.5">
                   <span className="font-extrabold text-xs text-slate-800">Pedido #{String(p.numero).padStart(4,'0')}</span>
-                  <span className="font-extrabold text-sm text-green-700">{fmt(p.total)}</span>
+                  <span className="font-extrabold text-sm text-green-700">{fmt(montoACobrar(p))}</span>
                 </div>
                 <div className="space-y-1 text-left">
                   <div className="text-xs text-slate-700 font-extrabold">{p.nombre_cliente}</div>
@@ -2009,7 +2048,7 @@ export default function RepartidorPage() {
                         {(p.estado ?? '').replace('_',' ')}
                       </span>
                     </div>
-                    <span className="font-bold text-green-700">{fmt(p.total)}</span>
+                    <span className="font-bold text-green-700">{fmt(montoACobrar(p))}</span>
                   </div>
 
                   {/* Banner de Pago Destacado */}
@@ -2020,12 +2059,12 @@ export default function RepartidorPage() {
                   )}
                   {p.metodo_pago === 'transferencia' && p.pago_confirmado !== true && (
                     <div className="bg-yellow-500 text-slate-900 font-extrabold text-xs px-4 py-3 text-center flex items-center justify-center gap-1.5 shadow-inner animate-pulse">
-                      <span>⚠️ TRANSFERENCIA POR CONFIRMAR: {fmt(p.total)}</span>
+                      <span>⚠️ TRANSFERENCIA POR CONFIRMAR: {fmt(montoACobrar(p))}</span>
                     </div>
                   )}
                   {(!p.metodo_pago || p.metodo_pago === 'efectivo') && (
                     <div className="bg-orange-600 text-white font-extrabold text-xs px-4 py-3 text-center flex items-center justify-center gap-1.5 shadow-inner">
-                      <span>💵 COBRAR EN EFECTIVO: {fmt(p.total)}</span>
+                      <span>💵 COBRAR EN EFECTIVO: {fmt(montoACobrar(p))}</span>
                     </div>
                   )}
 
@@ -2378,7 +2417,7 @@ export default function RepartidorPage() {
             <div className="bg-slate-50 border border-slate-100 rounded-xl px-3 py-2 text-xs text-slate-600">
               <div className="font-extrabold text-slate-800">Pedido #{entregaModal.numero}</div>
               <div>Cliente: <span className="font-bold text-slate-700">{entregaModal.nombre_cliente}</span></div>
-              <div>Total pedido: <span className="font-bold text-green-700">{fmt(entregaModal.total)}</span></div>
+              <div>Total a cobrar (con envío): <span className="font-bold text-green-700">{fmt(montoACobrar(entregaModal))}</span></div>
             </div>
 
             {/* Paso 1: Foto en Puerta */}
@@ -2458,7 +2497,7 @@ export default function RepartidorPage() {
                     type="number" step="0.01" min="0"
                     value={montoCobradoModal}
                     onChange={e => setMontoCobradoModal(e.target.value)}
-                    placeholder={entregaModal.total.toFixed(2)}
+                    placeholder={montoACobrar(entregaModal).toFixed(2)}
                     disabled={guardandoEntrega}
                     className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-7 pr-3 py-2.5 text-sm font-bold text-slate-800 focus:outline-none focus:border-green-500"
                   />

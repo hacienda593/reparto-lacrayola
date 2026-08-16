@@ -4,6 +4,15 @@ import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Loader2, CheckCircle2, MapPin, Phone, Navigation, Package, Check, X } from 'lucide-react'
 
+// La app de tienda manda "total" SIN el envío incluido -- ver
+// migration_costo_envio_auditoria.sql y /api/envio/calcular-pedido, que lo
+// calcula y lo guarda en ol_pedidos.costo_envio la primera vez que hace
+// falta. Esto es lo que hay que cobrar de verdad.
+function montoACobrar(p: { total?: number | null; costo_envio?: number | null } | null) {
+  if (!p) return 0
+  return Number(p.total ?? 0) + Number(p.costo_envio ?? 0)
+}
+
 function sonDireccionesSimilares(dir1: string | null | undefined, dir2: string | null | undefined): boolean {
   if (!dir1 || !dir2) return false
   const clean = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
@@ -181,7 +190,27 @@ export default function EntregaPage() {
 
     setPedido(pedidoConFallback)
     setItems(its ?? [])
-    setMonto((ped?.total ?? 0).toFixed(2))
+    setMonto(montoACobrar(pedidoConFallback).toFixed(2))
+
+    // Si todavía no se calculó el envío para este pedido, se calcula y
+    // guarda ahora (idempotente -- no pisa un valor ya puesto).
+    if (ped?.costo_envio == null && geoLatFallback != null && geoLngFallback != null) {
+      fetch('/api/envio/calcular-pedido', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pedidoId: asig.pedido_id }),
+      }).then(res => res.json()).then(data => {
+        if (typeof data?.envio === 'number') {
+          setPedido((prev: any) => prev ? { ...prev, costo_envio: data.envio } : prev)
+          setMonto(prevMonto => {
+            // Solo actualiza el campo si el repartidor no lo tocó todavía
+            // (sigue igual al total sin envío que se puso al cargar).
+            return prevMonto === Number(ped?.total ?? 0).toFixed(2)
+              ? (Number(ped?.total ?? 0) + data.envio).toFixed(2)
+              : prevMonto
+          })
+        }
+      }).catch(() => { /* se reintenta la próxima vez que se abra el pedido */ })
+    }
     sb.from('rep_configuracion').select('valor').eq('clave', 'admin_whatsapp').maybeSingle()
       .then(({ data }) => setAdminWhatsapp(data?.valor ?? null))
     // URL del mapa estático
@@ -390,6 +419,24 @@ export default function EntregaPage() {
       }
 
       const montoFinal = esTransferencia ? 0 : parseFloat(monto)
+
+      // El total incluye envío -- si se cobra menos, se pide el motivo
+      // antes de seguir (el backend lo exige igual; esto evita subir
+      // foto/firma para nada si falta el dato).
+      let notaDiferencia: string | null = null
+      const totalConEnvio = montoACobrar(pedido)
+      if (!esTransferencia && montoFinal < totalConEnvio - 0.01) {
+        notaDiferencia = window.prompt(
+          `Estás cobrando $${montoFinal.toFixed(2)} pero el total del pedido es $${totalConEnvio.toFixed(2)} (incluye envío).\n\nExplica el motivo de la diferencia para continuar:`
+        )
+        if (!notaDiferencia || !notaDiferencia.trim()) {
+          setError('Debes indicar el motivo de la diferencia, o corrige el monto para que coincida con el total.')
+          setGuardandoEntrega(false)
+          setGuardando(false)
+          return
+        }
+      }
+
       const requestKey = `entrega-request:${id}`
       const requestId = sessionStorage.getItem(requestKey) || crypto.randomUUID()
       sessionStorage.setItem(requestKey, requestId)
@@ -403,6 +450,7 @@ export default function EntregaPage() {
         p_foto_url: fotoEntregaUrl,
         p_firma_url: firmaClienteUrl,
         p_referencias: referenciasFinal || null,
+        p_nota_diferencia: notaDiferencia,
       })
       if (cierreError) throw cierreError
       sessionStorage.removeItem(requestKey)
@@ -464,8 +512,8 @@ export default function EntregaPage() {
           <span className="text-white font-semibold">{esTransferencia ? (pedido?.pago_confirmado === true ? 'Transferencia (Confirmada)' : 'Transferencia (Por confirmar)') : `$${parseFloat(monto).toFixed(2)}`}</span>
         </div>
         <div className="border-t border-[#2d3748] pt-3 flex justify-between text-sm font-bold">
-          <span className="text-white">Total del pedido</span>
-          <span className="text-[#00b074] text-lg">${(pedido?.total ?? 0).toFixed(2)}</span>
+          <span className="text-white">Total del pedido (con envío)</span>
+          <span className="text-[#00b074] text-lg">${montoACobrar(pedido).toFixed(2)}</span>
         </div>
       </div>
       <button onClick={() => router.push('/pedidos')}
@@ -685,14 +733,14 @@ export default function EntregaPage() {
           ) : (
             <>
               <div className="flex justify-between text-sm border-b border-[#2d3748] pb-2">
-                <span className="text-gray-400">Total estimado</span>
-                <span className="text-white font-bold">${(pedido?.total ?? 0).toFixed(2)}</span>
+                <span className="text-gray-400">Total a cobrar (con envío)</span>
+                <span className="text-white font-bold">${montoACobrar(pedido).toFixed(2)}</span>
               </div>
               <div className="relative">
                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[#00b074] font-bold">$</span>
                 <input type="number" step="0.01" min="0" value={monto}
                   onChange={e => setMonto(e.target.value)}
-                  placeholder={(pedido?.total ?? 0).toFixed(2)}
+                  placeholder={montoACobrar(pedido).toFixed(2)}
                   className="w-full bg-[#0c0f12] border border-[#2d3748] text-white rounded-2xl pl-8 pr-4 py-3.5 text-lg font-bold focus:outline-none focus:border-[#00b074] text-center"
                 />
               </div>
