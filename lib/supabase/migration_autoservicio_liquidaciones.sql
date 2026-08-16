@@ -239,8 +239,11 @@ BEGIN
     AND entregado_at < ((p_fecha+1)::timestamp AT TIME ZONE 'America/Guayaquil');
   v_comision := CASE WHEN v_tipo_comision='porcentaje' THEN ROUND(v_cobrado*v_valor_comision/100,2) ELSE ROUND(v_entregados*v_valor_comision,2) END;
 
+  -- rep_liquidaciones.recibido_por es UUID (quién de admin lo recibió);
+  -- rep_movimientos_liquidacion.recibido_por es TEXT (nombre libre). Antes
+  -- se intentaba meter el texto libre en la columna UUID -- ahí fallaba.
   INSERT INTO rep_liquidaciones(repartidor_id,fecha,total_asignados,total_entregados,total_devueltos,total_cobrado,total_comision,total_a_entregar,monto_recibido,saldo_antes,saldo_despues,estado,liquidado_at,liquidado_por,metodo_liquidacion,comprobante_referencia,foto_comprobante_url,recibido_por,numero_vale_caja,updated_at)
-  VALUES(p_repartidor_id,p_fecha,v_asignados,v_entregados,v_devueltos,v_cobrado,v_comision,GREATEST(v_cobrado-v_comision,0),p_monto_recibido,v_saldo_antes,v_saldo_despues,CASE WHEN v_saldo_despues=0 THEN 'liquidado' ELSE 'pendiente' END,NOW(),auth.uid(),p_metodo,NULLIF(TRIM(p_referencia),''),p_foto_url,TRIM(p_recibido_por),p_numero_vale,NOW())
+  VALUES(p_repartidor_id,p_fecha,v_asignados,v_entregados,v_devueltos,v_cobrado,v_comision,GREATEST(v_cobrado-v_comision,0),p_monto_recibido,v_saldo_antes,v_saldo_despues,CASE WHEN v_saldo_despues=0 THEN 'liquidado' ELSE 'pendiente' END,NOW(),auth.uid(),p_metodo,NULLIF(TRIM(p_referencia),''),p_foto_url,auth.uid(),p_numero_vale,NOW())
   ON CONFLICT(repartidor_id,fecha) DO UPDATE SET
     total_asignados=EXCLUDED.total_asignados,total_entregados=EXCLUDED.total_entregados,total_devueltos=EXCLUDED.total_devueltos,total_cobrado=EXCLUDED.total_cobrado,total_comision=EXCLUDED.total_comision,total_a_entregar=EXCLUDED.total_a_entregar,monto_recibido=rep_liquidaciones.monto_recibido+EXCLUDED.monto_recibido,saldo_despues=EXCLUDED.saldo_despues,estado=EXCLUDED.estado,liquidado_at=NOW(),liquidado_por=auth.uid(),metodo_liquidacion=EXCLUDED.metodo_liquidacion,comprobante_referencia=EXCLUDED.comprobante_referencia,foto_comprobante_url=EXCLUDED.foto_comprobante_url,recibido_por=EXCLUDED.recibido_por,numero_vale_caja=EXCLUDED.numero_vale_caja,updated_at=NOW()
   RETURNING id INTO v_liquidacion_id;

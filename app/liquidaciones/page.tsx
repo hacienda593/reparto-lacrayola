@@ -428,6 +428,15 @@ export default function LiquidacionesPage() {
             {liquidaciones.map(liq => {
               const liquidado  = liq.estado === 'liquidado'
               const sinActividad = liq.total_asignados === 0 && liq.efectivo_en_mano <= 0
+              // Cuánto de "efectivo en mano" ya está cubierto por un
+              // depósito que el propio repartidor registró y está
+              // esperando que lo confirmes -- sin esto, la fila se veía
+              // igual que si nada se hubiera registrado, y el botón de
+              // abajo dejaba liquidar por otra vía el mismo dinero dos veces.
+              const enDepositoPendiente = depositosPendientes
+                .filter(d => d.repartidor_id === liq.repartidor_id)
+                .reduce((s, d) => s + Number(d.monto || 0), 0)
+              const efectivoSinCubrir = Math.max(0, liq.efectivo_en_mano - enDepositoPendiente)
               return (
                 <div key={liq.repartidor_id} className={`bg-[#181d24] rounded-2xl border shadow-sm overflow-hidden ${sinActividad ? 'opacity-60 border-[#2d3748]' : 'border-[#2d3748]'}`}>
                   <div className="flex items-center justify-between px-4 py-3.5 cursor-pointer"
@@ -445,6 +454,9 @@ export default function LiquidacionesPage() {
                       <div className="text-right">
                         <div className="font-bold text-orange-400">{fmt(liq.efectivo_en_mano)}</div>
                         <div className="text-[10px] text-gray-500">Efectivo pendiente en mano</div>
+                        {enDepositoPendiente > 0 && (
+                          <div className="text-[9px] text-blue-400 font-semibold">🕓 {fmt(enDepositoPendiente)} en depósito por verificar</div>
+                        )}
                       </div>
                       <span className={`text-[10px] font-semibold px-2.5 py-0.5 rounded-full ${liquidado ? 'bg-green-500/15 text-green-400 border border-green-500/30' : 'bg-yellow-500/15 text-yellow-400 border border-yellow-500/30'}`}>
                         {liquidado ? '✓ Liquidado' : 'Pendiente'}
@@ -486,15 +498,19 @@ export default function LiquidacionesPage() {
                         </div>
                       </div>
 
-                      {liq.efectivo_en_mano > 0 && (
-                        <button onClick={() => abrirModalLiquidar(liq)} disabled={procesando === liq.repartidor_id}
+                      {efectivoSinCubrir > 0 ? (
+                        <button onClick={() => abrirModalLiquidar({ ...liq, efectivo_en_mano: efectivoSinCubrir })} disabled={procesando === liq.repartidor_id}
                           className="w-full flex items-center justify-center gap-2 bg-[#00b074] hover:bg-[#008f5d] disabled:opacity-60 text-white font-bold py-3 rounded-xl transition text-sm cursor-pointer border-0">
                           {procesando === liq.repartidor_id
                             ? <Loader2 size={15} className="animate-spin" />
                             : <Check size={15} />
                           }
-                          Procesar Liquidación
+                          Procesar Liquidación{enDepositoPendiente > 0 ? ` (resto: ${fmt(efectivoSinCubrir)})` : ''}
                         </button>
+                      ) : liq.efectivo_en_mano > 0 && (
+                        <div className="flex items-center gap-2 text-xs text-blue-400 bg-blue-500/10 border border-blue-500/20 rounded-xl px-3 py-2.5">
+                          <AlertCircle size={13} /> Todo el efectivo en mano ya está cubierto por un depósito pendiente de verificar arriba.
+                        </div>
                       )}
 
                       {sinActividad && (

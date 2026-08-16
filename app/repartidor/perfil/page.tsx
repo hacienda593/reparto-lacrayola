@@ -33,15 +33,41 @@ export default function PerfilRepartidorPage() {
   // no duplicar esa lógica en dos lugares distintos.
   const [estadoCuenta, setEstadoCuenta] = useState<any>(null)
   const [depositos,    setDepositos]    = useState<any[]>([])
+  const [comisionPendiente, setComisionPendiente] = useState(0)
+  const [periodosPago, setPeriodosPago] = useState<any[]>([])
+  const [verTodoHistorial, setVerTodoHistorial] = useState(false)
 
   async function cargarCaja() {
-    const [{ data: estado }, { data: deps }] = await Promise.all([
+    const desde3Meses = new Date(); desde3Meses.setMonth(desde3Meses.getMonth() - 3)
+    const [{ data: estado }, { data: deps }, { data: comisionPend }, { data: periodos }] = await Promise.all([
       supabase.rpc('mi_estado_cuenta'),
       supabase.from('rep_depositos_repartidor').select('*').order('registrado_at', { ascending: false }).limit(10),
+      supabase.rpc('mi_comision_pendiente'),
+      // Comisiones ya cobradas: cada período de pago cerrado. Por defecto
+      // solo los últimos 3 meses (rápido de mostrar) -- el histórico
+      // completo se conserva en la base para efectos contables/SRI, no se
+      // borra nunca; "ver más" solo cambia lo que se pide a la pantalla.
+      supabase.from('rep_periodos_pago').select('*').eq('estado', 'cerrado')
+        .gte('hasta', desde3Meses.toISOString().slice(0, 10)).order('hasta', { ascending: false }),
     ])
     setEstadoCuenta(Array.isArray(estado) ? estado[0] : estado)
     setDepositos(deps ?? [])
+    setComisionPendiente(Number(comisionPend ?? 0))
+    setPeriodosPago(periodos ?? [])
   }
+
+  async function cargarHistorialCompleto() {
+    const { data } = await supabase.from('rep_periodos_pago').select('*').eq('estado', 'cerrado').order('hasta', { ascending: false })
+    setPeriodosPago(data ?? [])
+    setVerTodoHistorial(true)
+  }
+
+  // Cuánto del "efectivo en mano" ya tiene un depósito registrado esperando
+  // que admin lo confirme -- sin esto, se veía igual que si nada se
+  // hubiera reportado (mismo ajuste que ya hicimos del lado del admin).
+  const enDepositoPorConfirmar = depositos
+    .filter(d => d.estado === 'pendiente')
+    .reduce((s, d) => s + Number(d.monto || 0), 0)
 
   useEffect(() => {
     if (authEstado === 'cargando') return
@@ -223,10 +249,13 @@ export default function PerfilRepartidorPage() {
             <div className="bg-orange-50 border border-orange-100 rounded-xl p-3">
               <div className="text-lg font-black text-orange-600">${Number(estadoCuenta?.efectivo_en_mano ?? 0).toFixed(2)}</div>
               <div className="text-[10px] text-slate-500">Efectivo en mano</div>
+              {enDepositoPorConfirmar > 0 && (
+                <div className="text-[9px] text-blue-600 font-bold mt-0.5">🕓 ${enDepositoPorConfirmar.toFixed(2)} en depósito por confirmar</div>
+              )}
             </div>
             <div className="bg-green-50 border border-green-100 rounded-xl p-3">
-              <div className="text-lg font-black text-green-700">${Number(estadoCuenta?.ganancias ?? 0).toFixed(2)}</div>
-              <div className="text-[10px] text-slate-500">Comisión ganada (histórico)</div>
+              <div className="text-lg font-black text-green-700">${comisionPendiente.toFixed(2)}</div>
+              <div className="text-[10px] text-slate-500">Comisión ganada por cobrar</div>
             </div>
           </div>
 
@@ -256,6 +285,30 @@ export default function PerfilRepartidorPage() {
               ))}
             </div>
           )}
+
+          {/* Comisiones cobradas: cada período de pago ya cerrado por
+              admin. "Por cobrar" (arriba) y "cobradas" (aquí) separadas,
+              para que quede claro qué ya se pagó y qué falta. */}
+          <div className="pt-2 border-t border-slate-100 space-y-1.5">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+              Comisiones cobradas {!verTodoHistorial && '(últimos 3 meses)'}
+            </p>
+            {periodosPago.length === 0 ? (
+              <p className="text-xs text-slate-400 text-center py-2">Aún no tienes períodos de pago cerrados.</p>
+            ) : (
+              periodosPago.map(p => (
+                <div key={p.id} className="flex items-center justify-between text-xs">
+                  <span className="text-slate-500">{p.desde} → {p.hasta}</span>
+                  <span className="font-bold text-green-700">${Number(p.ganancias).toFixed(2)}</span>
+                </div>
+              ))
+            )}
+            {!verTodoHistorial && (
+              <button onClick={cargarHistorialCompleto} className="text-[10px] font-bold text-blue-600 hover:underline cursor-pointer">
+                Ver historial completo →
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Historial de mis entregas */}
