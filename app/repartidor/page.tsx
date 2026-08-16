@@ -1028,13 +1028,30 @@ export default function RepartidorPage() {
       const metodoReal = yaPagoPorTransferencia ? 'transferencia' : 'efectivo'
       const monto = yaPagoPorTransferencia ? 0 : parseFloat(montoCobradoModal || '0')
 
+      // El total del pedido incluye envío -- si se cobra menos (aunque sea
+      // por error, típicamente falta justo el envío), se pide el motivo
+      // antes de continuar. No bloquea entregas legítimas con diferencia,
+      // pero ya no se puede cobrar de menos en silencio.
+      let notaDiferencia: string | null = null
+      if (!yaPagoPorTransferencia && monto < entregaModal.total - 0.01) {
+        notaDiferencia = window.prompt(
+          `Estás cobrando ${fmt(monto)} pero el total del pedido es ${fmt(entregaModal.total)} (incluye envío).\n\nExplica el motivo de la diferencia para continuar:`
+        )
+        if (!notaDiferencia || !notaDiferencia.trim()) {
+          alert('Debes indicar el motivo de la diferencia, o corrige el monto para que coincida con el total.')
+          setGuardandoEntrega(false)
+          setProcesando(null)
+          return
+        }
+      }
+
       const requestKey = `entrega-request:${asignacionId}`
       const requestId = sessionStorage.getItem(requestKey) || crypto.randomUUID()
       sessionStorage.setItem(requestKey, requestId)
       const { error: cierreError } = await supabase.rpc('finalizar_entrega_atomica', {
         p_request_id: requestId,p_asignacion_id:asignacionId,p_monto:monto,p_metodo:metodoReal,
         p_lat:geo?.lat??null,p_lng:geo?.lng??null,p_foto_url:fotoEntregaUrl,
-        p_firma_url:firmaClienteUrl,p_referencias:null,
+        p_firma_url:firmaClienteUrl,p_referencias:null,p_nota_diferencia:notaDiferencia,
       })
       if(cierreError)throw cierreError
       sessionStorage.removeItem(requestKey)
@@ -1382,8 +1399,13 @@ export default function RepartidorPage() {
                     <DollarSign size={14} className="text-slate-400 shrink-0" />
                     <input
                       type="number" step="0.01" min="0"
-                      placeholder={`Monto a cobrar (total: ${fmt(p.total)})`}
-                      value={cobro[p.asignacion_id] ?? ''}
+                      // Antes empezaba vacío y el total solo aparecía como
+                      // placeholder de ayuda -- fácil de pasar por alto,
+                      // sobre todo el envío (que no se "ve" físicamente
+                      // como el precio de los productos). Ahora arranca
+                      // con el total real ya puesto; si cobra distinto,
+                      // tiene que editarlo a propósito.
+                      value={cobro[p.asignacion_id] ?? p.total.toFixed(2)}
                       onChange={e => setCobro(c => ({ ...c, [p.asignacion_id]: e.target.value }))}
                       className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-green-500"
                     />
@@ -1400,7 +1422,7 @@ export default function RepartidorPage() {
 
                   <button
                     onClick={() => {
-                      const valCobro = cobro[p.asignacion_id] || ''
+                      const valCobro = cobro[p.asignacion_id] || p.total.toFixed(2)
                       setMontoCobradoModal(valCobro)
                       setFotoFile(null)
                       setEntregaModal(p)
