@@ -32,41 +32,39 @@ async function resolverAcceso(u: User): Promise<{
   return Promise.race([
     (async () => {
       try {
-        // Las tres consultas no dependen entre si para poder lanzarlas -- solo
-        // dependen de CUAL de los resultados termine usandose. Pedirlas en paralelo
-        // desde el inicio (en vez de una tras otra) reduce el tiempo de resolucion,
-        // que era la causa de que a veces se agotara el margen de 6s de abajo y
-        // sacara a un colaborador valido por lentitud, no por falta de acceso real.
-        const [{ data: rolData }, { data: repPorUserId }, { data: repPorEmail }] = await Promise.all([
+        // SEC-05 de la auditoría: antes había un fallback por EMAIL que
+        // vinculaba (y otorgaba rol) a cualquier cuenta cuyo correo
+        // coincidiera con un perfil sin user_id todavía -- sin ninguna
+        // verificación de que fuera la persona correcta. Se eliminó por
+        // completo: el único camino para vincular user_id ahora es (a) el
+        // registro propio, que ya lo fija al crear la fila
+        // (/api/repartidores/registrar), o (b) canjear una invitación de
+        // un solo uso (reclamar_invitacion), nunca una coincidencia de
+        // correo resuelta del lado del cliente.
+        const [{ data: rolData }, { data: repInfo }] = await Promise.all([
           supabase.from('rep_roles').select('rol, activo').eq('user_id', u.id).single(),
-          supabase.from('rep_repartidores').select('id').eq('user_id', u.id).single(),
-          supabase.from('rep_repartidores').select('id, estado_registro, activo').eq('email', u.email ?? '').single(),
+          supabase.from('rep_repartidores').select('id, estado_registro, activo').eq('user_id', u.id).single(),
         ])
 
         if (rolData?.activo) {
           const r = rolData.rol as Rol
           const isMobileCollab = r === 'repartidor' || r === 'comprador' || r === 'comprador-repartidor'
-          const repInfo = repPorUserId || repPorEmail
           const repartidorId = isMobileCollab ? (repInfo?.id ?? null) : null
-
-          if (isMobileCollab && repInfo && !repPorUserId) {
-            try {
-              supabase.from('rep_repartidores').update({ user_id: u.id }).eq('id', repInfo.id).then()
-            } catch {}
-          }
           return { estado: 'autorizado' as EstadoAcceso, rol: r, repartidorId }
         }
 
-        const rep = repPorEmail
+        const rep = repInfo
 
         if (!rep)                                { return { estado: 'sin_rol' as EstadoAcceso,   rol: null, repartidorId: null } }
         if (rep.estado_registro === 'rechazado') { return { estado: 'rechazado' as EstadoAcceso, rol: null, repartidorId: null } }
         if (rep.estado_registro === 'pendiente') { return { estado: 'pendiente' as EstadoAcceso, rol: null, repartidorId: null } }
 
         if (rep.estado_registro === 'aprobado' && rep.activo) {
+          // El registro propio ya fija user_id al crear la fila; esto solo
+          // otorga el rol la primera vez que el admin aprueba la solicitud
+          // (aprobar() en /repartidores no toca rep_roles).
           try {
             await supabase.from('rep_roles').upsert({ user_id: u.id, rol: 'repartidor', activo: true }, { onConflict: 'user_id' })
-            await supabase.from('rep_repartidores').update({ user_id: u.id }).eq('id', rep.id)
           } catch {}
           return { estado: 'autorizado' as EstadoAcceso, rol: 'repartidor' as Rol, repartidorId: rep.id }
         }

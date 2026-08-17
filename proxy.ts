@@ -12,6 +12,10 @@ export async function proxy(req: NextRequest) {
   const path=req.nextUrl.pathname,redirectCount=Number(req.cookies.get('mw_rc')?.value??'0')
   function irA(destino:string){if(redirectCount>=MAX_REDIRECTS){res.cookies.set('mw_rc','0',{maxAge:5});return res}const r=NextResponse.redirect(new URL(destino,req.url));r.cookies.set('mw_rc',String(redirectCount+1),{maxAge:5});return r}
   if(path==='/login'){if(user)return irA('/');res.cookies.set('mw_rc','0',{maxAge:5});return res}
+  // Invitación de un solo uso (SEC-05): quien la recibe puede no tener
+  // cuenta todavía -- debe poder crear una o iniciar sesión desde acá sin
+  // que el middleware lo mande antes a /login.
+  if(path.startsWith('/invitacion/')){res.cookies.set('mw_rc','0',{maxAge:5});return res}
   if(!user)return irA('/login')
   res.cookies.set('mw_rc','0',{maxAge:5});return res
 }

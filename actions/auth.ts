@@ -19,28 +19,32 @@ export async function login(formData: FormData) {
   // rol que el usuario selecciono al entrar -- en vez de adivinarlo despues
   // por nombre/vehiculo (lo que causaba lentitud y pantallas parpadeando
   // entre modulos mientras se resolvia).
+  //
+  // SEC-05 de la auditoría: antes había un fallback por EMAIL que vinculaba
+  // (y otorgaba rol) a cualquier cuenta cuyo correo coincidiera con un
+  // perfil sin user_id todavía -- sin ninguna verificación de que fuera la
+  // persona correcta. Se eliminó: el único camino para vincular user_id es
+  // el registro propio (ya lo fija al crear la fila) o canjear una
+  // invitación de un solo uso (reclamar_invitacion).
   const [
     { data: rolDataResult },
-    { data: repPorUserId },
-    { data: repPorEmail }
+    { data: rep },
   ] = await Promise.all([
     supabase.from('rep_roles').select('rol, activo').eq('user_id', user.id).single(),
     supabase.from('rep_repartidores').select('id, estado_registro, activo, vehiculo').eq('user_id', user.id).single(),
-    supabase.from('rep_repartidores').select('id, estado_registro, activo, vehiculo').eq('email', user.email ?? '').single(),
   ])
 
   let rolData = rolDataResult
-  let rep = repPorUserId || repPorEmail
 
-  // Si existe el repartidor por correo pero no está enlazado por user_id, lo enlazamos ahora mismo
-  if (rep && !repPorUserId) {
+  // El perfil ya está vinculado, pero puede faltar el rol si el admin
+  // recién aprobó la solicitud (aprobar() no toca rep_roles).
+  if (rep && rep.estado_registro === 'aprobado' && rep.activo && !rolData) {
     try {
       const rolAsignado = rep.vehiculo === 'pie' ? 'comprador' : 'repartidor'
       await supabase.from('rep_roles').upsert({ user_id: user.id, rol: rolAsignado, activo: true }, { onConflict: 'user_id' })
-      await supabase.from('rep_repartidores').update({ user_id: user.id }).eq('id', rep.id)
       rolData = { rol: rolAsignado, activo: true } as any
     } catch (e) {
-      console.error("Error linking driver profile on login:", e)
+      console.error("Error assigning role on login:", e)
     }
   }
 

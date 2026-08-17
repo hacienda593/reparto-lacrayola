@@ -143,6 +143,20 @@ export default function RepartidoresPage() {
     await cargar()
   }
 
+  async function generarInvitacion(r: RepConEstado) {
+    setProcesando(r.id)
+    const { data: token, error } = await supabase.rpc('generar_invitacion_repartidor', { p_repartidor_id: r.id })
+    setProcesando(null)
+    if (error) { alert('No se pudo generar la invitación: ' + error.message); return }
+    const url = `${window.location.origin}/invitacion/${token}`
+    try {
+      await navigator.clipboard.writeText(url)
+      alert(`Enlace copiado al portapapeles (válido 14 días):\n\n${url}\n\nCompártelo con ${r.nombre} por WhatsApp.`)
+    } catch {
+      window.prompt(`Copia este enlace (válido 14 días) y compártelo con ${r.nombre} por WhatsApp:`, url)
+    }
+  }
+
   async function toggleActivo(r: RepConEstado) {
     await supabase.from('rep_repartidores')
       .update({ activo: !r.activo, updated_at: new Date().toISOString() }).eq('id', r.id)
@@ -273,6 +287,16 @@ export default function RepartidoresPage() {
                       ${r.user_id ? 'bg-green-50 text-green-700' : 'bg-yellow-50 text-yellow-700'}`}>
                       {r.user_id ? '✅ Acceso activado' : '⏳ Esperando primer ingreso'}
                     </div>
+
+                    {/* SEC-05: ya no se vincula solo por coincidir el email
+                        -- hay que generar y compartir este enlace de un
+                        solo uso para que la cuenta quede vinculada. */}
+                    {!r.user_id && (
+                      <button onClick={() => generarInvitacion(r)} disabled={procesando === r.id}
+                        className="w-full text-[10px] font-bold text-blue-600 border border-blue-200 rounded-lg py-1.5 hover:bg-blue-50 disabled:opacity-50">
+                        Generar enlace de invitación
+                      </button>
+                    )}
 
                     {r.estado === 'BLOQUEADO' ? (
                       <div className="space-y-1.5">
