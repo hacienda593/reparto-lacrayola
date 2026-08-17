@@ -767,9 +767,9 @@ export default function RepartidorPage() {
     window.open(`https://wa.me/${formatWhatsApp(telefonoCliente)}?text=${encodeURIComponent(msg)}`, '_blank')
 
     // 4. Navegar a la pantalla de picking completa (escaner, avance, canasta) —
-    // /picking/[id] usa el id de la ASIGNACION, no el del pedido. La otra ruta
-    // /repartidor/picking/[pedidoId] es una version vieja e incompleta, sin
-    // escaner ni barra de avance; no se debe enlazar mas.
+    // /picking/[id] usa el id de la ASIGNACION, no el del pedido. (FUN-01
+    // de la auditoría: /repartidor/picking/[pedidoId], la version vieja
+    // con mutaciones directas sin RPC, ya se eliminó del repositorio.)
     router.push(`/picking/${asignacionId}`)
   }
 

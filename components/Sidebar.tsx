@@ -28,7 +28,13 @@ export default function Sidebar() {
   const [open, setOpen] = useState(false)
   const nombre = user?.user_metadata?.full_name?.split(' ')[0] || user?.email?.split('@')[0] || 'Admin'
   const avatar = user?.user_metadata?.avatar_url
-  const links = NAV.filter(n => !rol || n.roles.includes(rol))
+  // FUN-02 de la auditoría: con "!rol" pasaban TODOS los enlaces (incluidos
+  // Usuarios/Configuración, solo superadmin) mientras el rol todavía no se
+  // resolvía -- una ventana breve pero real donde se veían opciones
+  // sensibles antes de saber si corresponden. Ahora no se muestra nada
+  // hasta tener el rol real (la propia página, además, valida su
+  // capacidad en servidor -- esto es solo la navegación).
+  const links = NAV.filter(n => rol && n.roles.includes(rol))
   const groups = [...new Set(links.map(link => link.group))]
   // Solo una opción puede estar activa. Elegimos la coincidencia más
   // específica para que /asignaciones no se marque también cuando el usuario

@@ -1,3 +1,13 @@
+-- ⚠️ HISTÓRICO -- ya aplicado, no reejecutar sin revisar antes (SEC-08,
+-- docs/auditoria_funcionalidad_seguridad_trazabilidad.md). Este script
+-- busca CUALQUIER política que contenga el texto literal 'rep_is_admin()'
+-- y la reescribe por búsqueda de texto -- frágil: si se reejecuta después
+-- de agregar políticas nuevas que también usen 'rep_is_admin()' (aunque
+-- sea dentro de una función, en teoría), podría reescribirlas sin que
+-- nadie lo decida explícitamente. Verificado hoy: ningún policy vivo
+-- contiene ese texto literal, así que reejecutar esto ahora mismo sería
+-- un no-op -- pero no confíes en que siga siendo así en el futuro.
+
 -- migration_rls_capacidades_completo.sql
 -- Fase 1, punto 1 de docs/auditoria_plan_correcciones_ia.md (cierre)
 --
