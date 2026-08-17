@@ -4,6 +4,7 @@
 -- repartidores (solo resetea sus saldos). Irreversible.
 
 TRUNCATE TABLE
+  ol_pedidos_envio,
   rep_facturas_compras,
   rep_incidencias,
   rep_pedido_eventos,
