@@ -35,7 +35,11 @@ export default function EstadoCuentaPage(){
  // en la comisión del repartidor). Ahora se sincroniza solo al cargar la
  // pantalla, sin que el admin tenga que saber que ese paso existe.
  const [cerrandoTodos,setCerrandoTodos]=useState(false)
- const cargar=useCallback(async()=>{setLoading(true);setError('');await supabase.rpc('sincronizar_ledger_financiero');const [e,m,p]=await Promise.all([supabase.rpc('admin_estados_cuenta'),supabase.from('rep_ledger_movimientos').select('*').order('fecha_operacion',{ascending:false}).limit(500),supabase.from('rep_periodos_pago').select('*').order('hasta',{ascending:false}).limit(200)]);const err=e.error||m.error||p.error;if(err)setError(err.message);setEstados(((e.data||[]) as Estado[]).slice().sort((a,b)=>a.nombre.localeCompare(b.nombre)));setMovs((m.data||[]) as Mov[]);setPeriodos((p.data||[]) as Periodo[]);setSeleccion(s=>s||e.data?.[0]?.repartidor_id||'');setLoading(false)},[])
+ // A5 de la auditoría: antes las compras con tarjeta corporativa (cuenta
+ // bancaria) no dejaban ningún rastro contable, solo caja chica. Ahora se
+ // registran ambas -- esto muestra cuánto ha salido de cada fondo.
+ const [gastosFondo,setGastosFondo]=useState<{fondo_origen:string;total_gastado:number;cantidad_compras:number}[]>([])
+ const cargar=useCallback(async()=>{setLoading(true);setError('');await supabase.rpc('sincronizar_ledger_financiero');const [e,m,p,gf]=await Promise.all([supabase.rpc('admin_estados_cuenta'),supabase.from('rep_ledger_movimientos').select('*').order('fecha_operacion',{ascending:false}).limit(500),supabase.from('rep_periodos_pago').select('*').order('hasta',{ascending:false}).limit(200),supabase.rpc('admin_gastos_por_fondo')]);const err=e.error||m.error||p.error;if(err)setError(err.message);setEstados(((e.data||[]) as Estado[]).slice().sort((a,b)=>a.nombre.localeCompare(b.nombre)));setMovs((m.data||[]) as Mov[]);setPeriodos((p.data||[]) as Periodo[]);setGastosFondo(gf.data||[]);setSeleccion(s=>s||e.data?.[0]?.repartidor_id||'');setLoading(false)},[])
  useEffect(()=>{const t=setTimeout(()=>void cargar(),0);return()=>clearTimeout(t)},[cargar])
  const actual=estados.find(e=>e.repartidor_id===seleccion), detalle=useMemo(()=>movs.filter(m=>m.repartidor_id===seleccion),[movs,seleccion])
  const nombrePor=useMemo(()=>Object.fromEntries(estados.map(e=>[e.repartidor_id,e.nombre])),[estados])
@@ -74,6 +78,22 @@ export default function EstadoCuentaPage(){
    {/* Control global: TODAS las liquidaciones de TODOS los repartidores,
        no solo del que está seleccionado -- antes no existía forma de ver
        de un vistazo qué se le ha liquidado a cada quién. */}
+   {/* Fondo de compras: antes solo caja chica dejaba rastro; ahora tarjeta
+       corporativa (cuenta bancaria) también, y se puede ver cuánto ha
+       salido de cada uno. */}
+   {gastosFondo.length>0 && (
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+     <h2 className="font-black mb-3">Gasto en compras por fondo</h2>
+     <div className="grid grid-cols-2 gap-3">
+      {gastosFondo.map(g=>(
+       <div key={g.fondo_origen} className="rounded-xl bg-slate-50 p-3">
+        <p className="text-lg font-black text-slate-800">{money(g.total_gastado)}</p>
+        <p className="text-xs text-slate-500 capitalize">{g.fondo_origen.replace('_',' ')} · {g.cantidad_compras} compra(s)</p>
+       </div>
+      ))}
+     </div>
+    </div>
+   )}
    <div className="rounded-2xl border border-slate-200 bg-white shadow-sm"><div className="border-b border-slate-100 p-4"><h2 className="font-black">Control de todas las liquidaciones</h2><p className="text-xs text-slate-500">Historial completo, todos los repartidores.</p></div><div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-slate-50 text-[10px] uppercase text-slate-400"><tr><th className="px-4 py-3 text-left">Repartidor</th><th className="px-3 text-left">Período</th><th className="px-3 text-right">Ganancias</th><th className="px-3 text-right">Caja custodia</th><th className="px-3 text-right">Neto</th><th className="px-4 text-center">Estado</th></tr></thead><tbody className="divide-y divide-slate-100">{periodos.map(p=><tr key={p.id}><td className="px-4 py-2.5 text-xs font-bold">{nombrePor[p.repartidor_id]??'—'}</td><td className="px-3 text-xs text-slate-500">{p.desde} → {p.hasta}</td><td className="px-3 text-right text-xs font-semibold text-green-700">{money(p.ganancias)}</td><td className="px-3 text-right text-xs font-semibold text-orange-600">{money(p.caja_custodia)}</td><td className={`px-3 text-right text-xs font-black ${p.posicion_neta>=0?'text-blue-600':'text-red-500'}`}>{p.posicion_neta>=0?`Pagar ${money(p.monto_pagar)}`:`Cobrar ${money(p.monto_cobrar)}`}</td><td className="px-4 text-center"><span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold capitalize">{p.estado}</span></td></tr>)}{!periodos.length&&<tr><td colSpan={6} className="p-8 text-center text-sm text-slate-400">Aún no se ha cerrado ningún período.</td></tr>}</tbody></table></div></div>
    </section>
   </div>
