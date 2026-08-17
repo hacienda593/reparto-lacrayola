@@ -11,7 +11,7 @@ const csvCell = (v: unknown) => `"${String(v ?? '').replaceAll('"','""')}"`
 type Persona = { nombre?: string } | null
 type Asig = { id:string; pedido_id:string; estado:string; asignado_at:string; updated_at?:string; shopper_id?:string|null; rider_id?:string|null; repartidor_id?:string|null; shopper?:Persona; rider?:Persona; repartidor?:Persona }
 type Entrega = { pedido_id:string; repartidor_id:string; monto_cobrado:number; exitosa:boolean; entregado_at:string; salida_at?:string|null; tiempo_entrega?:number|null; motivo_fallo?:string|null; repartidor?:Persona }
-type Pedido = { id:string; numero:number; estado:string; total:number; created_at:string; nombre_cliente:string }
+type Pedido = { id:string; numero:number; estado:string; total:number; costo_envio?:number|null; total_final?:number|null; created_at:string; nombre_cliente:string }
 
 export default function ReportesPage(){
   const [desde,setDesde]=useState(dateInput(-30)); const [hasta,setHasta]=useState(dateInput())
@@ -19,22 +19,26 @@ export default function ReportesPage(){
   const [loading,setLoading]=useState(true); const [error,setError]=useState('')
   const cargar=useCallback(async()=>{setLoading(true);setError('');const fin=`${hasta}T23:59:59.999Z`;const inicio=`${desde}T00:00:00.000Z`
     const [p,a,e]=await Promise.all([
-      supabase.from('ol_pedidos').select('id,numero,estado,total,created_at,nombre_cliente').gte('created_at',inicio).lte('created_at',fin).order('created_at',{ascending:false}),
+      supabase.from('ol_pedidos').select('id,numero,estado,total,costo_envio,total_final,created_at,nombre_cliente').gte('created_at',inicio).lte('created_at',fin).order('created_at',{ascending:false}),
       supabase.from('rep_asignaciones').select('id,pedido_id,estado,asignado_at,updated_at,shopper_id,rider_id,repartidor_id,shopper:rep_repartidores!rep_asignaciones_shopper_id_fkey(nombre),rider:rep_repartidores!rep_asignaciones_rider_id_fkey(nombre),repartidor:rep_repartidores!rep_asignaciones_repartidor_id_fkey(nombre)').gte('asignado_at',inicio).lte('asignado_at',fin),
       supabase.from('rep_entregas').select('pedido_id,repartidor_id,monto_cobrado,exitosa,entregado_at,salida_at,tiempo_entrega,motivo_fallo,repartidor:rep_repartidores(nombre)').gte('entregado_at',inicio).lte('entregado_at',fin),
     ]);const err=p.error||a.error||e.error;if(err)setError(err.message);setPedidos((p.data??[]) as Pedido[]);setAsigs((a.data??[]) as unknown as Asig[]);setEntregas((e.data??[]) as unknown as Entrega[]);setLoading(false)},[desde,hasta])
   useEffect(()=>{const timer=window.setTimeout(()=>void cargar(),0);return()=>window.clearTimeout(timer)},[cargar])
 
-  const stats=useMemo(()=>{const exitosas=entregas.filter(e=>e.exitosa);const fallidas=entregas.filter(e=>!e.exitosa);const entregadosIds=new Set(exitosas.map(e=>e.pedido_id));const facturado=pedidos.filter(p=>entregadosIds.has(p.id)||p.estado==='entregado').reduce((s,p)=>s+Number(p.total||0),0);const tiempos=exitosas.map(e=>Number(e.tiempo_entrega||(e.salida_at?(new Date(e.entregado_at).getTime()-new Date(e.salida_at).getTime())/60000:0))).filter(t=>t>0&&t<=1440);const avg=tiempos.length?Math.round(tiempos.reduce((s,t)=>s+t,0)/tiempos.length):0
+  // M4 de la auditoria financiera: esto se llamaba "Facturado" pero nunca
+  // sumo facturas reales (rep_facturas_cliente), solo el total de pedidos
+  // entregados, y encima sin el envio. Se renombra a lo que realmente es,
+  // y se suma total_final (con envio) cuando esta disponible.
+  const stats=useMemo(()=>{const exitosas=entregas.filter(e=>e.exitosa);const fallidas=entregas.filter(e=>!e.exitosa);const entregadosIds=new Set(exitosas.map(e=>e.pedido_id));const ventasEntregadas=pedidos.filter(p=>entregadosIds.has(p.id)||p.estado==='entregado').reduce((s,p)=>s+Number(p.total_final??((p.total||0)+(p.costo_envio||0))),0);const tiempos=exitosas.map(e=>Number(e.tiempo_entrega||(e.salida_at?(new Date(e.entregado_at).getTime()-new Date(e.salida_at).getTime())/60000:0))).filter(t=>t>0&&t<=1440);const avg=tiempos.length?Math.round(tiempos.reduce((s,t)=>s+t,0)/tiempos.length):0
     const riders=new Map<string,{nombre:string;entregas:number;fallidas:number;cobrado:number;minutos:number}>();entregas.forEach(e=>{const key=e.repartidor_id;const x=riders.get(key)??{nombre:e.repartidor?.nombre||'Sin nombre',entregas:0,fallidas:0,cobrado:0,minutos:0};if(e.exitosa){x.entregas++;x.cobrado+=Number(e.monto_cobrado||0);x.minutos+=Number(e.tiempo_entrega||0)}else x.fallidas++;riders.set(key,x)})
     const shoppers=new Map<string,{nombre:string;asignados:number;completados:number;devueltos:number}>();asigs.forEach(a=>{const key=a.shopper_id||a.repartidor_id;if(!key)return;const x=shoppers.get(key)??{nombre:a.shopper?.nombre||a.repartidor?.nombre||'Sin nombre',asignados:0,completados:0,devueltos:0};x.asignados++;if(['recolectado','en_ruta','entregado'].includes(a.estado))x.completados++;if(['devuelto','cancelado'].includes(a.estado))x.devueltos++;shoppers.set(key,x)})
-    return {exitosas,fallidas,facturado,avg,anomalias:exitosas.filter(e=>e.monto_cobrado==null||(e.salida_at&&new Date(e.salida_at)>new Date(e.entregado_at))).length,tasa:entregas.length?exitosas.length/entregas.length*100:0,cancelados:pedidos.filter(p=>p.estado==='cancelado').length,riders:[...riders.values()].sort((a,b)=>b.entregas-a.entregas),shoppers:[...shoppers.values()].sort((a,b)=>b.completados-a.completados)}},[pedidos,asigs,entregas])
+    return {exitosas,fallidas,ventasEntregadas,avg,anomalias:exitosas.filter(e=>e.monto_cobrado==null||(e.salida_at&&new Date(e.salida_at)>new Date(e.entregado_at))).length,tasa:entregas.length?exitosas.length/entregas.length*100:0,cancelados:pedidos.filter(p=>p.estado==='cancelado').length,riders:[...riders.values()].sort((a,b)=>b.entregas-a.entregas),shoppers:[...shoppers.values()].sort((a,b)=>b.completados-a.completados)}},[pedidos,asigs,entregas])
 
   function exportar(){const rows=[['Tipo','Nombre','Asignados/Entregas','Completados/Fallidas','Efectividad','Monto cobrado'],...stats.riders.map(r=>['Repartidor',r.nombre,r.entregas,r.fallidas,`${r.entregas+r.fallidas?Math.round(r.entregas/(r.entregas+r.fallidas)*100):0}%`,r.cobrado]),...stats.shoppers.map(s=>['Comprador',s.nombre,s.asignados,s.completados,`${s.asignados?Math.round(s.completados/s.asignados*100):0}%`,''])];const blob=new Blob(['\ufeff'+rows.map(row=>row.map(csvCell).join(',')).join('\n')],{type:'text/csv;charset=utf-8'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`analitica-${desde}-${hasta}.csv`;a.click();URL.revokeObjectURL(url)}
   const cards=[
     {label:'Pedidos',value:pedidos.length,icon:Package,tone:'text-blue-600 bg-blue-50'},
     {label:'Entregas',value:stats.exitosas.length,icon:CheckCircle2,tone:'text-green-600 bg-green-50'},
-    {label:'Facturado',value:fmt(stats.facturado),icon:TrendingUp,tone:'text-emerald-600 bg-emerald-50'},
+    {label:'Ventas entregadas',value:fmt(stats.ventasEntregadas),icon:TrendingUp,tone:'text-emerald-600 bg-emerald-50'},
     {label:'Efectividad',value:`${stats.tasa.toFixed(1)}%`,icon:Bike,tone:'text-violet-600 bg-violet-50'},
     {label:'Tiempo promedio',value:stats.avg?`${stats.avg} min`:'—',icon:Clock3,tone:'text-orange-600 bg-orange-50'},
     {label:'Cancelados',value:stats.cancelados,icon:XCircle,tone:'text-red-600 bg-red-50'},

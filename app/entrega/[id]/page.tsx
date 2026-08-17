@@ -435,6 +435,13 @@ export default function EntregaPage() {
           setGuardando(false)
           return
         }
+      } else if (!esTransferencia && montoFinal > totalConEnvio + 0.01) {
+        // M1 de la auditoría: un cobro DE MÁS no se bloqueaba ni se
+        // clasificaba -- podía ser propina, redondeo o un cobro de más
+        // real. No se bloquea (no es pérdida), pero se pide clasificarlo.
+        notaDiferencia = window.prompt(
+          `Estás cobrando $${montoFinal.toFixed(2)}, más que el total del pedido ($${totalConEnvio.toFixed(2)}).\n\n¿Por qué? (ej. "propina", "redondeo", "cliente pagó de más") -- puedes dejarlo vacío si no aplica:`
+        )
       }
 
       const requestKey = `entrega-request:${id}`

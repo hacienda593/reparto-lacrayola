@@ -1082,6 +1082,13 @@ export default function RepartidorPage() {
           setProcesando(null)
           return
         }
+      } else if (!yaPagoPorTransferencia && monto > totalConEnvio + 0.01) {
+        // M1 de la auditoría: un cobro de más no se clasificaba (podía ser
+        // propina, redondeo, o un sobrecobro real). No se bloquea, pero se
+        // pide clasificarlo.
+        notaDiferencia = window.prompt(
+          `Estás cobrando ${fmt(monto)}, más que el total del pedido (${fmt(totalConEnvio)}).\n\n¿Por qué? (ej. "propina", "redondeo") -- puedes dejarlo vacío si no aplica:`
+        )
       }
 
       const requestKey = `entrega-request:${asignacionId}`
