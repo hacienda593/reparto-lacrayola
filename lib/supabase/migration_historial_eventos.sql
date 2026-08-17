@@ -412,6 +412,12 @@ BEGIN
   RETURN v_comprobante;
 END;
 $$;
+-- ⚠️ OBSOLETO -- NO REEJECUTAR estas 2 líneas (SEC-03, docs/auditoria_funcionalidad_seguridad_trazabilidad.md).
+-- Dejan registrar_factura_compra_servidor solo para service_role -- el
+-- frontend usa sesión normal, así que esto rompe el registro de compras
+-- para los shoppers. La versión vigente otorga a 'authenticated'; ver
+-- migration_fondo_caja_chica_shopper.sql (la más reciente que redefine
+-- esta función completa, con el GRANT correcto al final).
 REVOKE EXECUTE ON FUNCTION public.registrar_factura_compra_servidor FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.registrar_factura_compra_servidor TO service_role;
 

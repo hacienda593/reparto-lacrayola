@@ -1,3 +1,12 @@
+-- ⚠️ OBSOLETO -- NO REEJECUTAR (SEC-03, docs/auditoria_funcionalidad_seguridad_trazabilidad.md).
+-- Este archivo revoca EXECUTE de 'authenticated' en registrar_factura_compra_servidor
+-- y lo deja SOLO para 'service_role' -- el frontend usa sesión normal, no
+-- service_role, así que reejecutar esto rompe el registro de compras para
+-- todos los shoppers. La versión vigente y correcta es
+-- migration_fondo_caja_chica_shopper.sql (la más reciente que redefine
+-- esta función), que sí otorga a 'authenticated'. Se conserva este archivo
+-- solo como historial de migraciones ya aplicadas.
+
 -- migration_factura_compra_servidor.sql
 -- Fase 1 punto 4 (real) + Fase 2 punto 8 de docs/auditoria_plan_correcciones_ia.md
 --
