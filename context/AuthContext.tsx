@@ -13,6 +13,14 @@ export type EstadoAcceso =
   | 'rechazado'
   | 'autorizado'
 
+// Se distingue de 'sin_rol' a propósito: esto es "no se pudo confirmar
+// ahora mismo" (timeout/red), no "se confirmó que no tiene rol". Supabase
+// revalida la sesión en segundo plano (refresh de token) y vuelve a llamar
+// resolverAcceso() cada vez -- si esa revalidación de fondo se demora o
+// falla por algo pasajero, no debe borrar un rol que ya estaba confirmado
+// bien, o el menú desaparece solo sin que el usuario haya hecho nada raro.
+const ESTADO_INDETERMINADO = '__indeterminado__' as const
+
 interface AuthCtx {
   user:         User | null
   rol:          Rol | null
@@ -71,11 +79,13 @@ async function resolverAcceso(u: User): Promise<{
 
         return { estado: 'sin_rol' as EstadoAcceso, rol: null, repartidorId: null }
       } catch {
-        return { estado: 'sin_rol' as EstadoAcceso, rol: null, repartidorId: null }
+        // Error real de red/consulta -- no se sabe si tiene rol o no, así
+        // que no se afirma "sin_rol" (eso borraría un estado bueno previo).
+        return { estado: ESTADO_INDETERMINADO as unknown as EstadoAcceso, rol: null, repartidorId: null }
       }
     })(),
-    new Promise<{ estado: EstadoAcceso; rol: Rol | null; repartidorId: string | null }>(res => 
-      setTimeout(() => res({ estado: 'sin_rol' as EstadoAcceso, rol: null, repartidorId: null }), 6000)
+    new Promise<{ estado: EstadoAcceso; rol: Rol | null; repartidorId: string | null }>(res =>
+      setTimeout(() => res({ estado: ESTADO_INDETERMINADO as unknown as EstadoAcceso, rol: null, repartidorId: null }), 6000)
     )
   ])
 }
@@ -115,8 +125,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const u = data.session?.user ?? null
       setUser(u)
       if (!u) { setEstado('sin_sesion'); return }
-      const res = await resolverAcceso(u)
+      let res = await resolverAcceso(u)
+      // Primera carga: si fue indeterminado (red/timeout), no hay un estado
+      // bueno previo que proteger -- se reintenta una vez antes de rendirse.
+      if ((res.estado as string) === ESTADO_INDETERMINADO) res = await resolverAcceso(u)
       if (!montado) return
+      if ((res.estado as string) === ESTADO_INDETERMINADO) {
+        setRol(null); setRepartidorId(null); setEstado('sin_rol')
+        return
+      }
       setRol(res.rol)
       setRepartidorId(res.repartidorId)
       setEstado(res.estado)
@@ -130,6 +147,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (event === 'INITIAL_SESSION') return
       const res = await resolverAcceso(u)
       if (!montado) return
+      // Revalidación de fondo (ej. refresh de token): si no se pudo
+      // confirmar por algo pasajero, se deja el rol que ya estaba en vez
+      // de borrarlo -- de lo contrario el menú desaparecía solo sin que el
+      // usuario hiciera nada, con solo que una consulta de fondo se demore.
+      if ((res.estado as string) === ESTADO_INDETERMINADO) return
       setRol(res.rol)
       setRepartidorId(res.repartidorId)
       setEstado(res.estado)
