@@ -45,11 +45,11 @@ export async function POST(req: NextRequest) {
 
     let zona = null
     if (pedido.zona_id) {
-      const { data } = await supabase.from('zonas').select('nombre, tarifa_base, costo_por_km, piso_minimo, techo_maximo').eq('id', pedido.zona_id).maybeSingle()
+      const { data } = await supabase.from('zonas').select('nombre, tarifa_base, costo_por_km, piso_minimo, techo_maximo, cargo_por_tienda_adicional').eq('id', pedido.zona_id).maybeSingle()
       zona = data
     }
     if (!zona) {
-      const { data } = await supabase.from('zonas').select('nombre, tarifa_base, costo_por_km, piso_minimo, techo_maximo').eq('activo', true).order('created_at').limit(1).maybeSingle()
+      const { data } = await supabase.from('zonas').select('nombre, tarifa_base, costo_por_km, piso_minimo, techo_maximo, cargo_por_tienda_adicional').eq('activo', true).order('created_at').limit(1).maybeSingle()
       zona = data
     }
     const tarifa = {
@@ -60,11 +60,20 @@ export async function POST(req: NextRequest) {
       techo_maximo: zona?.techo_maximo != null ? Number(zona.techo_maximo) : null,
     }
 
-    const { envio, distanciaKm, metodoDistancia } = await calcularEnvio(
+    const { envio: envioBase, distanciaKm, metodoDistancia } = await calcularEnvio(
       { lat: TIENDA_LAT, lng: TIENDA_LNG },
       { lat: pedido.geo_lat, lng: pedido.geo_lng },
       tarifa
     )
+
+    // La tienda cobra un cargo adicional cuando el pedido junta productos
+    // de más de una tienda -- se detecta contando tiendas distintas en el
+    // picking de este pedido (no tenemos el dato real de la tienda, pero
+    // sí sabemos cuántas tiendas involucra la compra).
+    const { data: tiendasPicking } = await supabase.from('rep_picking').select('tienda_id').eq('pedido_id', pedidoId)
+    const cantidadTiendas = new Set((tiendasPicking ?? []).map(t => t.tienda_id).filter(Boolean)).size || 1
+    const cargoMultitienda = cantidadTiendas > 1 ? Math.round((cantidadTiendas - 1) * Number(zona?.cargo_por_tienda_adicional ?? 0) * 100) / 100 : 0
+    const envio = Math.round((envioBase + cargoMultitienda) * 100) / 100
 
     // Vía RPC (no update directo a la tabla): consistente con el resto de
     // la app, y la función ya protege contra pisar un valor si dos

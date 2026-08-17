@@ -6,6 +6,7 @@ import { MapPin, Loader2, ChevronDown, Check } from 'lucide-react'
 interface Zona {
   id: string; nombre: string; activo: boolean
   tarifa_base: number; costo_por_km: number; piso_minimo: number; techo_maximo: number | null
+  cargo_por_tienda_adicional: number
 }
 
 // Panel de administración de zonas/pueblos (superadmin, ver
@@ -25,7 +26,7 @@ export default function ZonasAdmin() {
 
   async function cargar() {
     const { data, error } = await supabase.from('zonas')
-      .select('id, nombre, activo, tarifa_base, costo_por_km, piso_minimo, techo_maximo').order('nombre')
+      .select('id, nombre, activo, tarifa_base, costo_por_km, piso_minimo, techo_maximo, cargo_por_tienda_adicional').order('nombre')
     if (error) { setError(error.message); setCargando(false); return }
     setZonas((data ?? []) as Zona[])
     setCargando(false)
@@ -50,6 +51,7 @@ export default function ZonasAdmin() {
       costo_por_km: String(z.costo_por_km),
       piso_minimo: String(z.piso_minimo),
       techo_maximo: z.techo_maximo != null ? String(z.techo_maximo) : '',
+      cargo_por_tienda_adicional: String(z.cargo_por_tienda_adicional ?? 0),
     })
   }
 
@@ -58,13 +60,14 @@ export default function ZonasAdmin() {
     const costo_por_km = parseFloat(form.costo_por_km)
     const piso_minimo = parseFloat(form.piso_minimo)
     const techo_maximo = form.techo_maximo.trim() ? parseFloat(form.techo_maximo) : null
-    if ([tarifa_base, costo_por_km, piso_minimo].some(v => Number.isNaN(v) || v < 0)) {
-      setError('Tarifa base, costo/km y piso mínimo deben ser números válidos (0 o mayor)')
+    const cargo_por_tienda_adicional = parseFloat(form.cargo_por_tienda_adicional || '0')
+    if ([tarifa_base, costo_por_km, piso_minimo, cargo_por_tienda_adicional].some(v => Number.isNaN(v) || v < 0)) {
+      setError('Tarifa base, costo/km, piso mínimo y cargo multi-tienda deben ser números válidos (0 o mayor)')
       return
     }
     setProcesando(z.id)
     setError('')
-    const { error } = await supabase.from('zonas').update({ tarifa_base, costo_por_km, piso_minimo, techo_maximo }).eq('id', z.id)
+    const { error } = await supabase.from('zonas').update({ tarifa_base, costo_por_km, piso_minimo, techo_maximo, cargo_por_tienda_adicional }).eq('id', z.id)
     if (error) { setError(error.message); setProcesando(null); return }
     await cargar()
     setAbierta(null)
@@ -112,7 +115,7 @@ export default function ZonasAdmin() {
             </div>
 
             <p className="text-[10px] text-gray-500 mt-0.5">
-              Base ${z.tarifa_base.toFixed(2)} + ${z.costo_por_km.toFixed(2)}/km · piso ${z.piso_minimo.toFixed(2)}{z.techo_maximo != null ? ` · techo $${z.techo_maximo.toFixed(2)}` : ''}
+              Base ${z.tarifa_base.toFixed(2)} + ${z.costo_por_km.toFixed(2)}/km · piso ${z.piso_minimo.toFixed(2)}{z.techo_maximo != null ? ` · techo $${z.techo_maximo.toFixed(2)}` : ''}{z.cargo_por_tienda_adicional > 0 ? ` · +$${z.cargo_por_tienda_adicional.toFixed(2)}/tienda extra` : ''}
             </p>
 
             {abierta === z.id && (
@@ -122,6 +125,7 @@ export default function ZonasAdmin() {
                   { k: 'costo_por_km', label: 'Costo por km ($)' },
                   { k: 'piso_minimo', label: 'Piso mínimo ($)' },
                   { k: 'techo_maximo', label: 'Techo máx. ($, opcional)' },
+                  { k: 'cargo_por_tienda_adicional', label: '+$ por tienda extra' },
                 ].map(({ k, label }) => (
                   <div key={k}>
                     <label className="text-[9px] text-gray-500 uppercase font-bold block mb-1">{label}</label>
