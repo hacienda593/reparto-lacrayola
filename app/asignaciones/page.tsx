@@ -97,9 +97,14 @@ export default function AsignacionesPage() {
   const [historialVerif, setHistorialVerif] = useState<any[]>([])
   const [mostrarHistorial, setMostrarHistorial] = useState(false)
 
+  // A7 de la auditoría financiera: un match genérico de "transferencia" en
+  // cualquier parte de las notas es frágil -- cualquier comentario que
+  // mencione la palabra (ej. "no puede recibir transferencia, solo
+  // efectivo") clasificaría mal el pedido. La tienda siempre escribe la
+  // misma etiqueta estructurada "[PAGO: Transferencia..." cuando aplica
+  // (verificado contra datos reales); solo esa etiqueta cuenta.
   const isTransferencia = modalPedido
     ? (modalPedido.metodo_pago === 'transferencia' ||
-       modalPedido.notas?.toLowerCase().includes('transferencia') ||
        modalPedido.notas?.toLowerCase().includes('[pago: transferencia'))
     : false
 
@@ -540,7 +545,7 @@ export default function AsignacionesPage() {
     // pendiente, no se permite asignar bajo ninguna circunstancia desde aqui.
     const esTransferenciaPend = pedido && (
       pedido.metodo_pago === 'transferencia' ||
-      pedido.notas?.toLowerCase().includes('transferencia')
+      pedido.notas?.toLowerCase().includes('[pago: transferencia')
     ) && !pedido.pago_confirmado
     if (esTransferenciaPend) {
       setError('No se puede asignar: el pago por transferencia de este pedido aún no ha sido validado. Usa "Validar Pago & GPS" primero.')
