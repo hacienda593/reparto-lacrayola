@@ -49,9 +49,17 @@ export default function ConciliacionBancariaPage() {
   useEffect(() => { void cargar() }, [cargar])
 
   async function toggleVerificado(m: Mov) {
+    // Quitar una verificación ya confirmada es la dirección riesgosa --
+    // el servidor exige motivo en ese caso (M3 de la auditoría: antes se
+    // podía desmarcar sin dejar ningún rastro de quién o por qué).
+    let motivo: string | null = null
+    if (m.verificado) {
+      motivo = window.prompt(`¿Por qué quitas la verificación de "${m.detalle}"?`)
+      if (!motivo || !motivo.trim()) return
+    }
     setProcesando(m.id)
     const { error } = await supabase.rpc('marcar_verificado_banco', {
-      p_origen: m.origen, p_id: m.id, p_verificado: !m.verificado,
+      p_origen: m.origen, p_id: m.id, p_verificado: !m.verificado, p_motivo: motivo,
     })
     setProcesando(null)
     if (error) { setError(error.message); return }
