@@ -128,7 +128,7 @@ export default function RepartidoresPage() {
     await cargar()
   }
 
-  function set(k: string, v: string | number | boolean) {
+  function set(k: string, v: string | number | boolean | null) {
     setForm(f => ({ ...f, [k]: v }))
   }
 
@@ -401,6 +401,19 @@ export default function RepartidoresPage() {
                       onChange={e => set('comision_valor', parseFloat(e.target.value))}
                       className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-green-500" />
                   </div>
+                </div>
+                {/* Solo aplica a quien compra (shopper) -- límite de caja
+                    chica por jornada. Vacío/0 = sin límite, no bloquea
+                    (para no romper a nadie que nunca tuvo uno asignado). */}
+                <div>
+                  <label className="text-xs font-semibold text-slate-600 block mb-1">
+                    Fondo de caja chica por día ($, solo si compra)
+                  </label>
+                  <input type="number" step="0.01" min="0" value={form.fondo_caja_chica_diario ?? ''}
+                    onChange={e => set('fondo_caja_chica_diario', e.target.value === '' ? null : parseFloat(e.target.value))}
+                    placeholder="Sin límite (no bloquea compras)"
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-green-500" />
+                  <p className="text-[10px] text-slate-400 mt-1">Si lo llenas, el sistema bloquea el registro de una compra en efectivo que supere este monto en el día (hora Ecuador). Tarjeta corporativa no tiene este límite.</p>
                 </div>
                 {error && <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-xs text-red-600"><AlertCircle size={12} />{error}</div>}
               </div>

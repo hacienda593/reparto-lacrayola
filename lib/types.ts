@@ -15,6 +15,7 @@ export interface RepRepartidor {
   zona_id:        string | null
   comision_tipo:  'fijo' | 'porcentaje'
   comision_valor: number
+  fondo_caja_chica_diario?: number | null
   activo:         boolean
   observaciones:  string | null
   created_at:     string

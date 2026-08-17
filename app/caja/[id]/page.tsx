@@ -84,6 +84,9 @@ export default function CajaPage() {
     return (new Date(Date.now() - tzoffset)).toISOString().slice(0, 10);
   }
   const [fechaEmision, setFechaEmision]               = useState(getLocalDateString())
+  // Fondo de caja chica del día -- se muestra ANTES de que intente
+  // registrar, para no descubrir el bloqueo recién al guardar.
+  const [fondoCaja, setFondoCaja] = useState<{ fondo_diario: number | null; gastado_hoy: number; disponible: number | null } | null>(null)
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -112,6 +115,11 @@ export default function CajaPage() {
       setMontoFacturado(ped.total.toFixed(2))
     }
     setItems(its ?? [])
+
+    supabase.rpc('mi_fondo_caja_chica_hoy').then(({ data }) => {
+      const row = Array.isArray(data) ? data[0] : data
+      if (row) setFondoCaja(row)
+    })
 
     // 1. Obtener la tienda (de rep_picking o buscando el producto en el catálogo ol_productos)
     let tId = ''
@@ -820,6 +828,14 @@ export default function CajaPage() {
               <option value="efectivo_caja_chica">Caja Chica (Efectivo)</option>
               <option value="transferencia">Transferencia Directa</option>
             </select>
+            {metodoPago === 'efectivo_caja_chica' && fondoCaja?.fondo_diario != null && (
+              <p className={`text-[11px] font-semibold ${
+                Number(fondoCaja.disponible) < parseFloat(montoFacturado || '0') ? 'text-red-400' : 'text-gray-400'
+              }`}>
+                💰 Fondo de hoy: ${Number(fondoCaja.disponible).toFixed(2)} disponibles de ${Number(fondoCaja.fondo_diario).toFixed(2)}
+                {Number(fondoCaja.disponible) < parseFloat(montoFacturado || '0') && ' — esta compra supera lo que te queda'}
+              </p>
+            )}
           </div>
 
           {/* Captura de Foto de Factura */}
