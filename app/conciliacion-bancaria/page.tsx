@@ -26,6 +26,7 @@ type Mov = {
 // (app del banco, no integrado acá) y marca cada movimiento.
 export default function ConciliacionBancariaPage() {
   const [movs, setMovs] = useState<Mov[]>([])
+  const [atrasados, setAtrasados] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [procesando, setProcesando] = useState<string | null>(null)
@@ -33,9 +34,16 @@ export default function ConciliacionBancariaPage() {
 
   const cargar = useCallback(async () => {
     setLoading(true); setError('')
-    const { data, error } = await supabase.rpc('admin_conciliacion_bancaria')
+    const [{ data, error }, { data: atr }] = await Promise.all([
+      supabase.rpc('admin_conciliacion_bancaria'),
+      // Depósitos que ya liberaron la custodia del repartidor (confirmar_deposito_repartidor
+      // reduce efectivo_en_mano de inmediato) pero llevan más de 48h sin cruzarse
+      // contra el banco real -- ver docs/auditoria_financiera_ruta_dinero.md, C3.
+      supabase.rpc('admin_depositos_verificacion_atrasada'),
+    ])
     if (error) setError(error.message)
     setMovs((data ?? []) as Mov[])
+    setAtrasados(atr ?? [])
     setLoading(false)
   }, [])
   useEffect(() => { void cargar() }, [cargar])
@@ -71,6 +79,31 @@ export default function ConciliacionBancariaPage() {
         {error && (
           <div className="flex gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
             <AlertTriangle size={18} /><span>{error}</span>
+          </div>
+        )}
+
+        {/* El repartidor ya quedó liberado de este efectivo (confirmar el
+            depósito reduce su saldo de inmediato, para no frenarlo
+            operativamente) -- pero si pasan más de 48h sin verificarse
+            contra el banco real, hay que priorizarlo antes de que se
+            acumule o se pierda el rastro. */}
+        {atrasados.length > 0 && (
+          <div className="rounded-2xl border border-red-300 bg-red-50 overflow-hidden">
+            <div className="px-4 py-3 border-b border-red-200 flex items-center gap-2">
+              <AlertTriangle size={16} className="text-red-600" />
+              <span className="font-black text-red-800 text-sm">Depósitos liberados hace +48h sin verificar en banco ({atrasados.length})</span>
+            </div>
+            <div className="divide-y divide-red-100">
+              {atrasados.map(a => (
+                <div key={a.id} className="px-4 py-2.5 flex items-center justify-between text-xs">
+                  <div>
+                    <span className="font-bold text-slate-800">{a.repartidor_nombre}</span>
+                    <span className="text-slate-500 ml-1.5">{money(a.monto)} · {[a.banco, a.referencia].filter(Boolean).join(' · ') || 'sin referencia'}</span>
+                  </div>
+                  <span className="font-bold text-red-600">{a.dias_atraso} días</span>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
