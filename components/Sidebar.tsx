@@ -24,7 +24,7 @@ const NAV = [
 
 export default function Sidebar() {
   const pathname = usePathname()
-  const { user, rol, logout } = useAuth()
+  const { user, rol, estado, logout } = useAuth()
   const [open, setOpen] = useState(false)
   const nombre = user?.user_metadata?.full_name?.split(' ')[0] || user?.email?.split('@')[0] || 'Admin'
   const avatar = user?.user_metadata?.avatar_url
@@ -43,7 +43,16 @@ export default function Sidebar() {
     .filter(link => link.href === '/' ? pathname === '/' : pathname === link.href || pathname.startsWith(`${link.href}/`))
     .sort((a,b) => b.href.length-a.href.length)[0]?.href
 
+  // Distingue "todavía cargando el rol" de "ya se confirmó que no tiene
+  // rol" -- lo primero se ve como progreso normal, no como un menú roto.
+  // No cambia qué se muestra: sigue sin haber NINGÚN enlace hasta
+  // confirmar el rol real, solo evita que la pantalla se vea vacía/rota.
   const NavLinks = () => <nav className="flex-1 overflow-y-auto px-3 py-4">
+    {estado === 'cargando' && (
+      <div className="space-y-2 px-3 animate-pulse" aria-label="Cargando menú">
+        {[1,2,3,4].map(i => <div key={i} className="h-8 rounded-xl bg-slate-200/70" />)}
+      </div>
+    )}
     {groups.map(group => <div key={group} className="mb-4">
       <p className="px-3 pb-1.5 text-[9px] font-black uppercase tracking-[.18em] text-slate-400">{group}</p>
       <div className="space-y-1">{links.filter(link => link.group === group).map(({ href, label, icon: Icon }) => {
