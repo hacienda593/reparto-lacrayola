@@ -2,7 +2,13 @@ import { createHash } from 'node:crypto'
 import { XMLParser } from 'fast-xml-parser'
 
 const ENDPOINT='https://cel.sri.gob.ec/comprobantes-electronicos-ws/AutorizacionComprobantesOffline'
-const parser=new XMLParser({ignoreAttributes:false,processEntities:true,trimValues:true})
+// SEC-07 de la auditoría: processEntities:true permite expandir entidades
+// XML personalizadas -- las facturas SRI nunca las usan (solo las 5
+// básicas &amp; &lt; etc., que fast-xml-parser siempre decodifica sin
+// este flag). Desactivarlo cierra esa superficie de ataque sin perder
+// nada -- se trata la respuesta del SRI como entrada externa, aunque en
+// condiciones normales venga de una fuente confiable.
+const parser=new XMLParser({ignoreAttributes:false,processEntities:false,trimValues:true})
 const arr=<T>(v:T|T[]|undefined):T[]=>v===undefined?[]:Array.isArray(v)?v:[v]
 type XmlNode=Record<string,unknown>
 const node=(v:unknown):XmlNode=>v!==null&&typeof v==='object'?v as XmlNode:{}
@@ -20,7 +26,12 @@ export async function consultarFacturaSri(clave:string):Promise<SriFactura>{
  const envelope=`<?xml version="1.0" encoding="UTF-8"?><soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ec="http://ec.gob.sri.ws.autorizacion"><soapenv:Header/><soapenv:Body><ec:autorizacionComprobante><claveAccesoComprobante>${clave}</claveAccesoComprobante></ec:autorizacionComprobante></soapenv:Body></soapenv:Envelope>`
  const response=await fetch(ENDPOINT,{method:'POST',headers:{'Content-Type':'text/xml;charset=UTF-8','SOAPAction':''},body:envelope,signal:AbortSignal.timeout(20000),cache:'no-store'})
  if(!response.ok)throw new Error(`El SRI respondió HTTP ${response.status}`)
-	 const soap=node(parser.parse(await response.text()))
+	 const textoRespuesta=await response.text()
+	 // Límite de cordura: una respuesta SOAP normal del SRI pesa unos pocos
+	 // KB. Un XML de varios MB no es una factura real -- se rechaza antes
+	 // de parsear, en vez de dejar que el parser procese algo anómalo.
+	 if(textoRespuesta.length>2_000_000)throw new Error('La respuesta del SRI es anormalmente grande')
+	 const soap=node(parser.parse(textoRespuesta))
 	 const body=at(at(soap,'soap:Envelope'),'soap:Body')??at(at(soap,'soapenv:Envelope'),'soapenv:Body')
 	 const responseNode=at(body,'ns2:autorizacionComprobanteResponse')??at(body,'autorizacionComprobanteResponse')
 	 const root=at(responseNode,'RespuestaAutorizacionComprobante')
