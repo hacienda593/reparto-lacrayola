@@ -119,6 +119,30 @@ export default function RepartidoresPage() {
     await cargar(); setProcesando(null)
   }
 
+  // M6 de la auditoría financiera: antes solo existía el bloqueo
+  // automático por exceso de efectivo, que se reactivaba solo apenas el
+  // saldo bajaba de $40 -- ahora un bloqueo manual (por otra causa) no se
+  // levanta solo, hay que desbloquearlo explícitamente con motivo.
+  async function bloquearManual(r: RepConEstado) {
+    const motivoBloqueo = window.prompt(`Motivo del bloqueo de ${r.nombre}:`)?.trim()
+    if (!motivoBloqueo) return
+    setProcesando(r.id)
+    const { error } = await supabase.rpc('bloquear_repartidor_admin', { p_repartidor_id: r.id, p_motivo: motivoBloqueo })
+    setProcesando(null)
+    if (error) { alert('No se pudo bloquear: ' + error.message); return }
+    await cargar()
+  }
+
+  async function desbloquear(r: RepConEstado) {
+    const motivoDesbloqueo = window.prompt(`Motivo del desbloqueo de ${r.nombre}:`)?.trim()
+    if (!motivoDesbloqueo) return
+    setProcesando(r.id)
+    const { error } = await supabase.rpc('desbloquear_repartidor_admin', { p_repartidor_id: r.id, p_motivo: motivoDesbloqueo })
+    setProcesando(null)
+    if (error) { alert('No se pudo desbloquear: ' + error.message); return }
+    await cargar()
+  }
+
   async function toggleActivo(r: RepConEstado) {
     await supabase.from('rep_repartidores')
       .update({ activo: !r.activo, updated_at: new Date().toISOString() }).eq('id', r.id)
@@ -249,6 +273,23 @@ export default function RepartidoresPage() {
                       ${r.user_id ? 'bg-green-50 text-green-700' : 'bg-yellow-50 text-yellow-700'}`}>
                       {r.user_id ? '✅ Acceso activado' : '⏳ Esperando primer ingreso'}
                     </div>
+
+                    {r.estado === 'BLOQUEADO' ? (
+                      <div className="space-y-1.5">
+                        <div className="text-[10px] font-bold text-red-700 bg-red-50 border border-red-200 rounded-lg px-2.5 py-1.5">
+                          🔒 Bloqueado {r.motivo_bloqueo === 'exceso_efectivo' ? '(exceso de efectivo, $40+)' : `— ${r.motivo_bloqueo}`}
+                        </div>
+                        <button onClick={() => desbloquear(r)} disabled={procesando === r.id}
+                          className="w-full text-[10px] font-bold text-green-700 border border-green-200 rounded-lg py-1.5 hover:bg-green-50 disabled:opacity-50">
+                          Desbloquear
+                        </button>
+                      </div>
+                    ) : (
+                      <button onClick={() => bloquearManual(r)} disabled={procesando === r.id}
+                        className="w-full text-[10px] font-bold text-slate-400 border border-slate-200 rounded-lg py-1.5 hover:bg-slate-50 hover:text-red-600 disabled:opacity-50">
+                        Bloquear manualmente
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>

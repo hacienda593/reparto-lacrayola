@@ -16,6 +16,8 @@ export interface RepRepartidor {
   comision_tipo:  'fijo' | 'porcentaje'
   comision_valor: number
   fondo_caja_chica_diario?: number | null
+  estado?:        string | null
+  motivo_bloqueo?: string | null
   activo:         boolean
   observaciones:  string | null
   created_at:     string
