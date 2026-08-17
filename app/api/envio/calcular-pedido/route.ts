@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { calcularEnvio } from '@/lib/envio'
+import { rateLimitExcedido, ipDe } from '@/lib/rateLimit'
 
 // La app de tienda manda ol_pedidos.total SIN el costo de envío incluido
 // (confirmado con captura real del cliente: un pedido de $6.49 en productos
@@ -17,6 +18,10 @@ const TIENDA_LNG = -78.9654
 
 export async function POST(req: NextRequest) {
   try {
+    if (rateLimitExcedido(`envio-calcular-pedido:${ipDe(req)}`, 30, 60_000)) {
+      return NextResponse.json({ error: 'Demasiadas solicitudes, espera un momento' }, { status: 429 })
+    }
+
     const { pedidoId } = await req.json()
     if (!pedidoId || typeof pedidoId !== 'string') {
       return NextResponse.json({ error: 'Falta pedidoId' }, { status: 400 })

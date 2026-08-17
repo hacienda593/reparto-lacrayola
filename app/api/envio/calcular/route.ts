@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { calcularEnvio } from '@/lib/envio'
+import { rateLimitExcedido, ipDe } from '@/lib/rateLimit'
 
 // Calcula el costo de envío = max(piso_minimo, tarifa_base + costo_por_km
 // × distancia_real), con tarifa configurable por zona (tabla zonas,
@@ -13,12 +14,24 @@ import { calcularEnvio } from '@/lib/envio'
 
 export async function POST(req: NextRequest) {
   try {
+    // Público (sin sesión, por diseño -- lo puede llamar la tienda) --
+    // por eso necesita su propio límite de frecuencia por IP.
+    if (rateLimitExcedido(`envio-calcular:${ipDe(req)}`, 30, 60_000)) {
+      return NextResponse.json({ error: 'Demasiadas solicitudes, espera un momento' }, { status: 429 })
+    }
+
     const { origenLat, origenLng, destinoLat, destinoLng, zonaId } = await req.json()
 
     for (const [k, v] of Object.entries({ origenLat, origenLng, destinoLat, destinoLng })) {
       if (typeof v !== 'number' || Number.isNaN(v)) {
         return NextResponse.json({ error: `Falta o es inválido el parámetro ${k}` }, { status: 400 })
       }
+    }
+    if (Math.abs(origenLat) > 90 || Math.abs(destinoLat) > 90) {
+      return NextResponse.json({ error: 'Latitud fuera de rango' }, { status: 400 })
+    }
+    if (Math.abs(origenLng) > 180 || Math.abs(destinoLng) > 180) {
+      return NextResponse.json({ error: 'Longitud fuera de rango' }, { status: 400 })
     }
 
     const supabase = await createClient()
