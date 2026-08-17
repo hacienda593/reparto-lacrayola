@@ -1,9 +1,14 @@
 -- reset_datos_prueba.sql
--- Vacía todos los datos transaccionales de pedidos/repartos para empezar
--- pruebas desde cero. NO toca configuración, catálogo, cuentas ni
--- repartidores (solo resetea sus saldos). Irreversible.
+-- Vacía todos los datos transaccionales de pedidos/repartos/clientes para
+-- empezar pruebas desde cero. NO toca configuración, catálogo, cuentas de
+-- usuario ni repartidores (solo resetea sus saldos). Irreversible.
 
 TRUNCATE TABLE
+  ol_carrito_items,
+  ol_carritos,
+  ol_direcciones_cliente,
+  rep_clientes_direcciones,
+  ol_clientes,
   ol_pedidos_envio,
   rep_facturas_compras,
   rep_incidencias,
