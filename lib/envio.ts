@@ -42,7 +42,16 @@ export async function calcularEnvio(
   zona: TarifaZona
 ) {
   const { km, metodo } = await distanciaKmReal(origen, destino)
-  let envio = zona.tarifa_base + zona.costo_por_km * km
+  // Corrección real (confirmada con un pedido real): la tienda cobra un
+  // "Envío estándar" PLANO -- no por distancia -- y ese monto coincide
+  // exactamente con tarifa_base configurada acá ($1.50 = $1.50). Sumar
+  // costo_por_km × distancia encima de eso inventaba un número que nunca
+  // coincidía con lo que el cliente realmente pagó (ej. $7.25 calculado
+  // vs $1.50 real), haciendo que CADA transferencia se viera como
+  // "faltante" contra un total que nadie iba a pagar. Se usa la tarifa
+  // plana; costo_por_km queda sin aplicar mientras la tienda siga
+  // cobrando así (piso/techo se conservan como límites de seguridad).
+  let envio = zona.tarifa_base
   envio = Math.max(zona.piso_minimo, envio)
   if (zona.techo_maximo != null) envio = Math.min(zona.techo_maximo, envio)
   envio = Math.round(envio * 100) / 100
