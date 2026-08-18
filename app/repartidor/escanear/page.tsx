@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
-import { ArrowLeft, Loader2, CheckCircle2, ShieldAlert, Scan, Smartphone } from 'lucide-react'
+import { ArrowLeft, Loader2, CheckCircle2, ShieldAlert, Scan, Smartphone, Plus, Minus } from 'lucide-react'
 
 export default function EscanearPage() {
   const router = useRouter()
@@ -16,6 +16,10 @@ export default function EscanearPage() {
   const [exito, setExito] = useState(false)
   const [pedidoNum, setPedidoNum] = useState('')
   const [vista, setVista] = useState<'pin' | 'camara'>('pin')
+  // Cuántos bultos/fundas dice recibir el motorizado -- se compara contra
+  // lo que declaró el comprador (rep_handoffs.bultos_declarados) y si no
+  // coincide se abre una incidencia automática para que el admin lo revise.
+  const [bultosRecibidos, setBultosRecibidos] = useState(1)
 
   // Camera refs
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -148,6 +152,7 @@ export default function EscanearPage() {
       p_request_id: requestId,
       p_lat: geo?.lat ?? null,
       p_lng: geo?.lng ?? null,
+      p_bultos_recibidos: bultosRecibidos,
     })
 
     if (errRpc) {
@@ -226,6 +231,26 @@ export default function EscanearPage() {
               <p className="text-gray-400 text-xs">
                 Asume la entrega del pedido que el Shopper ya compró.
               </p>
+            </div>
+
+            {/* Conteo de bultos recibidos: se compara contra lo que declaró
+                el shopper: si no coincide, se abre una incidencia para que
+                el admin lo revise (no bloquea el traspaso). */}
+            <div className="flex items-center justify-between bg-[#181d24] border border-[#2d3748] rounded-2xl px-4 py-3 w-full">
+              <span className="text-gray-300 text-xs font-bold text-left">¿Cuántos bultos/fundas recibes?</span>
+              <div className="flex items-center gap-3 shrink-0">
+                <button
+                  onClick={() => setBultosRecibidos(b => Math.max(1, b - 1))}
+                  className="w-7 h-7 rounded-lg bg-[#2d3748] text-white flex items-center justify-center">
+                  <Minus size={14} />
+                </button>
+                <span className="text-white font-black text-base w-5 text-center">{bultosRecibidos}</span>
+                <button
+                  onClick={() => setBultosRecibidos(b => Math.min(10, b + 1))}
+                  className="w-7 h-7 rounded-lg bg-[#2d3748] text-white flex items-center justify-center">
+                  <Plus size={14} />
+                </button>
+              </div>
             </div>
 
             {/* Selector de tipo de entrada */}

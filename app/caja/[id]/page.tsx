@@ -475,6 +475,24 @@ export default function CajaPage() {
   const itemsCompletados = items.filter(it => it.picking_completado).reduce((sum, it) => sum + (it.cantidad ?? 1), 0)
   const datosFactura = parseDatosFactura(pedido?.notas)
 
+  // Reconciliación factura del SRI vs lo que la app esperaba comprar: no hay
+  // otra forma de saber, aparte de esto, si lo que trae el ticket coincide
+  // con lo que el pedido pedía. Se compara solo contra los ítems marcados
+  // como recolectados (no contra el pedido completo) -- un ítem agotado
+  // nunca se compró, así que no debe contar como diferencia.
+  // No es un bloqueo duro: el precio real en tienda puede variar un poco
+  // del catálogo. Es una alerta clara para que el shopper/admin lo revise.
+  const cantidadEsperada = items.filter(it => it.picking_completado).reduce((sum, it) => sum + (it.cantidad ?? 1), 0)
+  const valorEsperado = items.filter(it => it.picking_completado).reduce((sum, it) => sum + (it.precio_unitario ?? 0) * (it.cantidad ?? 1), 0)
+  const cantidadFactura = facturaSri ? facturaSri.detalles.reduce((s, d) => s + (d.cantidad ?? 0), 0) : null
+  const diffValor = facturaSri && valorEsperado > 0 ? Math.abs(facturaSri.total - valorEsperado) / valorEsperado : null
+  const reconciliacionFactura = facturaSri ? {
+    cantidadEsperada, cantidadFactura,
+    cantidadCoincide: cantidadFactura !== null && cantidadFactura === cantidadEsperada,
+    valorEsperado, valorFactura: facturaSri.total, diffValor,
+    valorCoincide: diffValor !== null && diffValor <= 0.01,
+  } : null
+
   // Desglose de IVA por tarifa, tomado del snapshot guardado en cada línea al momento de la compra
   const desgloseIva = items.reduce((acc: Record<string, { porcentaje: number; subtotal: number }>, it) => {
     const key = it.iva_codigo ?? 'sin_codigo'
@@ -787,6 +805,36 @@ export default function CajaPage() {
                 <span className="text-gray-500">Comprador</span><span className={`text-right font-bold ${conciliacionSri?.receptorCorrecto?'text-green-400':'text-red-400'}`}>{facturaSri.razonSocialComprador}</span>
               </div>
               <p className="text-[10px] text-gray-500">Los datos tributarios completos y el XML quedan disponibles para administración.</p>
+            </div>
+          )}
+
+          {/* Reconciliación: lo que dice el XML del SRI vs lo que el pedido
+              esperaba (solo ítems marcados como recolectados). No bloquea
+              nada -- es una alerta para revisar antes de continuar. */}
+          {reconciliacionFactura && (
+            <div className={`rounded-2xl p-4 space-y-2 border ${
+              reconciliacionFactura.valorCoincide && reconciliacionFactura.cantidadCoincide
+                ? 'bg-[#00b074]/10 border-[#00b074]/30'
+                : 'bg-orange-500/10 border-orange-500/30'
+            }`}>
+              <p className={`text-[11px] font-bold uppercase tracking-wider ${
+                reconciliacionFactura.valorCoincide && reconciliacionFactura.cantidadCoincide ? 'text-[#00b074]' : 'text-orange-400'
+              }`}>
+                {reconciliacionFactura.valorCoincide && reconciliacionFactura.cantidadCoincide
+                  ? '✓ La factura coincide con lo recolectado'
+                  : '⚠️ Revisar: la factura no coincide del todo con lo recolectado'}
+              </p>
+              <div className="grid grid-cols-2 gap-2 rounded-xl bg-black/25 p-3 text-xs">
+                <span className="text-gray-500">Ítems recolectados</span>
+                <span className={`text-right font-black ${reconciliacionFactura.cantidadCoincide ? 'text-white' : 'text-orange-400'}`}>
+                  {reconciliacionFactura.cantidadFactura} en factura / {reconciliacionFactura.cantidadEsperada} esperados
+                </span>
+                <span className="text-gray-500">Valor</span>
+                <span className={`text-right font-black ${reconciliacionFactura.valorCoincide ? 'text-white' : 'text-orange-400'}`}>
+                  ${reconciliacionFactura.valorFactura.toFixed(2)} factura / ${reconciliacionFactura.valorEsperado.toFixed(2)} esperado
+                  {reconciliacionFactura.diffValor !== null && ` (${(reconciliacionFactura.diffValor * 100).toFixed(1)}%)`}
+                </span>
+              </div>
             </div>
           )}
 

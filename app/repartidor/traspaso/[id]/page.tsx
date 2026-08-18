@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
-import { ArrowLeft, Loader2, CheckCircle2, ShieldAlert, RefreshCw } from 'lucide-react'
+import { ArrowLeft, Loader2, CheckCircle2, ShieldAlert, RefreshCw, Camera, Plus, Minus } from 'lucide-react'
 import QrCode from '@/components/QrCode'
 
 export default function TraspasoPage() {
@@ -28,12 +28,50 @@ export default function TraspasoPage() {
   const [generando, setGenerando] = useState(false)
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
+  // Evidencia de empaque (migration_evidencia_empaque_traspaso.sql): antes
+  // de generar el código de traspaso, el comprador declara cuántos bultos
+  // arma y toma una foto del interior de cada uno antes de sellarlo. El
+  // servidor exige esto (crear_traspaso_shopper ahora pide p_bultos y
+  // valida que exista foto por cada uno) -- aquí solo se guía al usuario
+  // para que no choque con el error recién al intentar generar el código.
+  const [bultos, setBultos] = useState(1)
+  const [fotosBultos, setFotosBultos] = useState<Record<number, string>>({})
+  const [subiendoBulto, setSubiendoBulto] = useState<number | null>(null)
+  const [errorEmpaque, setErrorEmpaque] = useState('')
+  const codigoGenerado = !!token
+
+  async function subirFotoBulto(n: number, file: File) {
+    if (!asig?.pedido_id) return
+    setErrorEmpaque('')
+    setSubiendoBulto(n)
+    try {
+      const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
+      const path = `empaque/${asig.pedido_id}/bulto-${n}-${Date.now()}.${ext}`
+      const { error: errUp } = await supabase.storage
+        .from('comprobantes-proveedores')
+        .upload(path, file, { cacheControl: '3600', upsert: false, contentType: file.type || 'image/jpeg' })
+      if (errUp) throw errUp
+      const { error: errRpc } = await supabase.rpc('registrar_foto_empaque', {
+        p_pedido_id: asig.pedido_id, p_bulto_numero: n, p_foto_path: path,
+      })
+      if (errRpc) throw errRpc
+      setFotosBultos(prev => ({ ...prev, [n]: path }))
+    } catch (e: any) {
+      setErrorEmpaque(e.message || `No se pudo subir la foto del bulto ${n}`)
+    } finally {
+      setSubiendoBulto(null)
+    }
+  }
+
+  const faltanFotos = Array.from({ length: bultos }, (_, i) => i + 1).some(n => !fotosBultos[n])
+
   async function generarCodigo() {
     setError('')
     setGenerando(true)
     try {
       const { data, error: errRpc } = await supabase.rpc('crear_traspaso_shopper', {
         p_asignacion_id: asignacionId,
+        p_bultos: bultos,
       })
       if (errRpc) throw errRpc
       const row = Array.isArray(data) ? data[0] : data
@@ -82,9 +120,9 @@ export default function TraspasoPage() {
           setNuevoRider(nRider?.nombre ?? 'Otro motorizado')
           setTraspasado(true)
         }
-      } else {
-        await generarCodigo()
       }
+      // Ya no se genera el código automáticamente: primero hay que declarar
+      // bultos y subir su foto (ver bloque de evidencia de empaque abajo).
       setCargando(false)
     } catch {
       setError('Error de comunicación con Supabase.')
@@ -198,6 +236,80 @@ export default function TraspasoPage() {
               className="w-full bg-[#00b074] hover:bg-[#008f5d] text-white font-bold py-3 rounded-2xl text-xs transition-all shadow-md">
               Volver a mis compras
             </button>
+          </div>
+        ) : !codigoGenerado ? (
+          <div className="bg-[#181d24] border border-[#2d3748] rounded-3xl p-5 space-y-4 w-full text-left">
+            <div className="space-y-1">
+              <span className="text-[#00b074] text-[10px] font-bold uppercase tracking-wider bg-[#00b074]/10 px-3 py-1 rounded-full">
+                Antes de traspasar
+              </span>
+              <h2 className="text-white text-base font-extrabold">Evidencia de Empaque</h2>
+              <p className="text-gray-400 text-xs">
+                Toma una foto del interior de cada bulto/funda antes de sellarlo. Es obligatorio para generar el código de traspaso.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-between bg-[#0c0f12] border border-[#2d3748] rounded-2xl px-4 py-3">
+              <span className="text-gray-300 text-xs font-bold">Cantidad de bultos/fundas</span>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setBultos(b => Math.max(1, b - 1))}
+                  className="w-7 h-7 rounded-lg bg-[#2d3748] text-white flex items-center justify-center">
+                  <Minus size={14} />
+                </button>
+                <span className="text-white font-black text-base w-5 text-center">{bultos}</span>
+                <button
+                  onClick={() => setBultos(b => Math.min(10, b + 1))}
+                  className="w-7 h-7 rounded-lg bg-[#2d3748] text-white flex items-center justify-center">
+                  <Plus size={14} />
+                </button>
+              </div>
+            </div>
+
+            {errorEmpaque && (
+              <div className="flex items-center gap-1.5 bg-red-500/10 border border-red-500/20 text-red-400 p-2.5 rounded-xl text-xs">
+                <ShieldAlert size={14} className="shrink-0" />
+                <span>{errorEmpaque}</span>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              {Array.from({ length: bultos }, (_, i) => i + 1).map(n => (
+                <label key={n} className={`flex items-center justify-between gap-3 rounded-2xl px-4 py-3 border cursor-pointer transition ${
+                  fotosBultos[n] ? 'bg-[#00b074]/10 border-[#00b074]/30' : 'bg-[#0c0f12] border-[#2d3748]'
+                }`}>
+                  <span className="text-xs font-bold text-white">Bulto {n}</span>
+                  <span className={`text-[11px] font-bold flex items-center gap-1.5 ${fotosBultos[n] ? 'text-[#00b074]' : 'text-gray-400'}`}>
+                    {subiendoBulto === n
+                      ? <Loader2 size={14} className="animate-spin" />
+                      : fotosBultos[n]
+                        ? <><CheckCircle2 size={14} /> Foto lista</>
+                        : <><Camera size={14} /> Tomar foto</>}
+                  </span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="hidden"
+                    onChange={e => { const f = e.target.files?.[0]; if (f) subirFotoBulto(n, f) }}
+                  />
+                </label>
+              ))}
+            </div>
+
+            <button
+              onClick={generarCodigo}
+              disabled={faltanFotos || generando}
+              className="w-full bg-[#00b074] hover:bg-[#008f5d] disabled:opacity-40 text-white font-bold py-3 rounded-2xl text-xs transition-all shadow-md flex items-center justify-center gap-2">
+              {generando ? <Loader2 size={14} className="animate-spin" /> : null}
+              Generar código de traspaso
+            </button>
+            {error && (
+              <div className="flex items-center gap-1.5 bg-red-500/10 border border-red-500/20 text-red-400 p-2.5 rounded-xl text-xs">
+                <ShieldAlert size={14} className="shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
           </div>
         ) : (
           <>
