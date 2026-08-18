@@ -62,7 +62,10 @@ export default function CajaPage() {
   // esto de todos modos antes de generar el código; se captura acá para
   // que quede en el momento real y no como un paso aparte después.
   const [bultos, setBultos] = useState(1)
-  const [fotosBultos, setFotosBultos] = useState<Record<number, string>>({})
+  // Un bulto puede necesitar más de una foto (fundas grandes tipo Tía, con
+  // muchos productos que no caben en un solo encuadre) -- por eso es un
+  // arreglo por bulto, no una sola foto.
+  const [fotosBultos, setFotosBultos] = useState<Record<number, string[]>>({})
   const [subiendoBulto, setSubiendoBulto] = useState<number | null>(null)
   const [error, setError]                             = useState('')
   const [sriGenerado, setSriGenerado]                 = useState(false)
@@ -348,14 +351,14 @@ export default function CajaPage() {
         p_pedido_id: pedido.id, p_bulto_numero: n, p_foto_path: path,
       })
       if (errRpc) throw errRpc
-      setFotosBultos(prev => ({ ...prev, [n]: path }))
+      setFotosBultos(prev => ({ ...prev, [n]: [...(prev[n] ?? []), path] }))
     } catch (e: any) {
       setError(e.message || `No se pudo subir la foto del bulto ${n}`)
     } finally {
       setSubiendoBulto(null)
     }
   }
-  const faltanFotosBultos = Array.from({ length: bultos }, (_, i) => i + 1).some(n => !fotosBultos[n])
+  const faltanFotosBultos = Array.from({ length: bultos }, (_, i) => i + 1).some(n => !fotosBultos[n]?.length)
 
   async function registrarFacturacion() {
     setError('')
@@ -983,28 +986,42 @@ export default function CajaPage() {
             </div>
 
             <div className="space-y-2">
-              {Array.from({ length: bultos }, (_, i) => i + 1).map(n => (
-                <label key={n} className={`flex items-center justify-between gap-3 rounded-2xl px-4 py-3 border cursor-pointer transition ${
-                  fotosBultos[n] ? 'bg-[#00b074]/10 border-[#00b074]/40 text-[#00b074]' : 'bg-[#1a2129] border-[#2d3748] hover:border-[#00b074] text-white'
-                }`}>
-                  <span className="text-xs font-bold">Bulto {n}</span>
-                  <span className="text-[11px] font-bold flex items-center gap-1.5">
-                    {subiendoBulto === n
-                      ? <Loader2 size={14} className="animate-spin" />
-                      : fotosBultos[n]
-                        ? <><CheckCircle2 size={14} /> Foto lista</>
-                        : <><Camera size={14} /> Tomar foto</>}
-                  </span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    className="hidden"
-                    onChange={e => { const f = e.target.files?.[0]; if (f) subirFotoBulto(n, f) }}
-                  />
-                </label>
-              ))}
+              {Array.from({ length: bultos }, (_, i) => i + 1).map(n => {
+                const fotos = fotosBultos[n] ?? []
+                const tope = fotos.length >= 6
+                return (
+                  <div key={n} className={`rounded-2xl px-4 py-3 border transition space-y-2 ${
+                    fotos.length ? 'bg-[#00b074]/10 border-[#00b074]/40' : 'bg-[#1a2129] border-[#2d3748]'
+                  }`}>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className={`text-xs font-bold ${fotos.length ? 'text-[#00b074]' : 'text-white'}`}>
+                        Bulto {n} {fotos.length > 0 && `· ${fotos.length} foto${fotos.length > 1 ? 's' : ''}`}
+                      </span>
+                      <label className={`text-[11px] font-bold flex items-center gap-1.5 cursor-pointer ${tope ? 'opacity-40 pointer-events-none' : fotos.length ? 'text-[#00b074]' : 'text-white'}`}>
+                        {subiendoBulto === n
+                          ? <Loader2 size={14} className="animate-spin" />
+                          : fotos.length
+                            ? <><Plus size={14} /> Agregar otra foto</>
+                            : <><Camera size={14} /> Tomar foto</>}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          capture="environment"
+                          className="hidden"
+                          onChange={e => { const f = e.target.files?.[0]; if (f) subirFotoBulto(n, f) }}
+                        />
+                      </label>
+                    </div>
+                    {fotos.length > 0 && (
+                      <div className="flex items-center gap-1.5 text-[#00b074]">
+                        {fotos.map((_, i) => <CheckCircle2 key={i} size={14} />)}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
+            <p className="text-[9px] text-gray-550">Para bultos grandes (ej. fundas de La Tía con muchos productos), puedes tomar varias fotos del mismo bulto desde distintos ángulos hasta cubrir todo el contenido.</p>
           </div>
         </div>
 

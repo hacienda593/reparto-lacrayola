@@ -35,7 +35,8 @@ export default function TraspasoPage() {
   // valida que exista foto por cada uno) -- aquí solo se guía al usuario
   // para que no choque con el error recién al intentar generar el código.
   const [bultos, setBultos] = useState(1)
-  const [fotosBultos, setFotosBultos] = useState<Record<number, string>>({})
+  // Un bulto puede llevar más de una foto (fundas grandes tipo Tía).
+  const [fotosBultos, setFotosBultos] = useState<Record<number, string[]>>({})
   const [subiendoBulto, setSubiendoBulto] = useState<number | null>(null)
   const [errorEmpaque, setErrorEmpaque] = useState('')
   const codigoGenerado = !!token
@@ -55,7 +56,7 @@ export default function TraspasoPage() {
         p_pedido_id: asig.pedido_id, p_bulto_numero: n, p_foto_path: path,
       })
       if (errRpc) throw errRpc
-      setFotosBultos(prev => ({ ...prev, [n]: path }))
+      setFotosBultos(prev => ({ ...prev, [n]: [...(prev[n] ?? []), path] }))
     } catch (e: any) {
       setErrorEmpaque(e.message || `No se pudo subir la foto del bulto ${n}`)
     } finally {
@@ -63,7 +64,7 @@ export default function TraspasoPage() {
     }
   }
 
-  const faltanFotos = Array.from({ length: bultos }, (_, i) => i + 1).some(n => !fotosBultos[n])
+  const faltanFotos = Array.from({ length: bultos }, (_, i) => i + 1).some(n => !fotosBultos[n]?.length)
 
   async function generarCodigo() {
     setError('')
@@ -111,10 +112,10 @@ export default function TraspasoPage() {
           .select('bulto_numero, foto_url')
           .eq('pedido_id', data.pedido_id)
         if (fotos && fotos.length > 0) {
-          const mapa: Record<number, string> = {}
+          const mapa: Record<number, string[]> = {}
           let maxBulto = 1
           for (const f of fotos) {
-            mapa[f.bulto_numero] = f.foto_url
+            mapa[f.bulto_numero] = [...(mapa[f.bulto_numero] ?? []), f.foto_url]
             if (f.bulto_numero > maxBulto) maxBulto = f.bulto_numero
           }
           setFotosBultos(mapa)
@@ -293,28 +294,37 @@ export default function TraspasoPage() {
             )}
 
             <div className="space-y-2">
-              {Array.from({ length: bultos }, (_, i) => i + 1).map(n => (
-                <label key={n} className={`flex items-center justify-between gap-3 rounded-2xl px-4 py-3 border cursor-pointer transition ${
-                  fotosBultos[n] ? 'bg-[#00b074]/10 border-[#00b074]/30' : 'bg-[#0c0f12] border-[#2d3748]'
-                }`}>
-                  <span className="text-xs font-bold text-white">Bulto {n}</span>
-                  <span className={`text-[11px] font-bold flex items-center gap-1.5 ${fotosBultos[n] ? 'text-[#00b074]' : 'text-gray-400'}`}>
-                    {subiendoBulto === n
-                      ? <Loader2 size={14} className="animate-spin" />
-                      : fotosBultos[n]
-                        ? <><CheckCircle2 size={14} /> Foto lista</>
-                        : <><Camera size={14} /> Tomar foto</>}
-                  </span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    className="hidden"
-                    onChange={e => { const f = e.target.files?.[0]; if (f) subirFotoBulto(n, f) }}
-                  />
-                </label>
-              ))}
+              {Array.from({ length: bultos }, (_, i) => i + 1).map(n => {
+                const fotos = fotosBultos[n] ?? []
+                const tope = fotos.length >= 6
+                return (
+                  <div key={n} className={`rounded-2xl px-4 py-3 border transition space-y-1.5 ${
+                    fotos.length ? 'bg-[#00b074]/10 border-[#00b074]/30' : 'bg-[#0c0f12] border-[#2d3748]'
+                  }`}>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs font-bold text-white">
+                        Bulto {n} {fotos.length > 0 && `· ${fotos.length} foto${fotos.length > 1 ? 's' : ''}`}
+                      </span>
+                      <label className={`text-[11px] font-bold flex items-center gap-1.5 cursor-pointer ${tope ? 'opacity-40 pointer-events-none' : fotos.length ? 'text-[#00b074]' : 'text-gray-400'}`}>
+                        {subiendoBulto === n
+                          ? <Loader2 size={14} className="animate-spin" />
+                          : fotos.length
+                            ? <><Camera size={14} /> Agregar otra</>
+                            : <><Camera size={14} /> Tomar foto</>}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          capture="environment"
+                          className="hidden"
+                          onChange={e => { const f = e.target.files?.[0]; if (f) subirFotoBulto(n, f) }}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
+            <p className="text-[9px] text-gray-500 text-left">Para bultos grandes puedes tomar varias fotos del mismo bulto desde distintos ángulos.</p>
 
             <button
               onClick={generarCodigo}
