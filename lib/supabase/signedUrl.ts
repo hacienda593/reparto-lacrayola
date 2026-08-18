@@ -21,12 +21,13 @@ export function extraerRutaStorage(valor: string | null | undefined): string | n
 export async function firmarUrlComprobante(
   supabase: SupabaseClient,
   valor: string | null | undefined,
-  expiresInSeconds = 3600
+  expiresInSeconds = 3600,
+  bucket = 'comprobantes-proveedores'
 ): Promise<string | null> {
   const ruta = extraerRutaStorage(valor)
   if (!ruta) return null
   const { data, error } = await supabase.storage
-    .from('comprobantes-proveedores')
+    .from(bucket)
     .createSignedUrl(ruta, expiresInSeconds)
   if (error) return null
   return data.signedUrl

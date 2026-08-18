@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
+import { firmarUrlComprobante } from '@/lib/supabase/signedUrl'
 import Sidebar from '@/components/Sidebar'
 import { 
   Truck, Package, Users, Plus, Trash2, Loader2, 
@@ -30,6 +31,7 @@ interface Pedido {
   metodo_pago?: string | null
   pago_confirmado?: boolean | null
   referencia_transferencia?: string | null
+  comprobante_transferencia_path?: string | null
   referencias?: string | null
   notas?: string | null
   user_id?: string | null
@@ -81,6 +83,8 @@ export default function AsignacionesPage() {
   const [copiadoRef, setCopiadoRef] = useState(false)
   const [refInput, setRefInput] = useState('')
   const [guardandoRef, setGuardandoRef] = useState(false)
+  const [comprobanteUrl, setComprobanteUrl] = useState<string | null>(null)
+  const [cargandoComprobante, setCargandoComprobante] = useState(false)
   const [confirmoPorWhatsapp, setConfirmoPorWhatsapp] = useState(false)
   const [cargandoDirecciones, setCargandoDirecciones] = useState(false)
   const [refDuplicadaEn, setRefDuplicadaEn] = useState<number | null>(null)
@@ -189,6 +193,7 @@ export default function AsignacionesPage() {
     setRefInput(p.referencia_transferencia || '')
     setConfirmoPorWhatsapp(false)
     setRefDuplicadaEn(null)
+    setComprobanteUrl(null)
     setBancoInput('pichincha')
     setFechaDepositoInput(new Date().toISOString().split('T')[0])
     setHistorialVerif([])
@@ -287,6 +292,21 @@ export default function AsignacionesPage() {
       console.error("Error al cargar direcciones:", err)
     } finally {
       setCargandoDirecciones(false)
+    }
+  }
+
+  // Foto del comprobante que el cliente adjuntó en el checkout de la tienda
+  // (bucket privado comprobantes-clientes). Se firma bajo demanda (no al
+  // abrir el modal) porque no todos los pedidos por transferencia la tienen
+  // y no vale la pena una llamada extra a Storage por cada uno que se abre.
+  async function verComprobante(path: string) {
+    setCargandoComprobante(true)
+    try {
+      const url = await firmarUrlComprobante(supabase, path, 3600, 'comprobantes-clientes')
+      if (!url) { setError('No se pudo cargar la imagen del comprobante.'); return }
+      setComprobanteUrl(url)
+    } finally {
+      setCargandoComprobante(false)
     }
   }
 
@@ -1185,6 +1205,31 @@ export default function AsignacionesPage() {
                             {modalPedido.pago_confirmado ? 'PAGO CONCILIADO' : 'PENDIENTE DE VALIDACIÓN'}
                           </span>
                         </div>
+
+                        {/* Foto del comprobante adjuntada por el cliente en el checkout.
+                            Antes solo existia el numero de referencia como texto; la
+                            imagen se pedia aparte por WhatsApp y no quedaba en ningún
+                            lado. Se firma bajo demanda porque es un bucket privado. */}
+                        {modalPedido.comprobante_transferencia_path && (
+                          comprobanteUrl ? (
+                            <a
+                              href={comprobanteUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="block rounded-xl overflow-hidden border border-gray-800 hover:border-green-500/50 transition"
+                            >
+                              <img src={comprobanteUrl} alt="Comprobante de transferencia" className="w-full max-h-64 object-contain bg-black" />
+                            </a>
+                          ) : (
+                            <button
+                              onClick={() => verComprobante(modalPedido.comprobante_transferencia_path!)}
+                              disabled={cargandoComprobante}
+                              className="w-full bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-gray-200 font-bold text-[10px] py-2.5 rounded-lg flex items-center justify-center gap-1.5 transition cursor-pointer"
+                            >
+                              {cargandoComprobante ? <Loader2 size={12} className="animate-spin" /> : '📎'} Ver foto del comprobante
+                            </button>
+                          )
+                        )}
 
                         {/* Alerta de comprobante repetido: se revisa apenas se abre el
                             modal, no solo cuando el admin edita el campo a mano. */}
