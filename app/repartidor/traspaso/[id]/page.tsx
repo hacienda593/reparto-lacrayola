@@ -103,6 +103,25 @@ export default function TraspasoPage() {
 
       setAsig(data)
 
+      // Si las fotos de empaque ya se tomaron en caja (donde físicamente se
+      // arman los bultos), no se vuelven a pedir aquí -- se reutilizan.
+      if (data.pedido_id) {
+        const { data: fotos } = await supabase
+          .from('rep_pedido_empaque_fotos')
+          .select('bulto_numero, foto_url')
+          .eq('pedido_id', data.pedido_id)
+        if (fotos && fotos.length > 0) {
+          const mapa: Record<number, string> = {}
+          let maxBulto = 1
+          for (const f of fotos) {
+            mapa[f.bulto_numero] = f.foto_url
+            if (f.bulto_numero > maxBulto) maxBulto = f.bulto_numero
+          }
+          setFotosBultos(mapa)
+          setBultos(maxBulto)
+        }
+      }
+
       if (data.estado === 'en_ruta') {
         const { data: rep } = await supabase
           .from('rep_repartidores')

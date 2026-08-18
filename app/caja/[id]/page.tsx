@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { Loader2, CheckCircle2, AlertTriangle, Shield, CreditCard, Camera, ArrowRight } from 'lucide-react'
+import { Loader2, CheckCircle2, AlertTriangle, Shield, CreditCard, Camera, ArrowRight, Plus, Minus } from 'lucide-react'
 type SriFactura={estado:string;claveAcceso:string;fechaAutorizacion:string|null;ambiente:string;rucEmisor:string;razonSocialEmisor:string;identificacionComprador:string;razonSocialComprador:string;establecimiento:string;puntoEmision:string;secuencial:string;fechaEmision:string;subtotal:number;iva:number;total:number;xml:string;sha256:string;detalles:Array<{codigo:string;descripcion:string;cantidad:number;precioUnitario:number;precioTotal:number}>}
 
 function parseDatosFactura(notas: string) {
@@ -54,6 +54,16 @@ export default function CajaPage() {
   const [metodoPago, setMetodoPago]                   = useState('tarjeta_corporativa')
   const [fotoSubida, setFotoSubida]                   = useState(false)
   const [imagenFile, setImagenFile]                   = useState<File | null>(null)
+
+  // Evidencia de empaque (migration_evidencia_empaque_traspaso.sql): se
+  // toma aquí mismo, en caja, que es donde físicamente se arman y sellan
+  // los bultos -- no en la pantalla de Traspaso, que puede ocurrir minutos
+  // después y lejos de las fundas ya cerradas. crear_traspaso_shopper exige
+  // esto de todos modos antes de generar el código; se captura acá para
+  // que quede en el momento real y no como un paso aparte después.
+  const [bultos, setBultos] = useState(1)
+  const [fotosBultos, setFotosBultos] = useState<Record<number, string>>({})
+  const [subiendoBulto, setSubiendoBulto] = useState<number | null>(null)
   const [error, setError]                             = useState('')
   const [sriGenerado, setSriGenerado]                 = useState(false)
   const [consultandoSri,setConsultandoSri]            = useState(false)
@@ -323,8 +333,37 @@ export default function CajaPage() {
     }finally{setConsultandoSri(false)}
   }
 
+  async function subirFotoBulto(n: number, file: File) {
+    if (!pedido?.id) return
+    setError('')
+    setSubiendoBulto(n)
+    try {
+      const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
+      const path = `empaque/${pedido.id}/bulto-${n}-${Date.now()}.${ext}`
+      const { error: errUp } = await supabase.storage
+        .from('comprobantes-proveedores')
+        .upload(path, file, { cacheControl: '3600', upsert: false, contentType: file.type || 'image/jpeg' })
+      if (errUp) throw errUp
+      const { error: errRpc } = await supabase.rpc('registrar_foto_empaque', {
+        p_pedido_id: pedido.id, p_bulto_numero: n, p_foto_path: path,
+      })
+      if (errRpc) throw errRpc
+      setFotosBultos(prev => ({ ...prev, [n]: path }))
+    } catch (e: any) {
+      setError(e.message || `No se pudo subir la foto del bulto ${n}`)
+    } finally {
+      setSubiendoBulto(null)
+    }
+  }
+  const faltanFotosBultos = Array.from({ length: bultos }, (_, i) => i + 1).some(n => !fotosBultos[n])
+
   async function registrarFacturacion() {
     setError('')
+
+    if (faltanFotosBultos) {
+      setError('Toma la foto del interior de cada bulto/funda antes de sellarlo (sección "Evidencia de Empaque" abajo)')
+      return
+    }
 
     const cleanEstab = modoExcepcion === 'sin_comprobante' ? '' : provEstablecimiento.padStart(3, '0')
     const cleanPtoEmi = modoExcepcion === 'sin_comprobante' ? '' : provPuntoEmision.padStart(3, '0')
@@ -910,6 +949,61 @@ export default function CajaPage() {
                 <Camera size={16} />
                 <span>{fotoSubida ? `✓ Foto Cargada (${imagenFile?.name.slice(0, 15) || 'Comprobante'}...)` : 'Tomar Foto del Comprobante'}</span>
               </label>
+            </div>
+          </div>
+
+          {/* Evidencia de Empaque: foto del interior de cada bulto/funda
+              ANTES de sellarlo -- este es el eslabón entre "se compró" y
+              "se entregó al repartidor" que antes no quedaba registrado. */}
+          <div className="space-y-2">
+            <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider block">
+              Evidencia de Empaque
+            </label>
+            <p className="text-[10px] text-gray-500 -mt-1">
+              Toma la foto del interior de cada bulto/funda antes de sellarlo. Es obligatorio para poder traspasar el pedido al repartidor.
+            </p>
+
+            <div className="flex items-center justify-between bg-[#1a2129] border border-[#2d3748] rounded-2xl px-4 py-3">
+              <span className="text-gray-300 text-xs font-bold">Cantidad de bultos/fundas</span>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setBultos(b => Math.max(1, b - 1))}
+                  className="w-7 h-7 rounded-lg bg-[#2d3748] text-white flex items-center justify-center">
+                  <Minus size={14} />
+                </button>
+                <span className="text-white font-black text-base w-5 text-center">{bultos}</span>
+                <button
+                  type="button"
+                  onClick={() => setBultos(b => Math.min(10, b + 1))}
+                  className="w-7 h-7 rounded-lg bg-[#2d3748] text-white flex items-center justify-center">
+                  <Plus size={14} />
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              {Array.from({ length: bultos }, (_, i) => i + 1).map(n => (
+                <label key={n} className={`flex items-center justify-between gap-3 rounded-2xl px-4 py-3 border cursor-pointer transition ${
+                  fotosBultos[n] ? 'bg-[#00b074]/10 border-[#00b074]/40 text-[#00b074]' : 'bg-[#1a2129] border-[#2d3748] hover:border-[#00b074] text-white'
+                }`}>
+                  <span className="text-xs font-bold">Bulto {n}</span>
+                  <span className="text-[11px] font-bold flex items-center gap-1.5">
+                    {subiendoBulto === n
+                      ? <Loader2 size={14} className="animate-spin" />
+                      : fotosBultos[n]
+                        ? <><CheckCircle2 size={14} /> Foto lista</>
+                        : <><Camera size={14} /> Tomar foto</>}
+                  </span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="hidden"
+                    onChange={e => { const f = e.target.files?.[0]; if (f) subirFotoBulto(n, f) }}
+                  />
+                </label>
+              ))}
             </div>
           </div>
         </div>
