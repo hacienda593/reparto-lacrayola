@@ -80,6 +80,8 @@ export default function AsignacionesPage() {
   const [direccionSeleccionada, setDireccionSeleccionada] = useState<string>('')
   const [nuevaDireccion, setNuevaDireccion] = useState({ nombre: 'Casa', lat: '', lng: '', referencias: '' })
   const [pegarCoords, setPegarCoords] = useState('')
+  const [resolviendoEnlace, setResolviendoEnlace] = useState(false)
+  const [errorEnlaceUbicacion, setErrorEnlaceUbicacion] = useState('')
   const [copiadoRef, setCopiadoRef] = useState(false)
   const [refInput, setRefInput] = useState('')
   const [guardandoRef, setGuardandoRef] = useState(false)
@@ -142,12 +144,40 @@ export default function AsignacionesPage() {
   const ubicacionUrl = ubicacionSel ? `https://www.google.com/maps/search/?api=1&query=${ubicacionSel.lat},${ubicacionSel.lng}` : ''
 
   // Acepta lo que Google Maps copia al mantener presionado un punto ("lat, lng"),
-  // o un link completo que incluya esas mismas coordenadas en cualquier parte del texto.
-  function parsearCoordenadas(texto: string) {
+  // el enlace completo que WhatsApp reenvía cuando el cliente comparte su
+  // ubicación (esas coordenadas suelen ir en la propia URL, ej. "?q=lat,lng"
+  // o "@lat,lng"), o -- si es un enlace acortado (maps.app.goo.gl, goo.gl/maps)
+  // que no trae las coordenadas visibles -- se resuelve en el servidor
+  // siguiendo la redirección real.
+  async function parsearCoordenadas(texto: string) {
     setPegarCoords(texto)
+    setErrorEnlaceUbicacion('')
     const match = texto.match(/(-?\d{1,3}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)/)
     if (match) {
       setNuevaDireccion(prev => ({ ...prev, lat: match[1], lng: match[2] }))
+      return
+    }
+
+    const esEnlace = /^https?:\/\//i.test(texto.trim())
+    if (!esEnlace) return
+
+    setResolviendoEnlace(true)
+    try {
+      const resp = await fetch('/api/geo/resolver-enlace', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: texto.trim() }),
+      })
+      const data = await resp.json()
+      if (!resp.ok || typeof data.lat !== 'number' || typeof data.lng !== 'number') {
+        setErrorEnlaceUbicacion(data.error || 'No se pudo leer la ubicación de ese enlace.')
+        return
+      }
+      setNuevaDireccion(prev => ({ ...prev, lat: String(data.lat), lng: String(data.lng) }))
+    } catch {
+      setErrorEnlaceUbicacion('No se pudo leer la ubicación de ese enlace. Revisa tu conexión e intenta de nuevo.')
+    } finally {
+      setResolviendoEnlace(false)
     }
   }
 
@@ -1659,15 +1689,25 @@ export default function AsignacionesPage() {
                         </div>
 
                         <div className="space-y-1">
-                          <label className="text-[10px] text-gray-400">Pegar coordenadas de Google Maps (lat, lng):</label>
-                          <input
-                            type="text"
-                            placeholder="ej: -0.0256, -78.8924"
-                            value={pegarCoords}
-                            onChange={e => parsearCoordenadas(e.target.value)}
-                            className="w-full bg-[#0c0f12] border border-gray-800 rounded-xl px-3.5 py-2 text-white text-xs focus:outline-none focus:border-green-500"
-                          />
-                          <p className="text-[9px] text-gray-550 leading-relaxed">Mantén presionado el punto exacto en Google Maps y copia el código de coordenadas. Al pegarlo aquí, se autocompletará abajo.</p>
+                          <label className="text-[10px] text-gray-400">Pegar ubicación compartida por WhatsApp o coordenadas (lat, lng):</label>
+                          <div className="relative">
+                            <input
+                              type="text"
+                              placeholder="ej: https://maps.app.goo.gl/xxxx o -0.0256, -78.8924"
+                              value={pegarCoords}
+                              onChange={e => parsearCoordenadas(e.target.value)}
+                              className="w-full bg-[#0c0f12] border border-gray-800 rounded-xl px-3.5 py-2 pr-9 text-white text-xs focus:outline-none focus:border-green-500"
+                            />
+                            {resolviendoEnlace && (
+                              <Loader2 size={14} className="animate-spin text-gray-500 absolute right-3 top-1/2 -translate-y-1/2" />
+                            )}
+                          </div>
+                          {errorEnlaceUbicacion && (
+                            <p className="text-[9px] text-red-400 font-semibold">{errorEnlaceUbicacion}</p>
+                          )}
+                          <p className="text-[9px] text-gray-550 leading-relaxed">
+                            Pega aquí el enlace que el cliente comparte por WhatsApp ("Ubicación en vivo" o "Ubicación actual") y se autocompletará abajo. También acepta el código de coordenadas de mantener presionado un punto en Google Maps.
+                          </p>
                         </div>
 
                         <div className="grid grid-cols-2 gap-2 text-xs">
