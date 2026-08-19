@@ -391,7 +391,7 @@ export default function CajaPage() {
         .upload(path, file, { cacheControl: '3600', upsert: false, contentType: file.type || 'image/jpeg' })
       if (errUp) throw errUp
       const { error: errRpc } = await supabase.rpc('registrar_foto_empaque', {
-        p_pedido_id: pedido.id, p_bulto_numero: n, p_foto_path: path,
+        p_pedido_id: pedido.id, p_bulto_numero: n, p_foto_path: path, p_asignacion_id: asignacion?.id ?? null,
       })
       if (errRpc) throw errRpc
       setFotosBultos(prev => ({ ...prev, [n]: [...(prev[n] ?? []), path] }))

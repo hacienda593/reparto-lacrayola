@@ -15,6 +15,11 @@ export default function EscanearPage() {
   const [error, setError] = useState('')
   const [exito, setExito] = useState(false)
   const [pedidoNum, setPedidoNum] = useState('')
+  // Multi-tienda: si tras aceptar este traspaso el pedido aún no está
+  // completo (faltan otras tiendas por recoger), se muestra cuáles en vez
+  // de dar el pedido por listo.
+  const [pedidoIncompleto, setPedidoIncompleto] = useState(false)
+  const [tiendasFaltantes, setTiendasFaltantes] = useState<string[]>([])
   const [vista, setVista] = useState<'pin' | 'camara'>('pin')
   // Cuántos bultos/fundas dice recibir el motorizado -- se compara contra
   // lo que declaró el comprador (rep_handoffs.bultos_declarados) y si no
@@ -164,18 +169,35 @@ export default function EscanearPage() {
 
     const { data: asigInfo } = await supabase
       .from('rep_asignaciones')
-      .select('*, ol_pedidos(numero, nombre_cliente, telefono)')
+      .select('*, ol_pedidos(numero, nombre_cliente, telefono, estado)')
       .eq('id', handoff.asignacion_id)
       .single()
 
     setPedidoNum(String(asigInfo?.ol_pedidos?.numero ?? '').padStart(4, '0'))
+
+    // Multi-tienda: si el pedido tiene más de una tienda, este traspaso
+    // pudo ser solo UNA de ellas -- ol_pedidos.estado recién pasa a
+    // 'enviado' cuando TODAS fueron recogidas (ver aceptar_traspaso_rider).
+    // Si todavía no, se le avisa al motorizado que falta otra recogida en
+    // vez de darle el pedido por completo, y NO se le avisa al cliente
+    // "va en camino" -- sería falso mientras falte una tienda.
+    const pedidoCompleto = asigInfo?.ol_pedidos?.estado === 'enviado'
+    setPedidoIncompleto(false)
+    if (!pedidoCompleto && asigInfo?.pedido_id) {
+      const { data: hermanas } = await supabase.rpc('tiendas_hermanas_pedido', { p_pedido_id: asigInfo.pedido_id })
+      if (hermanas && hermanas.length > 1) {
+        setTiendasFaltantes(hermanas.filter((h: any) => h.estado !== 'en_ruta' && h.estado !== 'entregado').map((h: any) => h.tienda_nombre ?? 'Tienda'))
+        setPedidoIncompleto(true)
+      }
+    }
+
     setExito(true)
     setProcesando(false)
 
     const nombreCliente = asigInfo?.ol_pedidos?.nombre_cliente
     const numero = asigInfo?.ol_pedidos?.numero
     const telefono = asigInfo?.ol_pedidos?.telefono
-    if (nombreCliente && numero && telefono) {
+    if (pedidoCompleto && nombreCliente && numero && telefono) {
       const msg = `🛵 *La Crayola - ¡Tu pedido va en camino!* \n\nHola *${nombreCliente}*, tu pedido *#${String(numero).padStart(4,'0')}* ya fue comprado y va en camino a cargo del motorizado *${repartidor.nombre}*. 📍 ¡Llegaré en unos minutos!`
       const cleanPhone = telefono.replace(/\D/g,'') || ''
       const formattedPhone = cleanPhone.startsWith('0') ? '593' + cleanPhone.slice(1) : (cleanPhone.startsWith('9') && cleanPhone.length === 9 ? '593' + cleanPhone : cleanPhone)
@@ -207,21 +229,40 @@ export default function EscanearPage() {
       <div className="flex-1 flex flex-col items-center justify-center p-6 text-center max-w-sm mx-auto space-y-6 w-full">
 
         {exito ? (
-          <div className="bg-[#181d24] border border-[#00b074]/30 rounded-3xl p-6 space-y-4 w-full">
-            <div className="w-14 h-14 bg-[#00b074]/10 rounded-full flex items-center justify-center mx-auto text-[#00b074]">
+          <div className={`bg-[#181d24] border rounded-3xl p-6 space-y-4 w-full ${pedidoIncompleto ? 'border-[#ff9f1c]/30' : 'border-[#00b074]/30'}`}>
+            <div className={`w-14 h-14 rounded-full flex items-center justify-center mx-auto ${pedidoIncompleto ? 'bg-[#ff9f1c]/10 text-[#ff9f1c]' : 'bg-[#00b074]/10 text-[#00b074]'}`}>
               <CheckCircle2 size={32} />
             </div>
-            <div className="space-y-1">
-              <h2 className="text-white font-extrabold text-base">¡Traspaso Exitoso!</h2>
-              <p className="text-gray-400 text-xs">Has asumido la entrega del pedido #{pedidoNum}.</p>
-              <p className="text-gray-500 text-[10.5px] pt-1">
-                Se abrió WhatsApp para notificar tu salida al cliente.
-              </p>
-            </div>
+            {pedidoIncompleto ? (
+              <div className="space-y-2">
+                <h2 className="text-white font-extrabold text-base">Recogiste parte del pedido #{pedidoNum}</h2>
+                <p className="text-gray-400 text-xs">
+                  Este pedido tiene más de una tienda. Aún falta recoger de:
+                </p>
+                <div className="bg-[#ff9f1c]/10 border border-[#ff9f1c]/30 rounded-xl p-3 space-y-1 text-left">
+                  {tiendasFaltantes.map((t, i) => (
+                    <div key={i} className="flex items-center gap-2 text-xs text-[#ff9f1c] font-bold">
+                      <span>🏪</span><span>{t}</span>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-gray-500 text-[10.5px] pt-1">
+                  Vuelve a esta pantalla (escanear/digitar código) cuando esa tienda esté lista. Al cliente aún no se le avisó "va en camino" -- se avisa recién cuando todo esté recogido.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                <h2 className="text-white font-extrabold text-base">¡Traspaso Exitoso!</h2>
+                <p className="text-gray-400 text-xs">Has asumido la entrega del pedido #{pedidoNum}.</p>
+                <p className="text-gray-500 text-[10.5px] pt-1">
+                  Se abrió WhatsApp para notificar tu salida al cliente.
+                </p>
+              </div>
+            )}
             <button
               onClick={() => router.push('/repartidor')}
-              className="w-full bg-[#00b074] hover:bg-[#008f5d] text-white font-bold py-3 rounded-2xl text-xs transition-all shadow-md">
-              Ir a mis rutas de entrega
+              className={`w-full text-white font-bold py-3 rounded-2xl text-xs transition-all shadow-md ${pedidoIncompleto ? 'bg-[#ff9f1c] hover:bg-[#e08e18]' : 'bg-[#00b074] hover:bg-[#008f5d]'}`}>
+              {pedidoIncompleto ? 'Entendido' : 'Ir a mis rutas de entrega'}
             </button>
           </div>
         ) : (

@@ -62,7 +62,7 @@ export default function TraspasoPage() {
         .upload(path, file, { cacheControl: '3600', upsert: false, contentType: file.type || 'image/jpeg' })
       if (errUp) throw errUp
       const { error: errRpc } = await supabase.rpc('registrar_foto_empaque', {
-        p_pedido_id: asig.pedido_id, p_bulto_numero: n, p_foto_path: path,
+        p_pedido_id: asig.pedido_id, p_bulto_numero: n, p_foto_path: path, p_asignacion_id: asignacionId,
       })
       if (errRpc) throw errRpc
       setFotosBultos(prev => ({ ...prev, [n]: [...(prev[n] ?? []), path] }))
@@ -132,12 +132,16 @@ export default function TraspasoPage() {
       }
 
       // Si las fotos de empaque ya se tomaron en caja (donde físicamente se
-      // arman los bultos), no se vuelven a pedir aquí -- se reutilizan.
+      // arman los bultos), no se vuelven a pedir aquí -- se reutilizan. Se
+      // filtra por ESTA asignación puntual: si el pedido tiene más de un
+      // comprador, cada uno empaca y fotografía lo suyo por separado, y no
+      // deben mezclarse los bultos de uno con los del otro.
       if (data.pedido_id) {
         const { data: fotos } = await supabase
           .from('rep_pedido_empaque_fotos')
           .select('bulto_numero, foto_url')
           .eq('pedido_id', data.pedido_id)
+          .eq('asignacion_id', asignacionId)
         if (fotos && fotos.length > 0) {
           const mapa: Record<number, string[]> = {}
           let maxBulto = 1
