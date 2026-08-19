@@ -13,6 +13,11 @@ import {
 } from 'lucide-react'
 
 function fmt(n: number) { return '$' + (n ?? 0).toFixed(2) }
+function waLinkTel(telefono: string, texto: string) {
+  const limpio = (telefono || '').replace(/\D/g, '')
+  const conCodigo = limpio.startsWith('0') ? '593' + limpio.slice(1) : limpio
+  return `https://wa.me/${conCodigo}?text=${encodeURIComponent(texto)}`
+}
 
 interface Pedido {
   id: string
@@ -76,6 +81,15 @@ export default function AsignacionesPage() {
 
   // Variables de estado para modal de validación GPS y pagos
   const [modalPedido, setModalPedido] = useState<Pedido | null>(null)
+  // Al liberar un pedido multi-tienda al pool, si alguna de sus tiendas
+  // tiene shoppers especializados (rep_repartidores_tiendas), se ofrece
+  // avisarles por WhatsApp que ya tienen un pedido disponible -- no es
+  // automático (no hay WhatsApp Business API integrado), son links
+  // wa.me con el mensaje ya armado, el admin decide a quién tocar.
+  const [notificarPanel, setNotificarPanel] = useState<{
+    numero: number
+    grupos: { tiendaNombre: string; shoppers: { id: string; nombre: string; telefono: string }[] }[]
+  } | null>(null)
   const [direccionesCliente, setDireccionesCliente] = useState<any[]>([])
   const [direccionSeleccionada, setDireccionSeleccionada] = useState<string>('')
   const [nuevaDireccion, setNuevaDireccion] = useState({ nombre: 'Casa', lat: '', lng: '', referencias: '' })
@@ -515,10 +529,52 @@ export default function AsignacionesPage() {
       setMensaje('✓ Pedido confirmado y liberado para Auto-Asignación.')
       setModalPedido(null)
       await cargarDatos()
+      await ofrecerNotificarShoppers(p)
     } catch (err: any) {
       setError(`Error al liberar pedido: ${err.message}`)
     } finally {
       setProcesando(false)
+    }
+  }
+
+  // Revisa si alguna tienda del pedido tiene shoppers especializados
+  // (rep_repartidores_tiendas) y, si los hay, arma el panel de avisos por
+  // WhatsApp. Si ninguna tienda tiene shoppers especializados (lo normal
+  // hoy, mientras esto recién se está preparando), no muestra nada.
+  async function ofrecerNotificarShoppers(p: Pedido) {
+    try {
+      const { data: items } = await supabase
+        .from('ol_pedido_items')
+        .select('tienda_id')
+        .eq('pedido_id', p.id)
+      const idsTienda = Array.from(new Set((items ?? []).map((i: any) => i.tienda_id).filter(Boolean))) as string[]
+      if (idsTienda.length === 0) return
+
+      const [{ data: tiendasInfo }, { data: afinidades }] = await Promise.all([
+        supabase.from('ol_tiendas').select('id, nombre').in('id', idsTienda),
+        supabase.from('rep_repartidores_tiendas').select('tienda_id, repartidor_id').in('tienda_id', idsTienda),
+      ])
+      if (!afinidades || afinidades.length === 0) return
+
+      const repIds = Array.from(new Set(afinidades.map((a: any) => a.repartidor_id)))
+      const { data: shoppersPub } = await supabase
+        .from('rep_repartidores_pub')
+        .select('id, nombre, telefono')
+        .in('id', repIds)
+      const shopperMap = new Map((shoppersPub ?? []).map((s: any) => [s.id, s]))
+      const nombreTienda = new Map((tiendasInfo ?? []).map((t: any) => [t.id, t.nombre]))
+
+      const grupos = idsTienda.map(tId => ({
+        tiendaNombre: nombreTienda.get(tId) ?? 'Tienda',
+        shoppers: afinidades
+          .filter((a: any) => a.tienda_id === tId)
+          .map((a: any) => shopperMap.get(a.repartidor_id))
+          .filter((s: any): s is { id: string; nombre: string; telefono: string } => !!s?.telefono),
+      })).filter(g => g.shoppers.length > 0)
+
+      if (grupos.length > 0) setNotificarPanel({ numero: p.numero, grupos })
+    } catch (e) {
+      console.error('No se pudo revisar shoppers especializados:', e)
     }
   }
 
@@ -1134,6 +1190,46 @@ export default function AsignacionesPage() {
             </>
           )}
         </div>
+
+        {/* Panel: avisar por WhatsApp a shoppers especializados de que ya
+            hay un pedido disponible para su tienda. Solo aparece si esa
+            tienda tiene algún shopper especializado configurado
+            (rep_repartidores_tiendas) -- si no, el pool normal ya alcanza. */}
+        {notificarPanel && (
+          <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-[#0f1318] border border-gray-800 rounded-3xl w-full max-w-md p-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-white text-sm">📲 Avisar a shoppers especializados</h3>
+                <button onClick={() => setNotificarPanel(null)} className="text-gray-500 hover:text-white">✕</button>
+              </div>
+              <p className="text-gray-400 text-xs">
+                Pedido #{String(notificarPanel.numero).padStart(4, '0')} ya está en el pool. Estas tiendas tienen shoppers especializados que quizá no lo vean si no están mirando la app en este momento:
+              </p>
+              <div className="space-y-3 max-h-80 overflow-y-auto">
+                {notificarPanel.grupos.map(g => (
+                  <div key={g.tiendaNombre} className="bg-black/25 border border-gray-800 rounded-2xl p-3 space-y-2">
+                    <p className="text-[10px] text-gray-400 uppercase font-black tracking-wide">🏪 {g.tiendaNombre}</p>
+                    {g.shoppers.map(s => (
+                      <a
+                        key={s.id}
+                        href={waLinkTel(s.telefono, `Hola ${s.nombre}, te aviso que ya tienes un pedido nuevo disponible en el pool para tu tienda (${g.tiendaNombre}) -- Pedido #${String(notificarPanel.numero).padStart(4, '0')}. Entra a la app para autoasignártelo. ¡Gracias!`)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-full bg-green-600 hover:bg-green-555 text-white font-bold text-xs py-2.5 rounded-xl flex items-center justify-center gap-1.5 transition cursor-pointer">
+                        <Phone size={12} /> Avisar a {s.nombre}
+                      </a>
+                    ))}
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={() => setNotificarPanel(null)}
+                className="w-full bg-gray-850 hover:bg-gray-800 text-gray-400 hover:text-white font-bold text-xs py-2.5 rounded-xl transition cursor-pointer">
+                Cerrar
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* MODAL DE VALIDACIÓN DE PAGO Y DIRECCIÓN GPS */}
         {modalPedido && (
