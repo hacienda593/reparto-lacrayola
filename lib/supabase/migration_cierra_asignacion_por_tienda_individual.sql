@@ -1,10 +1,9 @@
--- migration_caja_multitienda_fix_scope_tienda.sql
--- Corrige migration_caja_multitienda.sql: el chequeo de items pendientes exigia
--- el PEDIDO completo resuelto antes de dejar facturar la primera tienda -- bloqueaba
--- pagar en la tienda A hasta haber recorrido tambien la B, que no es como funciona
--- una tienda real (no se puede salir con productos sin pagar). Ahora el chequeo es
--- por tienda: solo exige los items de la tienda que se esta facturando (mas los
--- que no tienen tienda_id, que siguen contando siempre como antes).
+-- migration_cierra_asignacion_por_tienda_individual.sql
+-- Corrige registrar_factura_compra_servidor: con asignaciones por tienda
+-- (una fila = una tienda), la propia factura debe cerrar esa fila de
+-- inmediato -- antes esperaba a que TODAS las tiendas del pedido quedaran
+-- facturadas, lo que en el modelo de varios compradores nunca ocurre a
+-- tiempo (cada shopper solo controla su propia tienda).
 
 CREATE OR REPLACE FUNCTION public.registrar_factura_compra_servidor(
   p_asignacion_id UUID, p_actor_user_id UUID, p_actor_repartidor_id UUID, p_tienda_id UUID,

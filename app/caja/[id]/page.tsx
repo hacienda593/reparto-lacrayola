@@ -125,9 +125,16 @@ export default function CajaPage() {
     if (!asig) { router.replace('/pedidos'); return }
     setAsignacion(asig)
 
+    // Si la asignación ya es de UNA tienda puntual (pool reclamado por
+    // tienda -- migration_asignaciones_por_tienda.sql), se traen solo los
+    // ítems de esa tienda: no hay "siguiente tienda" que recorrer, esta
+    // asignación es esa tienda y punto.
+    let itemsQuery = supabase.from('ol_pedido_items').select('*').eq('pedido_id', asig.pedido_id)
+    if (asig.tienda_id) itemsQuery = itemsQuery.eq('tienda_id', asig.tienda_id)
+
     const [{ data: ped }, { data: its }, { data: pickItems }, { data: comprobantes }] = await Promise.all([
       supabase.from('ol_pedidos').select('*').eq('id', asig.pedido_id).single(),
-      supabase.from('ol_pedido_items').select('*').eq('pedido_id', asig.pedido_id),
+      itemsQuery,
       supabase.from('rep_picking').select('tienda_id').eq('pedido_id', asig.pedido_id).limit(1),
       supabase.from('ol_pedidos_comprobantes_proveedor').select('tienda_id').eq('pedido_id', asig.pedido_id)
     ])
@@ -146,12 +153,17 @@ export default function CajaPage() {
       if (row) setFondoCaja(row)
     })
 
-    // Multi-tienda: se listan todas las tiendas distintas que componen el
-    // pedido (por tienda_id de cada ítem, ya guardado por la tienda al
-    // crear el pedido), y se elige como "tienda actual" la primera que
-    // aún no tenga factura registrada. Si por algún motivo ningún ítem
-    // trae tienda_id (pedidos muy viejos, antes de este cambio), se cae
-    // al comportamiento anterior de una sola tienda vía rep_picking.
+    if (asig.tienda_id) {
+      // Ya se sabe la tienda -- nada que detectar ni recorrer.
+      setTiendasPedido([])
+      await cargarDatosTienda(asig.tienda_id)
+      setCargando(false)
+      return
+    }
+
+    // Fallback (asignación de todo el pedido sin distinguir tienda, ya sea
+    // vieja o forzada por admin): se listan todas las tiendas distintas que
+    // componen el pedido y se recorren una por una como antes.
     const idsDistintos = Array.from(new Set((its ?? []).map(it => it.tienda_id).filter(Boolean))) as string[]
     let tId = ''
     if (idsDistintos.length > 0) {

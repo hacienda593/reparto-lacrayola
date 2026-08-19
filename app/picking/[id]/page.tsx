@@ -94,7 +94,15 @@ export default function PickingPage() {
     setAsignacion(asig)
     const { data: ped } = await supabase.from('ol_pedidos').select('*').eq('id', asig.pedido_id).single()
     setPedido(ped)
-    const { data: items } = await supabase.from('ol_pedido_items').select('*').eq('pedido_id', asig.pedido_id)
+    // Multi-tienda: si esta asignación ya es de UNA tienda puntual (pool
+    // reclamado por tienda, ver migration_asignaciones_por_tienda.sql), se
+    // recogen solo esos ítems -- no hace falta pestañas, ya es la vista de
+    // una sola tienda. Si tienda_id es NULL (pedido de una sola tienda, o
+    // asignación de todo el pedido sin distinguir), se cae al
+    // comportamiento anterior (todos los ítems, con pestañas si aplica).
+    let itemsQuery = supabase.from('ol_pedido_items').select('*').eq('pedido_id', asig.pedido_id)
+    if (asig.tienda_id) itemsQuery = itemsQuery.eq('tienda_id', asig.tienda_id)
+    const { data: items } = await itemsQuery
 
     // Obtener imagen_url, marca, codigo_barras y tienda de ol_productos
     const codigos = (items ?? []).map((it: any) => it.codigo).filter(Boolean)

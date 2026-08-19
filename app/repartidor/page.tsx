@@ -529,7 +529,7 @@ export default function RepartidorPage() {
         })(),
         supabase
           .from('rep_asignaciones')
-          .select('pedido_id')
+          .select('pedido_id, tienda_id')
           .in('estado', ['asignado', 'recolectado', 'en_ruta']),
         // Pool de entregas: pedidos ya pagados en caja por un comprador, sin motorizado
         // asignado todavia. Solo se usa en modo repartidor, pero se pide siempre en el
@@ -621,10 +621,59 @@ export default function RepartidorPage() {
         }
       }))
 
-      const assignedIds = new Set((activeAsigs ?? []).map((a: any) => a.pedido_id))
+      // Multi-tienda: un pedido puede tener una asignación (admin forzó todo
+      // junto, sin distinguir tienda -- tienda_id NULL) que sí lo saca por
+      // completo del pool, o asignaciones parciales POR tienda que solo
+      // deben ocultar esa tienda puntual, dejando el resto reclamable.
+      const assignedSinTienda = new Set(
+        (activeAsigs ?? []).filter((a: any) => a.tienda_id === null).map((a: any) => a.pedido_id)
+      )
+      const tiendasTomadasPorPedido = new Map<string, Set<string>>()
+      ;(activeAsigs ?? []).forEach((a: any) => {
+        if (!a.tienda_id) return
+        if (!tiendasTomadasPorPedido.has(a.pedido_id)) tiendasTomadasPorPedido.set(a.pedido_id, new Set())
+        tiendasTomadasPorPedido.get(a.pedido_id)!.add(a.tienda_id)
+      })
 
-      const filteredPends = (pends ?? []).filter(p => !assignedIds.has(p.id))
-      setPedidosEspera(filteredPends)
+      const filteredPends = (pends ?? []).filter(p => !assignedSinTienda.has(p.id))
+
+      // Tiendas de cada pedido pendiente, para que el comprador vea a cuál
+      // pertenece y pueda elegir la suya si hay más de una (y para ocultar
+      // las que ya reclamó otro comprador).
+      let tiendasPends: Record<string, { id: string; nombre: string; tomada: boolean }[]> = {}
+      if (filteredPends.length > 0) {
+        const { data: itemsPends } = await supabase
+          .from('ol_pedido_items')
+          .select('pedido_id, tienda_id')
+          .in('pedido_id', filteredPends.map(p => p.id))
+        const idsTienda = Array.from(new Set((itemsPends ?? []).map((i: any) => i.tienda_id).filter(Boolean))) as string[]
+        const { data: tiendasInfo } = idsTienda.length
+          ? await supabase.from('ol_tiendas').select('id, nombre').in('id', idsTienda)
+          : { data: [] as any[] }
+        const nombreTienda = new Map((tiendasInfo ?? []).map((t: any) => [t.id, t.nombre]))
+        ;(itemsPends ?? []).forEach((it: any) => {
+          if (!it.tienda_id) return
+          if (!tiendasPends[it.pedido_id]) tiendasPends[it.pedido_id] = []
+          const yaListada = tiendasPends[it.pedido_id].some(t => t.id === it.tienda_id)
+          if (!yaListada) {
+            tiendasPends[it.pedido_id].push({
+              id: it.tienda_id,
+              nombre: nombreTienda.get(it.tienda_id) ?? 'Tienda',
+              tomada: tiendasTomadasPorPedido.get(it.pedido_id)?.has(it.tienda_id) ?? false,
+            })
+          }
+        })
+      }
+
+      // Si el pedido tiene tiendas identificadas y TODAS ya fueron
+      // reclamadas por otros compradores, no queda nada disponible ahí --
+      // se saca de la lista igual que antes se sacaba por completo.
+      const conTiendasDisponibles = filteredPends.filter(p => {
+        const t = tiendasPends[p.id]
+        return !t || t.length === 0 || t.some(x => !x.tomada)
+      })
+
+      setPedidosEspera(conTiendasDisponibles.map(p => ({ ...p, tiendas: tiendasPends[p.id] ?? [] })))
 
       // Tienda(s) donde recoger cada pedido del pool (puede ser mas de una: Tuti + Tia + La Crayola)
       const poolPedidoIds = (pool ?? []).map((a: any) => a.pedido_id)
@@ -706,7 +755,7 @@ export default function RepartidorPage() {
     setProcesando(null)
   }
 
-  async function aceptarPedido(pedidoId: string, numero: number, nombreCliente: string, telefonoCliente: string) {
+  async function aceptarPedido(pedidoId: string, numero: number, nombreCliente: string, telefonoCliente: string, tiendaId?: string | null) {
     if (!repartidor) return
     setProcesando(pedidoId)
 
@@ -715,18 +764,25 @@ export default function RepartidorPage() {
     // asignación y actualiza ol_pedidos.estado en una sola transacción,
     // y es reintentable con el mismo request_id si falla la conexión
     // (migration_aceptar_pedido_atomico.sql).
-    const requestKey = `aceptar-request:${pedidoId}`
+    // Multi-tienda: si el pedido tiene más de una tienda, tiendaId indica
+    // cuál se está reclamando -- el requestKey incluye la tienda porque dos
+    // compradores distintos pueden reclamar el mismo pedido_id a la vez,
+    // cada uno una tienda distinta (idempotencia por operación real, no
+    // solo por pedido).
+    const requestKey = `aceptar-request:${pedidoId}:${tiendaId ?? 'unica'}`
     const requestId = sessionStorage.getItem(requestKey) || crypto.randomUUID()
     sessionStorage.setItem(requestKey, requestId)
 
     const { error } = await supabase.rpc('aceptar_pedido_shopper', {
       p_pedido_id: pedidoId,
       p_request_id: requestId,
+      p_tienda_id: tiendaId ?? null,
     })
 
     if (error) {
       alert('Error al auto-asignar el pedido: ' + error.message)
       setProcesando(null)
+      await cargar(user!.id)
       return
     }
 
@@ -2025,12 +2081,36 @@ export default function RepartidorPage() {
                     📝 {p.notas}
                   </div>
                 )}
-                <button
-                  onClick={() => aceptarPedido(p.id, p.numero, p.nombre_cliente, p.telefono)}
-                  disabled={procesando !== null}
-                  className="w-full bg-[#00b074] hover:bg-[#008f5d] disabled:opacity-50 text-white font-extrabold py-3.5 rounded-2xl text-xs transition-all flex items-center justify-center gap-1.5 shadow-sm cursor-pointer active:scale-95">
-                  {procesando === p.id ? <Loader2 size={14} className="animate-spin" /> : '🧺 Auto-Asignar y Empezar'}
-                </button>
+
+                {p.tiendas && p.tiendas.length > 1 ? (
+                  /* Multi-tienda: cada tienda se reclama por separado -- el
+                     comprador que esté en Tuti se asigna solo la parte de
+                     Tuti, y el de Tía la parte de Tía, sin bloquearse entre
+                     ellos. Las ya tomadas por otro comprador quedan grises. */
+                  <div className="space-y-1.5">
+                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wide">Este pedido tiene {p.tiendas.length} tiendas — elige la tuya:</p>
+                    {p.tiendas.map((t: any) => (
+                      <button
+                        key={t.id}
+                        onClick={() => aceptarPedido(p.id, p.numero, p.nombre_cliente, p.telefono, t.id)}
+                        disabled={procesando !== null || t.tomada}
+                        className={`w-full font-extrabold py-3 rounded-2xl text-xs transition-all flex items-center justify-center gap-1.5 shadow-sm ${
+                          t.tomada
+                            ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                            : 'bg-[#00b074] hover:bg-[#008f5d] text-white cursor-pointer active:scale-95'
+                        }`}>
+                        {procesando === p.id ? <Loader2 size={14} className="animate-spin" /> : t.tomada ? `🔒 ${t.nombre} — Ya tomada` : `🏪 Asignarme ${t.nombre}`}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => aceptarPedido(p.id, p.numero, p.nombre_cliente, p.telefono, p.tiendas?.[0]?.id ?? null)}
+                    disabled={procesando !== null}
+                    className="w-full bg-[#00b074] hover:bg-[#008f5d] disabled:opacity-50 text-white font-extrabold py-3.5 rounded-2xl text-xs transition-all flex items-center justify-center gap-1.5 shadow-sm cursor-pointer active:scale-95">
+                    {procesando === p.id ? <Loader2 size={14} className="animate-spin" /> : '🧺 Auto-Asignar y Empezar'}
+                  </button>
+                )}
               </div>
             ))
           )
