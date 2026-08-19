@@ -90,6 +90,14 @@ export default function CajaPage() {
   const [provRuc, setProvRuc]                         = useState('')
   const [provCodigoNumerico, setProvCodigoNumerico]   = useState('00000001')
   const [tiendaId, setTiendaId]                       = useState('')
+
+  // Multi-tienda: el pedido puede traer productos de más de una tienda
+  // (la app ya cobra el recargo por tienda adicional al cliente). Cada
+  // tienda se factura por separado, en secuencia, dentro de esta misma
+  // asignación -- solo al terminar la última se habilita la evidencia de
+  // empaque y se puede continuar.
+  const [tiendasPedido, setTiendasPedido] = useState<{ id: string; nombre: string }[]>([])
+  const [tiendasFacturadas, setTiendasFacturadas] = useState<Set<string>>(new Set())
   
   // Obtener fecha actual en formato YYYY-MM-DD local
   const getLocalDateString = () => {
@@ -117,10 +125,11 @@ export default function CajaPage() {
     if (!asig) { router.replace('/pedidos'); return }
     setAsignacion(asig)
 
-    const [{ data: ped }, { data: its }, { data: pickItems }] = await Promise.all([
+    const [{ data: ped }, { data: its }, { data: pickItems }, { data: comprobantes }] = await Promise.all([
       supabase.from('ol_pedidos').select('*').eq('id', asig.pedido_id).single(),
       supabase.from('ol_pedido_items').select('*').eq('pedido_id', asig.pedido_id),
-      supabase.from('rep_picking').select('tienda_id').eq('pedido_id', asig.pedido_id).limit(1)
+      supabase.from('rep_picking').select('tienda_id').eq('pedido_id', asig.pedido_id).limit(1),
+      supabase.from('ol_pedidos_comprobantes_proveedor').select('tienda_id').eq('pedido_id', asig.pedido_id)
     ])
 
     setPedido(ped)
@@ -129,14 +138,28 @@ export default function CajaPage() {
     }
     setItems(its ?? [])
 
+    const yaFacturadas = new Set((comprobantes ?? []).map(c => c.tienda_id).filter(Boolean))
+    setTiendasFacturadas(yaFacturadas)
+
     supabase.rpc('mi_fondo_caja_chica_hoy').then(({ data }) => {
       const row = Array.isArray(data) ? data[0] : data
       if (row) setFondoCaja(row)
     })
 
-    // 1. Obtener la tienda (de rep_picking o buscando el producto en el catálogo ol_productos)
+    // Multi-tienda: se listan todas las tiendas distintas que componen el
+    // pedido (por tienda_id de cada ítem, ya guardado por la tienda al
+    // crear el pedido), y se elige como "tienda actual" la primera que
+    // aún no tenga factura registrada. Si por algún motivo ningún ítem
+    // trae tienda_id (pedidos muy viejos, antes de este cambio), se cae
+    // al comportamiento anterior de una sola tienda vía rep_picking.
+    const idsDistintos = Array.from(new Set((its ?? []).map(it => it.tienda_id).filter(Boolean))) as string[]
     let tId = ''
-    if (pickItems && pickItems.length > 0 && pickItems[0].tienda_id) {
+    if (idsDistintos.length > 0) {
+      const { data: tiendasInfo } = await supabase.from('ol_tiendas').select('id, nombre').in('id', idsDistintos)
+      const lista = (tiendasInfo ?? []).map(t => ({ id: t.id, nombre: t.nombre }))
+      setTiendasPedido(lista)
+      tId = lista.find(t => !yaFacturadas.has(t.id))?.id ?? lista[0]?.id ?? ''
+    } else if (pickItems && pickItems.length > 0 && pickItems[0].tienda_id) {
       tId = pickItems[0].tienda_id
     } else if (its && its.length > 0) {
       const codigos = its.map(it => it.codigo).filter(Boolean)
@@ -156,38 +179,46 @@ export default function CajaPage() {
       }
     }
 
-    // 2. Cargar RUC y Código Numérico del Proveedor
-    if (tId) {
-      setTiendaId(tId)
-      
-      // Fallbacks locales por defecto (según la tienda detectada)
-      if (tId === '37f0c318-ef34-439b-9362-1c4c9fb4d1bd') { // Tía
-        setProvRuc('0990017442001')
-        setProvCodigoNumerico('00000000')
-      } else if (tId === 'b402b85a-b006-42ef-b2f6-763722f68241') { // Tuti
-        setProvRuc('0993152161001') // RUC Real de Tuti en Ecuador
-        setProvCodigoNumerico('00000000')
-      }
-
-      // Intentar cargar la configuración directa de la base de datos (por si se actualizó)
-      try {
-        const { data: tiendaData } = await supabase
-          .from('ol_tiendas')
-          .select('ruc, codigo_numerico, establecimiento')
-          .eq('id', tId)
-          .single()
-        
-        if (tiendaData) {
-          if (tiendaData.ruc) setProvRuc(tiendaData.ruc)
-          if (tiendaData.codigo_numerico) setProvCodigoNumerico(tiendaData.codigo_numerico)
-          if (tiendaData.establecimiento) setProvEstablecimiento(tiendaData.establecimiento)
-        }
-      } catch (e) {
-        console.error("Error al cargar datos de tienda en ol_tiendas:", e)
-      }
-    }
-    
+    await cargarDatosTienda(tId)
     setCargando(false)
+  }
+
+  // Carga RUC/código numérico/establecimiento de una tienda puntual y
+  // resetea los campos de factura específicos de la tienda anterior --
+  // se reutiliza tanto en la carga inicial como al pasar a la siguiente
+  // tienda del mismo pedido.
+  async function cargarDatosTienda(tId: string) {
+    setTiendaId(tId)
+    setClaveAcceso(''); setFacturaSri(null); setConciliacionSri(null); setSriGenerado(false); setClaveValidada('')
+    setModoExcepcion(null); setMotivoExcepcion(''); setUltimoErrorSri('')
+    setFotoSubida(false); setImagenFile(null)
+    setProvSecuencial(''); setProvEstablecimiento('001'); setProvPuntoEmision('010')
+    if (!tId) return
+
+    // Fallbacks locales por defecto (según la tienda detectada)
+    if (tId === '37f0c318-ef34-439b-9362-1c4c9fb4d1bd') { // Tía
+      setProvRuc('0990017442001')
+      setProvCodigoNumerico('00000000')
+    } else if (tId === 'b402b85a-b006-42ef-b2f6-763722f68241') { // Tuti
+      setProvRuc('0993152161001') // RUC Real de Tuti en Ecuador
+      setProvCodigoNumerico('00000000')
+    }
+
+    try {
+      const { data: tiendaData } = await supabase
+        .from('ol_tiendas')
+        .select('ruc, codigo_numerico, establecimiento')
+        .eq('id', tId)
+        .single()
+
+      if (tiendaData) {
+        if (tiendaData.ruc) setProvRuc(tiendaData.ruc)
+        if (tiendaData.codigo_numerico) setProvCodigoNumerico(tiendaData.codigo_numerico)
+        if (tiendaData.establecimiento) setProvEstablecimiento(tiendaData.establecimiento)
+      }
+    } catch (e) {
+      console.error("Error al cargar datos de tienda en ol_tiendas:", e)
+    }
   }
 
   // Autocompletar Código Numérico visualmente basado en la tienda y secuencial
@@ -363,7 +394,7 @@ export default function CajaPage() {
   async function registrarFacturacion() {
     setError('')
 
-    if (faltanFotosBultos) {
+    if (esUltimaTienda && faltanFotosBultos) {
       setError('Toma la foto del interior de cada bulto/funda antes de sellarlo (sección "Evidencia de Empaque" abajo)')
       return
     }
@@ -461,7 +492,11 @@ export default function CajaPage() {
       // confiar en lo que este navegador tiene en memoria
       // (auditoria_plan_correcciones_ia.md, punto 8). Idempotente por
       // requestId ante reintentos por mala señal.
-      const requestKey = `factura-compra-request:${id}`
+      // La clave de idempotencia incluye la tienda: si no, un reintento
+      // (o el segundo registro de una tienda distinta del mismo pedido)
+      // reutilizaría el mismo requestId y la RPC devolvería el comprobante
+      // de la PRIMERA tienda en vez de registrar el de la actual.
+      const requestKey = `factura-compra-request:${id}:${tiendaId || 'sin-tienda'}`
       const requestId = sessionStorage.getItem(requestKey) || crypto.randomUUID()
       sessionStorage.setItem(requestKey, requestId)
 
@@ -499,6 +534,21 @@ export default function CajaPage() {
       // Nota informativa en el pedido (no crítica: si falla, no se reintenta el registro).
       await supabase.from('ol_pedidos').update({ notas: notasActuales }).eq('id', pedido.id)
 
+      // Multi-tienda: si aún quedan tiendas de este pedido sin facturar, se
+      // continúa en caja con la siguiente en vez de salir -- la RPC del
+      // servidor recién marca la asignación como 'recolectado' cuando la
+      // última tienda queda registrada (ver migration_caja_multitienda.sql).
+      const nuevasFacturadas = new Set(tiendasFacturadas)
+      if (tiendaId) nuevasFacturadas.add(tiendaId)
+      setTiendasFacturadas(nuevasFacturadas)
+      const siguienteTienda = tiendasPedido.find(t => !nuevasFacturadas.has(t.id))
+
+      if (siguienteTienda) {
+        await cargarDatosTienda(siguienteTienda.id)
+        setGuardando(false)
+        return
+      }
+
       // Redireccionar al dashboard para proceder con el traspaso o la entrega
       router.push('/repartidor?modo=comprador')
     } catch (e) {
@@ -517,15 +567,25 @@ export default function CajaPage() {
   const itemsCompletados = items.filter(it => it.picking_completado).reduce((sum, it) => sum + (it.cantidad ?? 1), 0)
   const datosFactura = parseDatosFactura(pedido?.notas)
 
+  // Multi-tienda: cuántas tiendas del pedido faltan por facturar (incluida
+  // la actual). Si es la última, se exige la evidencia de empaque abajo;
+  // si quedan más, se guarda esta factura y se pasa a la siguiente tienda
+  // sin salir de caja.
+  const tiendasPendientes = tiendasPedido.filter(t => !tiendasFacturadas.has(t.id))
+  const esUltimaTienda = tiendasPedido.length === 0 || tiendasPendientes.length <= 1
+  const nombreTiendaActual = tiendasPedido.find(t => t.id === tiendaId)?.nombre
+
   // Reconciliación factura del SRI vs lo que la app esperaba comprar: no hay
   // otra forma de saber, aparte de esto, si lo que trae el ticket coincide
   // con lo que el pedido pedía. Se compara solo contra los ítems marcados
-  // como recolectados (no contra el pedido completo) -- un ítem agotado
-  // nunca se compró, así que no debe contar como diferencia.
+  // como recolectados y de la TIENDA ACTUAL (si el pedido tiene varias, la
+  // factura de una no debe compararse contra el total del pedido entero) --
+  // un ítem agotado nunca se compró, así que no debe contar como diferencia.
   // No es un bloqueo duro: el precio real en tienda puede variar un poco
   // del catálogo. Es una alerta clara para que el shopper/admin lo revise.
-  const cantidadEsperada = items.filter(it => it.picking_completado).reduce((sum, it) => sum + (it.cantidad ?? 1), 0)
-  const valorEsperado = items.filter(it => it.picking_completado).reduce((sum, it) => sum + (it.precio_unitario ?? 0) * (it.cantidad ?? 1), 0)
+  const itemsTiendaActual = tiendasPedido.length > 0 ? items.filter(it => it.tienda_id === tiendaId) : items
+  const cantidadEsperada = itemsTiendaActual.filter(it => it.picking_completado).reduce((sum, it) => sum + (it.cantidad ?? 1), 0)
+  const valorEsperado = itemsTiendaActual.filter(it => it.picking_completado).reduce((sum, it) => sum + (it.precio_unitario ?? 0) * (it.cantidad ?? 1), 0)
   const cantidadFactura = facturaSri ? facturaSri.detalles.reduce((s, d) => s + (d.cantidad ?? 0), 0) : null
   const diffValor = facturaSri && valorEsperado > 0 ? Math.abs(facturaSri.total - valorEsperado) / valorEsperado : null
   const reconciliacionFactura = facturaSri ? {
@@ -569,7 +629,33 @@ export default function CajaPage() {
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 pt-4 space-y-4">
-        
+
+        {/* Multi-tienda: el pedido trae productos de más de una tienda --
+            se factura una por una, en el orden en que aparecen. */}
+        {tiendasPedido.length > 1 && (
+          <div className="bg-[#181d24] border border-[#2d3748] rounded-2xl p-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-gray-500 text-[10px] font-bold uppercase tracking-wider">Este pedido tiene {tiendasPedido.length} tiendas</span>
+              <span className="text-[#00b074] text-[10px] font-bold">{tiendasFacturadas.size} de {tiendasPedido.length} facturadas</span>
+            </div>
+            <div className="space-y-1.5">
+              {tiendasPedido.map(t => {
+                const hecha = tiendasFacturadas.has(t.id)
+                const actual = t.id === tiendaId
+                return (
+                  <div key={t.id} className={`flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold ${
+                    hecha ? 'bg-[#00b074]/10 text-[#00b074]' : actual ? 'bg-[#ff9f1c]/10 text-[#ff9f1c] border border-[#ff9f1c]/30' : 'bg-black/20 text-gray-500'
+                  }`}>
+                    {hecha ? <CheckCircle2 size={14} /> : actual ? <div className="w-3.5 h-3.5 rounded-full border-2 border-[#ff9f1c] border-t-transparent animate-spin" /> : <div className="w-3.5 h-3.5 rounded-full border border-gray-600" />}
+                    <span>{t.nombre}</span>
+                    {actual && !hecha && <span className="ml-auto text-[9px] uppercase">Facturando ahora</span>}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Resumen del pedido */}
         <div className="bg-[#181d24] border border-[#2d3748] rounded-2xl p-4 flex justify-between items-center">
           <div>
@@ -957,7 +1043,10 @@ export default function CajaPage() {
 
           {/* Evidencia de Empaque: foto del interior de cada bulto/funda
               ANTES de sellarlo -- este es el eslabón entre "se compró" y
-              "se entregó al repartidor" que antes no quedaba registrado. */}
+              "se entregó al repartidor" que antes no quedaba registrado.
+              Solo aparece en la última tienda pendiente: el empaque final
+              (bultos consolidados) ocurre después de comprar en todas. */}
+          {esUltimaTienda && (
           <div className="space-y-2">
             <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider block">
               Evidencia de Empaque
@@ -1023,6 +1112,7 @@ export default function CajaPage() {
             </div>
             <p className="text-[9px] text-gray-550">Para bultos grandes (ej. fundas de La Tía con muchos productos), puedes tomar varias fotos del mismo bulto desde distintos ángulos hasta cubrir todo el contenido.</p>
           </div>
+          )}
         </div>
 
         {error && (
@@ -1040,7 +1130,13 @@ export default function CajaPage() {
           className="w-full bg-[#00b074] hover:bg-[#008f5d] disabled:opacity-60 text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-2 text-base shadow-lg shadow-[#00b074]/30 active:scale-95 transition"
         >
           {guardando ? <Loader2 size={18} className="animate-spin" /> : <CheckCircle2 size={18} />}
-          <span>{guardando ? 'Guardando registro...' : 'Confirmar compra y continuar'}</span>
+          <span>
+            {guardando
+              ? 'Guardando registro...'
+              : esUltimaTienda
+                ? 'Confirmar compra y continuar'
+                : 'Guardar factura y seguir a la siguiente tienda'}
+          </span>
           {!guardando && <ArrowRight size={16} />}
         </button>
       </div>
