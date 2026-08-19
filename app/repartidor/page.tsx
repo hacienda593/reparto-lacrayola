@@ -541,6 +541,17 @@ export default function RepartidorPage() {
           .is('rider_id', null),
       ])
 
+      // Base para shoppers especializados por tienda (útil ya para separar
+      // Tía/Tuti si hace falta, y pensado para restaurantes más adelante):
+      // sin filas aquí, ve todas las tiendas como siempre.
+      const { data: afinidadTiendas } = await supabase
+        .from('rep_repartidores_tiendas')
+        .select('tienda_id')
+        .eq('repartidor_id', rep.id)
+      const tiendasPermitidas = afinidadTiendas && afinidadTiendas.length > 0
+        ? new Set(afinidadTiendas.map((t: any) => t.tienda_id))
+        : null
+
       // Obtener coordenadas de direcciones verificadas para todos los teléfonos cargados
       const activePhones = Array.from(new Set([
         ...(asigs ?? []).map((a: any) => a.ol_pedidos?.telefono),
@@ -653,6 +664,9 @@ export default function RepartidorPage() {
         const nombreTienda = new Map((tiendasInfo ?? []).map((t: any) => [t.id, t.nombre]))
         ;(itemsPends ?? []).forEach((it: any) => {
           if (!it.tienda_id) return
+          // Shopper especializado (rep_repartidores_tiendas): ni siquiera
+          // se lista la tienda que no le corresponde, no solo se bloquea.
+          if (tiendasPermitidas && !tiendasPermitidas.has(it.tienda_id)) return
           if (!tiendasPends[it.pedido_id]) tiendasPends[it.pedido_id] = []
           const yaListada = tiendasPends[it.pedido_id].some(t => t.id === it.tienda_id)
           if (!yaListada) {
@@ -667,9 +681,13 @@ export default function RepartidorPage() {
 
       // Si el pedido tiene tiendas identificadas y TODAS ya fueron
       // reclamadas por otros compradores, no queda nada disponible ahí --
-      // se saca de la lista igual que antes se sacaba por completo.
+      // se saca de la lista igual que antes se sacaba por completo. Un
+      // shopper especializado tampoco ve pedidos sin tienda identificada
+      // (no se puede confirmar que le corresponda -- por seguridad se
+      // oculta en vez de mostrarlo).
       const conTiendasDisponibles = filteredPends.filter(p => {
         const t = tiendasPends[p.id]
+        if (tiendasPermitidas && (!t || t.length === 0)) return false
         return !t || t.length === 0 || t.some(x => !x.tomada)
       })
 

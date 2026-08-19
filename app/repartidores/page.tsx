@@ -29,16 +29,22 @@ interface RepConEstado extends RepRepartidor {
 }
 
 interface Zona { id: string; nombre: string; activo: boolean }
+interface Tienda { id: string; nombre: string; activa: boolean }
 
 export default function RepartidoresPage() {
   const { user } = useAuth()
   const [lista,       setLista]       = useState<RepConEstado[]>([])
   const [pendientes,  setPendientes]  = useState<RepConEstado[]>([])
   const [zonas,       setZonas]       = useState<Zona[]>([])
+  const [tiendas,     setTiendas]     = useState<Tienda[]>([])
   const [cargando,    setCargando]    = useState(true)
   const [vista,       setVista]       = useState<Vista>('activos')
   const [modal,       setModal]       = useState(false)
   const [form,        setForm]        = useState<Partial<RepRepartidor>>(EMPTY)
+  // Afinidad tienda-repartidor (base para restaurantes/especialización):
+  // vacío = ve todas las tiendas (comportamiento de siempre). Con alguna
+  // marcada, queda restringido solo a esas.
+  const [tiendasAfinidad, setTiendasAfinidad] = useState<Set<string>>(new Set())
   const [guardando,   setGuardando]   = useState(false)
   const [error,       setError]       = useState('')
   const [motivo,      setMotivo]      = useState('')
@@ -46,22 +52,40 @@ export default function RepartidoresPage() {
   const [procesando,  setProcesando]  = useState<string | null>(null)
 
   async function cargar() {
-    const [{ data }, { data: zonasData }] = await Promise.all([
+    const [{ data }, { data: zonasData }, { data: tiendasData }] = await Promise.all([
       supabase.from('rep_repartidores').select('*').order('created_at', { ascending: false }),
       supabase.from('zonas').select('id, nombre, activo').order('nombre'),
+      supabase.from('ol_tiendas').select('id, nombre, activa').order('nombre'),
     ])
 
     const todos = (data ?? []) as RepConEstado[]
     setLista(todos.filter(r => r.estado_registro === 'aprobado' || !r.estado_registro))
     setPendientes(todos.filter(r => r.estado_registro === 'pendiente'))
     setZonas((zonasData ?? []) as Zona[])
+    setTiendas((tiendasData ?? []) as Tienda[])
     setCargando(false)
   }
 
   useEffect(() => { cargar() }, [])
 
-  function abrirNuevo()                    { setForm(EMPTY); setError(''); setModal(true) }
-  function abrirEditar(r: RepConEstado)    { setForm(r);     setError(''); setModal(true) }
+  function abrirNuevo() { setForm(EMPTY); setTiendasAfinidad(new Set()); setError(''); setModal(true) }
+
+  async function abrirEditar(r: RepConEstado) {
+    setForm(r); setError(''); setModal(true)
+    setTiendasAfinidad(new Set())
+    if (r.id) {
+      const { data } = await supabase.from('rep_repartidores_tiendas').select('tienda_id').eq('repartidor_id', r.id)
+      setTiendasAfinidad(new Set((data ?? []).map((d: any) => d.tienda_id)))
+    }
+  }
+
+  function toggleTiendaAfinidad(tiendaId: string) {
+    setTiendasAfinidad(prev => {
+      const next = new Set(prev)
+      if (next.has(tiendaId)) next.delete(tiendaId); else next.add(tiendaId)
+      return next
+    })
+  }
 
   async function guardar() {
     if (!form.nombre?.trim())   { setError('El nombre es obligatorio');   return }
@@ -84,12 +108,25 @@ export default function RepartidoresPage() {
       payload.activo          = true
     }
 
-    const { error: err } = payload.id
+    const { data: repGuardado, error: err } = payload.id
       ? await supabase.from('rep_repartidores')
-          .update({ ...payload, updated_at: new Date().toISOString() }).eq('id', payload.id)
-      : await supabase.from('rep_repartidores').insert(payload)
+          .update({ ...payload, updated_at: new Date().toISOString() }).eq('id', payload.id).select('id').single()
+      : await supabase.from('rep_repartidores').insert(payload).select('id').single()
 
     if (err) { setError(err.message); setGuardando(false); return }
+
+    // Sincroniza afinidad tienda-repartidor: se reemplaza el conjunto
+    // completo (simple de razonar, y el volumen por repartidor es chico).
+    const repId = repGuardado?.id
+    if (repId) {
+      await supabase.from('rep_repartidores_tiendas').delete().eq('repartidor_id', repId)
+      if (tiendasAfinidad.size > 0) {
+        await supabase.from('rep_repartidores_tiendas').insert(
+          Array.from(tiendasAfinidad).map(tienda_id => ({ repartidor_id: repId, tienda_id }))
+        )
+      }
+    }
+
     await cargar(); setModal(false); setGuardando(false)
   }
 
@@ -448,6 +485,31 @@ export default function RepartidoresPage() {
                     {zonas.map(z => <option key={z.id} value={z.id}>{z.nombre}{!z.activo ? ' (inactiva)' : ''}</option>)}
                   </select>
                   <p className="text-[10px] text-slate-400 mt-1">Solo verá y podrá aceptar pedidos de este pueblo. Se activan/desactivan pueblos en Configuración.</p>
+                </div>
+                {/* Base para shoppers especializados (ej. futuro: un
+                    restaurante que solo debe ver sus propios pedidos).
+                    Vacío = sin restricción, ve todas las tiendas como hoy. */}
+                <div>
+                  <label className="text-xs font-semibold text-slate-600 block mb-1">Tiendas habilitadas (opcional)</label>
+                  <div className="border border-slate-200 rounded-xl p-2 max-h-36 overflow-y-auto space-y-1">
+                    {tiendas.length === 0 && <p className="text-[10px] text-slate-400 px-1 py-1">No hay tiendas registradas.</p>}
+                    {tiendas.map(t => (
+                      <label key={t.id} className="flex items-center gap-2 px-1.5 py-1 rounded-lg hover:bg-slate-50 cursor-pointer text-xs">
+                        <input
+                          type="checkbox"
+                          checked={tiendasAfinidad.has(t.id)}
+                          onChange={() => toggleTiendaAfinidad(t.id)}
+                          className="rounded border-slate-300 text-green-600 focus:ring-green-500"
+                        />
+                        <span className={t.activa ? 'text-slate-700' : 'text-slate-400'}>{t.nombre}{!t.activa ? ' (inactiva)' : ''}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    {tiendasAfinidad.size > 0
+                      ? `Restringido a ${tiendasAfinidad.size} tienda(s): solo verá y podrá autoasignarse pedidos de esas tiendas.`
+                      : 'Sin marcar: ve y puede autoasignarse pedidos de cualquier tienda (comportamiento normal).'}
+                  </p>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
