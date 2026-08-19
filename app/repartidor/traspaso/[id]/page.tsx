@@ -41,6 +41,15 @@ export default function TraspasoPage() {
   const [errorEmpaque, setErrorEmpaque] = useState('')
   const codigoGenerado = !!token
 
+  // Consolidación: si el pedido se repartió entre varios compradores (una
+  // asignación por tienda -- migration_asignaciones_por_tienda.sql), el
+  // traspaso al repartidor es UNO solo para todo el pedido y no se puede
+  // generar hasta que TODAS las tiendas terminen. Esto se muestra de forma
+  // clara aquí en vez de que el shopper solo choque con el error del
+  // servidor al intentar generar el código.
+  const [tiendasHermanas, setTiendasHermanas] = useState<{ tienda_nombre: string | null; estado: string; esLaMia: boolean }[]>([])
+  const todasLasTiendasListas = tiendasHermanas.length === 0 || tiendasHermanas.every(t => t.estado === 'recolectado')
+
   async function subirFotoBulto(n: number, file: File) {
     if (!asig?.pedido_id) return
     setErrorEmpaque('')
@@ -103,6 +112,24 @@ export default function TraspasoPage() {
       }
 
       setAsig(data)
+
+      // Estado de las tiendas hermanas del mismo pedido (si lo repartieron
+      // entre varios compradores). Vía RPC (no consulta directa): el RLS de
+      // rep_asignaciones solo deja ver la fila propia, así que un shopper
+      // no vería el estado de la tienda de otro comprador sin esto (ver
+      // migration_tiendas_hermanas_pedido.sql). Si solo hay una asignación
+      // (esta misma), tiendasHermanas queda vacío y no se muestra nada.
+      if (data.pedido_id) {
+        const { data: hermanas } = await supabase
+          .rpc('tiendas_hermanas_pedido', { p_pedido_id: data.pedido_id })
+        if (hermanas && hermanas.length > 1) {
+          setTiendasHermanas(hermanas.map((h: any) => ({
+            tienda_nombre: h.tienda_nombre ?? null,
+            estado: h.estado,
+            esLaMia: h.asignacion_id === asignacionId,
+          })))
+        }
+      }
 
       // Si las fotos de empaque ya se tomaron en caja (donde físicamente se
       // arman los bultos), no se vuelven a pedir aquí -- se reutilizan.
@@ -187,6 +214,35 @@ export default function TraspasoPage() {
     return () => { supabase.removeChannel(canal) }
   }, [asignacionId, user])
 
+  // Cuando el pedido está repartido entre varias tiendas, se escucha en
+  // vivo el estado de las asignaciones hermanas -- así el shopper ve el
+  // check ponerse verde apenas la otra tienda termina, sin tener que
+  // recargar la pantalla a cada rato.
+  useEffect(() => {
+    if (!asig?.pedido_id) return
+    const canal = supabase
+      .channel(`rep_asignaciones_hermanas_${asig.pedido_id}`)
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'rep_asignaciones',
+        filter: `pedido_id=eq.${asig.pedido_id}`
+      }, async () => {
+        const { data: hermanas } = await supabase
+          .rpc('tiendas_hermanas_pedido', { p_pedido_id: asig.pedido_id })
+        if (hermanas && hermanas.length > 1) {
+          setTiendasHermanas(hermanas.map((h: any) => ({
+            tienda_nombre: h.tienda_nombre ?? null,
+            estado: h.estado,
+            esLaMia: h.asignacion_id === asignacionId,
+          })))
+        }
+      })
+      .subscribe()
+
+    return () => { supabase.removeChannel(canal) }
+  }, [asig?.pedido_id])
+
   // Cuenta regresiva + regeneración automática al expirar.
   useEffect(() => {
     if (tickRef.current) clearInterval(tickRef.current)
@@ -259,6 +315,41 @@ export default function TraspasoPage() {
           </div>
         ) : !codigoGenerado ? (
           <div className="bg-[#181d24] border border-[#2d3748] rounded-3xl p-5 space-y-4 w-full text-left">
+            {/* Consolidación: este pedido se repartió entre varios
+                compradores (una asignación por tienda) -- el traspaso al
+                repartidor es UNO solo para todo el pedido, así que hay que
+                esperar a que TODAS las tiendas terminen de comprar/facturar. */}
+            {tiendasHermanas.length > 0 && (
+              <div className={`rounded-2xl p-4 space-y-2 border ${
+                todasLasTiendasListas ? 'bg-[#00b074]/10 border-[#00b074]/30' : 'bg-[#ff9f1c]/10 border-[#ff9f1c]/30'
+              }`}>
+                <p className={`text-[11px] font-bold uppercase tracking-wider ${todasLasTiendasListas ? 'text-[#00b074]' : 'text-[#ff9f1c]'}`}>
+                  {todasLasTiendasListas ? '✓ Todas las tiendas listas' : '⏳ Esperando a las otras tiendas'}
+                </p>
+                <div className="space-y-1.5">
+                  {tiendasHermanas.map((t, i) => (
+                    <div key={i} className="flex items-center gap-2 text-xs">
+                      {t.estado === 'recolectado'
+                        ? <CheckCircle2 size={14} className="text-[#00b074] shrink-0" />
+                        : <Loader2 size={14} className="text-[#ff9f1c] shrink-0 animate-spin" />}
+                      <span className="text-white font-bold">{t.tienda_nombre ?? 'Tienda'}</span>
+                      {t.esLaMia && <span className="text-gray-500">(la tuya)</span>}
+                      <span className={`ml-auto ${t.estado === 'recolectado' ? 'text-[#00b074]' : 'text-[#ff9f1c]'}`}>
+                        {t.estado === 'recolectado' ? 'Lista' : 'Comprando'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                {!todasLasTiendasListas && (
+                  <p className="text-[10px] text-gray-400 leading-relaxed pt-1 border-t border-white/5">
+                    El código de traspaso se genera una sola vez para todo el pedido -- cuando la otra tienda termine, vuelve a esta pantalla.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {todasLasTiendasListas && (
+            <>
             <div className="space-y-1">
               <span className="text-[#00b074] text-[10px] font-bold uppercase tracking-wider bg-[#00b074]/10 px-3 py-1 rounded-full">
                 Antes de traspasar
@@ -338,6 +429,8 @@ export default function TraspasoPage() {
                 <ShieldAlert size={14} className="shrink-0" />
                 <span>{error}</span>
               </div>
+            )}
+            </>
             )}
           </div>
         ) : (
