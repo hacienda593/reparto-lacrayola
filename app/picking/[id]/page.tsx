@@ -64,6 +64,10 @@ export default function PickingPage() {
   const [pedido,      setPedido]      = useState<any>(null)
   const [productos,   setProductos]   = useState<any[]>([])
   const [asignacion,  setAsignacion]  = useState<any>(null)
+  // Multi-tienda: cada tienda es su PROPIA pestaña (no una sección más
+  // dentro de la misma lista) -- se ve solo lo de la tienda activa a la
+  // vez, con su propio control de avance y su propio botón de caja.
+  const [tiendaTabActiva, setTiendaTabActiva] = useState<string | null>(null)
   const [cargando,    setCargando]    = useState(true)
   const [escaneando,  setEscaneando]  = useState(false)
   const [prodActivo,  setProdActivo]  = useState<string | null>(null)
@@ -314,6 +318,13 @@ export default function PickingPage() {
       gruposPorTienda.push({ tienda_nombre: p.tienda_nombre, items: [p] })
     }
   })
+  // Pestaña activa: respeta lo que el usuario eligió a mano; si no ha
+  // elegido nada todavía, arranca en la primera tienda que aún no esté
+  // completa (para no aterrizar en una ya lista sin darse cuenta).
+  const tiendaActivaKey = gruposPorTienda.find(g => g.tienda_nombre === tiendaTabActiva)
+    ? tiendaTabActiva
+    : (gruposPorTienda.find(g => g.items.some(p => !p.completado && !p.agotado)) ?? gruposPorTienda[0])?.tienda_nombre ?? null
+  const grupoActivo = gruposPorTienda.find(g => g.tienda_nombre === tiendaActivaKey) ?? null
   const cleanPhone = pedido?.telefono?.replace(/\D/g, '') || ''
   const formattedPhone = cleanPhone.startsWith('0')
     ? '593' + cleanPhone.slice(1)
@@ -602,7 +613,37 @@ export default function PickingPage() {
               </div>
             )}
             <p className="text-gray-500 text-xs font-bold uppercase tracking-wider mb-3">Lista de recolección</p>
-            {gruposPorTienda.map(grupo => {
+
+            {/* Pestañas por tienda: cada tienda es su propia vista, no una
+                sección más de la misma lista -- se ve solo la activa. */}
+            {gruposPorTienda.length > 1 && (
+              <div className="flex gap-2 overflow-x-auto pb-3 mb-1 -mx-4 px-4">
+                {gruposPorTienda.map(grupo => {
+                  const hechos = grupo.items.filter(p => p.completado || p.agotado).length
+                  const completa = hechos === grupo.items.length
+                  const activa = grupo.tienda_nombre === tiendaActivaKey
+                  return (
+                    <button
+                      key={grupo.tienda_nombre}
+                      onClick={() => setTiendaTabActiva(grupo.tienda_nombre)}
+                      className={`shrink-0 flex items-center gap-1.5 px-3.5 py-2.5 rounded-2xl border text-xs font-extrabold uppercase tracking-wide transition ${
+                        activa
+                          ? (completa ? 'bg-[#00b074] border-[#00b074] text-white' : 'bg-[#ff9f1c] border-[#ff9f1c] text-white')
+                          : completa
+                            ? 'bg-[#00b074]/10 border-[#00b074]/30 text-[#00b074]'
+                            : 'bg-[#181d24] border-[#2d3748] text-gray-400'
+                      }`}
+                    >
+                      <span>{completa ? '✅' : '🏪'}</span>
+                      <span>{grupo.tienda_nombre}</span>
+                      <span className="opacity-80 font-bold">{hechos}/{grupo.items.length}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+
+            {(grupoActivo ? [grupoActivo] : []).map(grupo => {
               const hechosGrupo = grupo.items.filter(p => p.completado || p.agotado).length
               const grupoCompleto = hechosGrupo === grupo.items.length
               return (
