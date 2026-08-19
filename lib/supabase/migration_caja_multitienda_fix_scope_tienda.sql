@@ -1,32 +1,10 @@
--- migration_caja_multitienda.sql
---
--- El pedido de la tienda puede traer productos de varias tiendas físicas
--- (la tienda ya cobra el recargo por tienda adicional al cliente), pero el
--- lado operativo (picking → caja → traspaso) asumía una sola: caja tomaba
--- literalmente "la primera tienda que encuentre" y solo dejaba registrar
--- UNA factura por asignación -- con 2-3 tiendas, la segunda/tercera compra
--- no tenía dónde registrarse.
---
--- Decisión de arquitectura (igual de válida que partir en varias
--- asignaciones, pero mucho menos invasiva y más fiel a como ya opera un
--- shopper real: una sola persona recorre las tiendas en un solo viaje,
--- pica todo, y factura tienda por tienda antes de empacar y traspasar):
--- se mantiene UNA asignación por pedido. Picking sigue igual (ya agrupaba
--- visualmente por tienda). Caja pasa a permitir una factura POR TIENDA
--- del pedido, en secuencia, y la asignación solo pasa a 'recolectado'
--- cuando todas las tiendas del pedido ya tienen su factura registrada.
-
-ALTER TABLE public.ol_pedido_items ADD COLUMN IF NOT EXISTS tienda_id UUID REFERENCES public.ol_tiendas(id);
-
--- Backfill de pedidos ya existentes: se resuelve por el código de producto
--- contra el catálogo (mismo criterio que ya usaba caja como plan B cuando
--- rep_picking no tenía el dato).
-UPDATE public.ol_pedido_items i
-SET tienda_id = p.tienda_id
-FROM public.ol_productos p
-WHERE i.codigo = p.codigo AND i.tienda_id IS NULL AND p.tienda_id IS NOT NULL;
-
-CREATE INDEX IF NOT EXISTS idx_ol_pedido_items_tienda ON public.ol_pedido_items(pedido_id, tienda_id);
+-- migration_caja_multitienda_fix_scope_tienda.sql
+-- Corrige migration_caja_multitienda.sql: el chequeo de items pendientes exigia
+-- el PEDIDO completo resuelto antes de dejar facturar la primera tienda -- bloqueaba
+-- pagar en la tienda A hasta haber recorrido tambien la B, que no es como funciona
+-- una tienda real (no se puede salir con productos sin pagar). Ahora el chequeo es
+-- por tienda: solo exige los items de la tienda que se esta facturando (mas los
+-- que no tienen tienda_id, que siguen contando siempre como antes).
 
 CREATE OR REPLACE FUNCTION public.registrar_factura_compra_servidor(
   p_asignacion_id UUID, p_actor_user_id UUID, p_actor_repartidor_id UUID, p_tienda_id UUID,

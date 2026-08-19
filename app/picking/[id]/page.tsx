@@ -549,10 +549,14 @@ export default function PickingPage() {
             </a>
           </div>
         </div>
-        {/* Barra progreso */}
+        {/* Barra progreso: control del PEDIDO completo (todas las tiendas).
+            El avance por tienda individual se ve en cada sección de abajo. */}
         <div className="space-y-1">
           <div className="flex justify-between text-xs">
-            <span className="text-gray-400">Completados: <span className="text-white font-bold">{soloCompletos}/{total}</span></span>
+            <span className="text-gray-400">
+              Completados: <span className="text-white font-bold">{soloCompletos}/{total}</span>
+              {gruposPorTienda.length > 1 && <span className="text-gray-500"> · {gruposPorTienda.length} tiendas</span>}
+            </span>
             <span className="text-[#00b074] font-bold">{progreso}%</span>
           </div>
           <div className="h-2 bg-[#2d3748] rounded-full overflow-hidden">
@@ -598,13 +602,27 @@ export default function PickingPage() {
               </div>
             )}
             <p className="text-gray-500 text-xs font-bold uppercase tracking-wider mb-3">Lista de recolección</p>
-            {gruposPorTienda.map(grupo => (
+            {gruposPorTienda.map(grupo => {
+              const hechosGrupo = grupo.items.filter(p => p.completado || p.agotado).length
+              const grupoCompleto = hechosGrupo === grupo.items.length
+              return (
               <div key={grupo.tienda_nombre} className="mb-4 last:mb-0">
                 {gruposPorTienda.length > 1 && (
-                  <div className="flex items-center gap-1.5 mb-2 px-0.5">
-                    <span className="text-[#00b074]">🏪</span>
-                    <span className="text-white text-xs font-extrabold uppercase tracking-wide">{grupo.tienda_nombre}</span>
-                    <span className="text-gray-500 text-[10px]">({grupo.items.length})</span>
+                  <div className={`flex items-center gap-1.5 mb-2 px-3 py-2 rounded-2xl border ${
+                    grupoCompleto ? 'bg-[#00b074]/10 border-[#00b074]/30' : 'bg-[#181d24] border-[#2d3748]'
+                  }`}>
+                    <span>{grupoCompleto ? '✅' : '🏪'}</span>
+                    <span className={`text-xs font-extrabold uppercase tracking-wide ${grupoCompleto ? 'text-[#00b074]' : 'text-white'}`}>{grupo.tienda_nombre}</span>
+                    <span className={`text-[10px] font-bold ml-1 ${grupoCompleto ? 'text-[#00b074]' : 'text-gray-500'}`}>
+                      {hechosGrupo}/{grupo.items.length}
+                    </span>
+                    {grupoCompleto && (
+                      <button
+                        onClick={() => router.push(`/caja/${id}`)}
+                        className="ml-auto bg-[#00b074] hover:bg-[#008f5d] active:scale-95 text-white font-bold text-[10px] px-3 py-1.5 rounded-lg transition flex items-center gap-1 shrink-0 cursor-pointer">
+                        💳 Ir a Caja
+                      </button>
+                    )}
                   </div>
                 )}
                 <div className="space-y-3">
@@ -712,12 +730,13 @@ export default function PickingPage() {
                   })()}
                 </div>
               </div>
-            ))}
+              )
+            })}
 
             {listo && (
               <button onClick={() => router.push(`/caja/${id}`)}
                 className="w-full mt-4 bg-[#ff9f1c] text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-2 text-base shadow-lg shadow-[#ff9f1c]/30 active:scale-95 transition">
-                🛒 Ir a Cajas / Facturar SRI →
+                🛒 {gruposPorTienda.length > 1 ? 'Todo recolectado — Ir a Caja →' : 'Ir a Cajas / Facturar SRI →'}
               </button>
             )}
           </div>
