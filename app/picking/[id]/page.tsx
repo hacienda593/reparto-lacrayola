@@ -2,7 +2,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { Loader2, CheckCircle2, AlertTriangle, Navigation, Phone, MessageCircle, Truck, RotateCcw } from 'lucide-react'
+import { Loader2, CheckCircle2, AlertTriangle, Navigation, Phone, MessageCircle, Truck, RotateCcw, FileText } from 'lucide-react'
+import { parseDatosFactura } from '@/lib/facturaCliente'
 
 const EMOJIS: Record<string, string> = {}
 function fmt(n: number) { return '$' + (n ?? 0).toFixed(2) }
@@ -333,6 +334,11 @@ export default function PickingPage() {
     ? tiendaTabActiva
     : (gruposPorTienda.find(g => g.items.some(p => !p.completado && !p.agotado)) ?? gruposPorTienda[0])?.tienda_nombre ?? null
   const grupoActivo = gruposPorTienda.find(g => g.tienda_nombre === tiendaActivaKey) ?? null
+  // Datos de facturación que el cliente eligió en el checkout: antes solo
+  // se veían en caja -- una tienda afiliada o un restaurante que se salta
+  // caja (factura ella misma, no le compra a nadie) nunca los vería si no
+  // se muestran también aquí, en la pantalla que sí van a usar.
+  const datosFactura = parseDatosFactura(pedido?.notas)
   const cleanPhone = pedido?.telefono?.replace(/\D/g, '') || ''
   const formattedPhone = cleanPhone.startsWith('0')
     ? '593' + cleanPhone.slice(1)
@@ -620,6 +626,36 @@ export default function PickingPage() {
                 📝 {pedido.notas}
               </div>
             )}
+
+            {/* Datos de facturación del cliente -- necesarios para quien vaya
+                a emitir la factura real (tienda afiliada o restaurante que
+                factura directo al cliente, sin pasar por caja). */}
+            {datosFactura && !datosFactura.consumidorFinal && (
+              <div className="mb-3 bg-[#181d24] border border-[#2d3748] rounded-2xl p-3 space-y-1.5">
+                <div className="flex items-center gap-1.5 text-[10px] font-black text-gray-400 uppercase tracking-wide">
+                  <FileText size={12} /> Cliente pidió factura con datos
+                </div>
+                {datosFactura.identificacion && (
+                  <div className="flex justify-between text-xs">
+                    <span className="text-gray-500">RUC / Cédula</span>
+                    <span className="text-white font-bold select-all">{datosFactura.identificacion}</span>
+                  </div>
+                )}
+                {datosFactura.razonSocial && (
+                  <div className="flex justify-between text-xs">
+                    <span className="text-gray-500">Razón Social</span>
+                    <span className="text-white font-bold select-all">{datosFactura.razonSocial}</span>
+                  </div>
+                )}
+                {datosFactura.correo && (
+                  <div className="flex justify-between text-xs">
+                    <span className="text-gray-500">Correo</span>
+                    <span className="text-white font-bold select-all">{datosFactura.correo}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
             <p className="text-gray-500 text-xs font-bold uppercase tracking-wider mb-3">Lista de recolección</p>
 
             {/* Pestañas por tienda: cada tienda es su propia vista, no una

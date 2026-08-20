@@ -3,34 +3,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Loader2, CheckCircle2, AlertTriangle, Shield, CreditCard, Camera, ArrowRight, Plus, Minus } from 'lucide-react'
+import { parseDatosFactura } from '@/lib/facturaCliente'
 type SriFactura={estado:string;claveAcceso:string;fechaAutorizacion:string|null;ambiente:string;rucEmisor:string;razonSocialEmisor:string;identificacionComprador:string;razonSocialComprador:string;establecimiento:string;puntoEmision:string;secuencial:string;fechaEmision:string;subtotal:number;iva:number;total:number;xml:string;sha256:string;detalles:Array<{codigo:string;descripcion:string;cantidad:number;precioUnitario:number;precioTotal:number}>}
-
-function parseDatosFactura(notas: string) {
-  if (!notas) return null
-  const match = notas.match(/\[FACTURA:\s*([^\]]+)\]/)
-  if (!match) return null
-  const content = match[1].trim()
-  if (content === 'Consumidor Final') {
-    return { consumidorFinal: true }
-  }
-  // Formato: RUC/Cédula: XXXXX | Razón Social: YYYYY | Correo: ZZZZZ
-  const parts = content.split('|')
-  const result: any = { consumidorFinal: false }
-  parts.forEach(part => {
-    const [key, ...valueParts] = part.split(':')
-    if (!key) return
-    const value = valueParts.join(':').trim()
-    const k = key.trim().toLowerCase()
-    if (k.includes('ruc') || k.includes('cédula') || k.includes('cedula') || k.includes('identificación') || k.includes('identificacion')) {
-      result.identificacion = value
-    } else if (k.includes('razón social') || k.includes('razon social') || k.includes('nombre')) {
-      result.razonSocial = value
-    } else if (k.includes('correo') || k.includes('email')) {
-      result.correo = value
-    }
-  })
-  return result
-}
 
 export default function CajaPage() {
   const { id }   = useParams<{ id: string }>()
