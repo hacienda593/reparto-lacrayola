@@ -359,64 +359,17 @@ export default function EntregaPage() {
 
       const firmaClienteUrl = firmaName
 
+      // P0-03 de la auditoría operativa: antes esto se corregía con 2-3
+      // escrituras sueltas AQUÍ MISMO, antes de llamar la RPC -- si la RPC
+      // fallaba después, la agenda ya había cambiado sin que la entrega se
+      // cerrara; si la agenda fallaba, solo quedaba en la consola y la
+      // entrega se cerraba igual con la dirección vieja guardada. Ahora
+      // finalizar_entrega_atomica hace esa corrección DENTRO de la misma
+      // transacción que cierra la entrega -- aquí solo se arma qué mandar.
       const geoFinal = corrigiendoGps && nuevaGeo ? nuevaGeo : { lat: pedido.geo_lat, lng: pedido.geo_lng }
       const referenciasFinal = corrigiendoGps && referenciaNueva.trim()
         ? [pedido.referencias, referenciaNueva.trim()].filter(Boolean).join(' · ')
         : pedido.referencias
-
-      if (pedido.user_id && corrigiendoGps && nuevaGeo) {
-        try {
-          const { data: dirs } = await sb
-            .from('ol_direcciones_cliente')
-            .select('id')
-            .eq('user_id', pedido.user_id)
-            .eq('direccion_texto', pedido.direccion)
-
-          if (dirs && dirs.length > 0) {
-            await sb.from('ol_direcciones_cliente')
-              .update({ geo_lat: geoFinal.lat, geo_lng: geoFinal.lng, referencias: referenciasFinal })
-              .eq('id', dirs[0].id)
-          }
-        } catch (e) {
-          console.error("Error al actualizar ubicación del cliente:", e)
-        }
-      }
-
-      // Guardar también en rep_clientes_direcciones para la agenda del número de teléfono
-      if (pedido.telefono && geoFinal.lat && geoFinal.lng) {
-        try {
-          const { data: extDir } = await sb
-            .from('rep_clientes_direcciones')
-            .select('id, direccion')
-            .eq('telefono', pedido.telefono)
-
-          const matchDir = (extDir ?? []).find((d: any) => sonDireccionesSimilares(d.direccion, pedido.direccion))
-          if (matchDir) {
-            await sb.from('rep_clientes_direcciones')
-              .update({
-                geo_lat: geoFinal.lat,
-                geo_lng: geoFinal.lng,
-                verificada: true,
-                updated_at: new Date().toISOString()
-              })
-              .eq('id', matchDir.id)
-          } else {
-            await sb.from('rep_clientes_direcciones')
-              .insert({
-                telefono: pedido.telefono,
-                nombre_direccion: pedido.direccion ? pedido.direccion.slice(0, 15) : 'Nueva Dirección',
-                direccion: pedido.direccion || 'Dirección de Entrega',
-                ciudad: pedido.ciudad || 'Ciudad',
-                referencias: referenciasFinal || pedido.referencias || '',
-                geo_lat: geoFinal.lat,
-                geo_lng: geoFinal.lng,
-                verificada: true
-              })
-          }
-        } catch (e) {
-          console.error("Error al guardar en rep_clientes_direcciones:", e)
-        }
-      }
 
       const montoFinal = esTransferencia ? 0 : parseFloat(monto)
 
@@ -458,6 +411,7 @@ export default function EntregaPage() {
         p_firma_url: firmaClienteUrl,
         p_referencias: referenciasFinal || null,
         p_nota_diferencia: notaDiferencia,
+        p_direccion_corregida: corrigiendoGps && !!nuevaGeo,
       })
       if (cierreError) throw cierreError
       sessionStorage.removeItem(requestKey)

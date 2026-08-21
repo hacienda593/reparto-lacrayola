@@ -989,90 +989,6 @@ export default function RepartidorPage() {
   // finalizar_entrega_atomica con foto y firma obligatorias). Se eliminó
   // para no dejar un camino alterno de entrega bypasseando la evidencia.
 
-  async function confirmarGpsEntrega(p: PedidoAsignado) {
-    setProcesando(p.asignacion_id)
-    try {
-      const geo = await new Promise<{ lat: number; lng: number } | null>(res => {
-        if (typeof window === 'undefined' || !navigator?.geolocation) {
-          res(null)
-          return
-        }
-        navigator.geolocation.getCurrentPosition(
-          pos => res({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-          () => res(null),
-          { timeout: 7000, enableHighAccuracy: true }
-        )
-      })
-
-      if (!geo) {
-        alert('No se pudo obtener la ubicación GPS actual. Activa el GPS de tu celular e intenta nuevamente.')
-        setProcesando(null)
-        return
-      }
-
-      // Comparar contra la ubicación que el sistema ya tenía registrada
-      // ANTES de sobrescribirla -- antes este botón pisaba la coordenada a
-      // ciegas, sin mostrarle al repartidor si coincidía con la dirección
-      // del cliente o no.
-      if (p.geo_lat && p.geo_lng) {
-        const distanciaM = Math.round(distanciaKm({ lat: p.geo_lat, lng: p.geo_lng }, geo) * 1000)
-        const lejos = distanciaM > 150
-        const continuar = confirm(
-          (lejos
-            ? `⚠️ Tu posición actual está a ${distanciaM} metros de la ubicación registrada del pedido — podría ser la casa equivocada.\n\n`
-            : `✓ Tu posición actual está a ${distanciaM} metros de la ubicación registrada (coincide razonablemente).\n\n`)
-          + '¿Confirmar esta ubicación como la definitiva de entrega?'
-        )
-        if (!continuar) { setProcesando(null); return }
-      }
-
-      // 1. Actualizar coordenadas del pedido en ol_pedidos
-      await supabase.from('ol_pedidos')
-        .update({ geo_lat: geo.lat, geo_lng: geo.lng })
-        .eq('id', p.pedido_id)
-
-      // 2. Buscar si ya existe la dirección en rep_clientes_direcciones por teléfono
-      const { data: extDir } = await supabase
-        .from('rep_clientes_direcciones')
-        .select('id, direccion')
-        .eq('telefono', p.telefono)
-
-      const matchDir = (extDir ?? []).find((d: any) => sonDireccionesSimilares(d.direccion, p.direccion))
-
-      if (matchDir) {
-        // Actualizar la dirección existente con las coordenadas definitivas de la puerta
-        await supabase.from('rep_clientes_direcciones')
-          .update({
-            geo_lat: geo.lat,
-            geo_lng: geo.lng,
-            verificada: true,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', matchDir.id)
-      } else {
-        // Insertar un nuevo registro de dirección para este cliente
-        await supabase.from('rep_clientes_direcciones')
-          .insert({
-            telefono: p.telefono,
-            nombre_direccion: p.direccion ? p.direccion.slice(0, 15) : 'Nueva Dirección',
-            direccion: p.direccion || 'Dirección de Entrega',
-            ciudad: p.ciudad || 'Ciudad',
-            referencias: p.referencias || '',
-            geo_lat: geo.lat,
-            geo_lng: geo.lng,
-            verificada: true
-          })
-      }
-
-      alert('✓ Ubicación GPS definitiva de la puerta grabada y verificada correctamente.')
-      await cargar(user!.id)
-    } catch (err: any) {
-      alert('Error al grabar ubicación GPS: ' + err.message)
-    } finally {
-      setProcesando(null)
-    }
-  }
-
   // Modal "Entregar efectivo": estaba duplicado dos veces en este archivo
   // (idéntico en modo comprador y modo repartidor). Se unifica aquí y
   // ahora ofrece 3 métodos: a un colega (como antes), depósito bancario, o
@@ -1328,14 +1244,14 @@ export default function RepartidorPage() {
                     />
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => confirmarGpsEntrega(p)}
-                    disabled={procesando !== null}
-                    className="w-full flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold py-2.5 rounded-xl transition text-xs shadow-sm cursor-pointer">
-                    {procesando === p.asignacion_id ? <Loader2 size={12} className="animate-spin" /> : <MapPin size={12} />}
-                    Confirmar GPS de Entrega (en puerta)
-                  </button>
+                  {/* Antes había un botón "Confirmar GPS de Entrega" aquí
+                      mismo, que corregía ol_pedidos + rep_clientes_direcciones
+                      con escrituras sueltas, sin transacción y desconectadas
+                      del cierre real de la entrega (P0-03 de la auditoría
+                      operativa) -- /entrega/[id] ya tiene su propio paso de
+                      confirmar/corregir GPS, ahora atómico con el cierre.
+                      Se elimina para no dejar dos caminos que puedan
+                      divergir otra vez. */}
 
                   {/* Antes abría un modal propio (foto+firma+cobro) que
                       duplicaba casi entero /entrega/[id] -- con divergencias
