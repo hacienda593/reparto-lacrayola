@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
+import { registrarYAbrirWhatsApp, formatWhatsApp } from '@/lib/comunicaciones'
 import { ArrowLeft, Loader2, CheckCircle2, ShieldAlert, Scan, Smartphone, Plus, Minus } from 'lucide-react'
 
 export default function EscanearPage() {
@@ -19,7 +20,10 @@ export default function EscanearPage() {
   // completo (faltan otras tiendas por recoger), se muestra cuáles en vez
   // de dar el pedido por listo.
   const [pedidoIncompleto, setPedidoIncompleto] = useState(false)
-  const [tiendasFaltantes, setTiendasFaltantes] = useState<string[]>([])
+  // Ficha consolidada (P1-01 de la auditoría): todas las tiendas del
+  // pedido, en orden sugerido, con su estado y el contacto del comprador
+  // de cada una -- no solo el nombre de la que falta.
+  const [manifiesto, setManifiesto] = useState<{ tienda_nombre: string | null; estado: string; shopper_nombre: string | null; shopper_telefono: string | null }[]>([])
   const [vista, setVista] = useState<'pin' | 'camara'>('pin')
   // Cuántos bultos/fundas dice recibir el motorizado -- se compara contra
   // lo que declaró el comprador (rep_handoffs.bultos_declarados) y si no
@@ -186,7 +190,7 @@ export default function EscanearPage() {
     if (!pedidoCompleto && asigInfo?.pedido_id) {
       const { data: hermanas } = await supabase.rpc('tiendas_hermanas_pedido', { p_pedido_id: asigInfo.pedido_id })
       if (hermanas && hermanas.length > 1) {
-        setTiendasFaltantes(hermanas.filter((h: any) => h.estado !== 'en_ruta' && h.estado !== 'entregado').map((h: any) => h.tienda_nombre ?? 'Tienda'))
+        setManifiesto(hermanas)
         setPedidoIncompleto(true)
       }
     }
@@ -197,11 +201,9 @@ export default function EscanearPage() {
     const nombreCliente = asigInfo?.ol_pedidos?.nombre_cliente
     const numero = asigInfo?.ol_pedidos?.numero
     const telefono = asigInfo?.ol_pedidos?.telefono
-    if (pedidoCompleto && nombreCliente && numero && telefono) {
+    if (pedidoCompleto && nombreCliente && numero && telefono && asigInfo?.pedido_id) {
       const msg = `🛵 *La Crayola - ¡Tu pedido va en camino!* \n\nHola *${nombreCliente}*, tu pedido *#${String(numero).padStart(4,'0')}* ya fue comprado y va en camino a cargo del motorizado *${repartidor.nombre}*. 📍 ¡Llegaré en unos minutos!`
-      const cleanPhone = telefono.replace(/\D/g,'') || ''
-      const formattedPhone = cleanPhone.startsWith('0') ? '593' + cleanPhone.slice(1) : (cleanPhone.startsWith('9') && cleanPhone.length === 9 ? '593' + cleanPhone : cleanPhone)
-      window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(msg)}`, '_blank')
+      registrarYAbrirWhatsApp({ pedidoId: asigInfo.pedido_id, tipo: 'en_camino', mensaje: msg, telefono, asignacionId: handoff.asignacion_id })
     }
   }
 
@@ -237,14 +239,34 @@ export default function EscanearPage() {
               <div className="space-y-2">
                 <h2 className="text-white font-extrabold text-base">Recogiste parte del pedido #{pedidoNum}</h2>
                 <p className="text-gray-400 text-xs">
-                  Este pedido tiene más de una tienda. Aún falta recoger de:
+                  Este pedido tiene {manifiesto.length} tiendas. Manifiesto completo, en el orden sugerido:
                 </p>
-                <div className="bg-[#ff9f1c]/10 border border-[#ff9f1c]/30 rounded-xl p-3 space-y-1 text-left">
-                  {tiendasFaltantes.map((t, i) => (
-                    <div key={i} className="flex items-center gap-2 text-xs text-[#ff9f1c] font-bold">
-                      <span>🏪</span><span>{t}</span>
-                    </div>
-                  ))}
+                <div className="border border-[#2d3748] rounded-xl divide-y divide-[#2d3748] text-left overflow-hidden">
+                  {manifiesto.map((t, i) => {
+                    const listo = t.estado === 'en_ruta' || t.estado === 'entregado'
+                    return (
+                      <div key={i} className={`p-3 space-y-1 ${listo ? 'bg-[#00b074]/10' : 'bg-[#ff9f1c]/10'}`}>
+                        <div className="flex items-center justify-between">
+                          <span className={`text-xs font-bold flex items-center gap-1.5 ${listo ? 'text-[#00b074]' : 'text-[#ff9f1c]'}`}>
+                            <span className="text-[10px] bg-black/30 rounded-full w-4 h-4 flex items-center justify-center">{i + 1}</span>
+                            🏪 {t.tienda_nombre ?? 'Tienda'}
+                          </span>
+                          <span className={`text-[9px] font-black uppercase tracking-wide ${listo ? 'text-[#00b074]' : 'text-[#ff9f1c]'}`}>
+                            {listo ? 'Listo' : 'Pendiente'}
+                          </span>
+                        </div>
+                        {!listo && t.shopper_telefono && (
+                          <a
+                            href={`https://wa.me/${formatWhatsApp(t.shopper_telefono)}`}
+                            target="_blank" rel="noopener noreferrer"
+                            className="text-[10.5px] text-gray-400 flex items-center gap-1"
+                          >
+                            💬 {t.shopper_nombre} — contactar
+                          </a>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
                 <p className="text-gray-500 text-[10.5px] pt-1">
                   Vuelve a esta pantalla (escanear/digitar código) cuando esa tienda esté lista. Al cliente aún no se le avisó "va en camino" -- se avisa recién cuando todo esté recogido.
