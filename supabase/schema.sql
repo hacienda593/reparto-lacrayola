@@ -494,11 +494,15 @@ CREATE TABLE public.ol_pedidos (
   verificado_banco_por uuid,
   total_final numeric(12,2),
   comprobante_transferencia_path text,
+  rep_cliente_id uuid,
+  direccion_id uuid,
   PRIMARY KEY (id)
 );
+ALTER TABLE public.ol_pedidos ADD CONSTRAINT ol_pedidos_direccion_id_fkey FOREIGN KEY (direccion_id) REFERENCES public.rep_clientes_direcciones(id);
+ALTER TABLE public.ol_pedidos ADD CONSTRAINT ol_pedidos_rep_cliente_id_fkey FOREIGN KEY (rep_cliente_id) REFERENCES public.rep_clientes(id);
 ALTER TABLE public.ol_pedidos ADD CONSTRAINT ol_pedidos_zona_id_fkey FOREIGN KEY (zona_id) REFERENCES public.zonas(id);
-ALTER TABLE public.ol_pedidos ADD CONSTRAINT ol_pedidos_cliente_id_fkey FOREIGN KEY (cliente_id) REFERENCES public.ol_clientes(id);
 ALTER TABLE public.ol_pedidos ADD CONSTRAINT ol_pedidos_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.null(null);
+ALTER TABLE public.ol_pedidos ADD CONSTRAINT ol_pedidos_cliente_id_fkey FOREIGN KEY (cliente_id) REFERENCES public.ol_clientes(id);
 CREATE INDEX idx_ol_pedidos_cliente ON public.ol_pedidos USING btree (cliente_id);
 CREATE INDEX idx_ol_pedidos_estado ON public.ol_pedidos USING btree (estado);
 CREATE INDEX idx_ol_pedidos_numero ON public.ol_pedidos USING btree (numero);
@@ -895,12 +899,12 @@ CREATE TABLE public.rep_asignaciones (
   tienda_id uuid,
   PRIMARY KEY (id)
 );
-ALTER TABLE public.rep_asignaciones ADD CONSTRAINT rep_asignaciones_tienda_id_fkey FOREIGN KEY (tienda_id) REFERENCES public.ol_tiendas(id);
+ALTER TABLE public.rep_asignaciones ADD CONSTRAINT rep_asignaciones_pedido_id_fkey FOREIGN KEY (pedido_id) REFERENCES public.ol_pedidos(id);
+ALTER TABLE public.rep_asignaciones ADD CONSTRAINT rep_asignaciones_asignado_por_fkey FOREIGN KEY (asignado_por) REFERENCES public.null(null);
+ALTER TABLE public.rep_asignaciones ADD CONSTRAINT rep_asignaciones_repartidor_id_fkey FOREIGN KEY (repartidor_id) REFERENCES public.rep_repartidores(id);
 ALTER TABLE public.rep_asignaciones ADD CONSTRAINT rep_asignaciones_shopper_id_fkey FOREIGN KEY (shopper_id) REFERENCES public.rep_repartidores(id);
 ALTER TABLE public.rep_asignaciones ADD CONSTRAINT rep_asignaciones_rider_id_fkey FOREIGN KEY (rider_id) REFERENCES public.rep_repartidores(id);
-ALTER TABLE public.rep_asignaciones ADD CONSTRAINT rep_asignaciones_pedido_id_fkey FOREIGN KEY (pedido_id) REFERENCES public.ol_pedidos(id);
-ALTER TABLE public.rep_asignaciones ADD CONSTRAINT rep_asignaciones_repartidor_id_fkey FOREIGN KEY (repartidor_id) REFERENCES public.rep_repartidores(id);
-ALTER TABLE public.rep_asignaciones ADD CONSTRAINT rep_asignaciones_asignado_por_fkey FOREIGN KEY (asignado_por) REFERENCES public.null(null);
+ALTER TABLE public.rep_asignaciones ADD CONSTRAINT rep_asignaciones_tienda_id_fkey FOREIGN KEY (tienda_id) REFERENCES public.ol_tiendas(id);
 CREATE UNIQUE INDEX idx_rep_asignaciones_compra_iniciada_request_id ON public.rep_asignaciones USING btree (compra_iniciada_request_id) WHERE (compra_iniciada_request_id IS NOT NULL);
 CREATE UNIQUE INDEX idx_rep_asignaciones_finalizar_compra_request_id ON public.rep_asignaciones USING btree (finalizar_compra_request_id) WHERE (finalizar_compra_request_id IS NOT NULL);
 CREATE UNIQUE INDEX idx_rep_asignaciones_iniciar_ruta_request_id ON public.rep_asignaciones USING btree (iniciar_ruta_request_id) WHERE (iniciar_ruta_request_id IS NOT NULL);
@@ -941,6 +945,23 @@ ALTER TABLE public.rep_auditoria_cuenta ENABLE ROW LEVEL SECURITY;
 --   USING: rep_is_admin()
 
 -- ---------------------------------------------------------------
+-- Tabla: rep_clientes
+-- ---------------------------------------------------------------
+CREATE TABLE public.rep_clientes (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  telefono text NOT NULL,
+  nombre text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  PRIMARY KEY (id)
+);
+ALTER TABLE public.rep_clientes ADD CONSTRAINT rep_clientes_telefono_key UNIQUE (telefono);
+CREATE UNIQUE INDEX rep_clientes_telefono_key ON public.rep_clientes USING btree (telefono);
+ALTER TABLE public.rep_clientes ENABLE ROW LEVEL SECURITY;
+-- POLICY rep_clientes_select (SELECT, roles={authenticated})
+--   USING: rep_tiene_rol(VARIADIC ARRAY['admin'::text, 'superadmin'::text, 'supervisor'::text, 'repartidor'::text, 'shopper'::text])
+
+-- ---------------------------------------------------------------
 -- Tabla: rep_clientes_direcciones
 -- ---------------------------------------------------------------
 CREATE TABLE public.rep_clientes_direcciones (
@@ -955,8 +976,12 @@ CREATE TABLE public.rep_clientes_direcciones (
   verificada boolean DEFAULT false,
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),
+  cliente_id uuid,
+  estado text NOT NULL DEFAULT 'no_verificada'::text,
   PRIMARY KEY (id)
 );
+ALTER TABLE public.rep_clientes_direcciones ADD CONSTRAINT rep_clientes_direcciones_cliente_id_fkey FOREIGN KEY (cliente_id) REFERENCES public.rep_clientes(id);
+CREATE INDEX idx_rep_clientes_direcciones_cliente ON public.rep_clientes_direcciones USING btree (cliente_id);
 ALTER TABLE public.rep_clientes_direcciones ENABLE ROW LEVEL SECURITY;
 -- POLICY Permitir a repartidores y admins gestionar direcciones (ALL, roles={authenticated})
 --   USING: (EXISTS ( SELECT 1
@@ -986,8 +1011,8 @@ CREATE TABLE public.rep_comisiones (
   created_at timestamp with time zone DEFAULT now(),
   PRIMARY KEY (id)
 );
-ALTER TABLE public.rep_comisiones ADD CONSTRAINT rep_comisiones_repartidor_id_fkey FOREIGN KEY (repartidor_id) REFERENCES public.rep_repartidores(id);
 ALTER TABLE public.rep_comisiones ADD CONSTRAINT rep_comisiones_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.null(null);
+ALTER TABLE public.rep_comisiones ADD CONSTRAINT rep_comisiones_repartidor_id_fkey FOREIGN KEY (repartidor_id) REFERENCES public.rep_repartidores(id);
 ALTER TABLE public.rep_comisiones ENABLE ROW LEVEL SECURITY;
 -- POLICY rep_comisiones_admin (ALL, roles={public})
 --   USING: rep_puede_liquidar_caja()
@@ -1011,9 +1036,9 @@ CREATE TABLE public.rep_comunicaciones (
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   PRIMARY KEY (id)
 );
-ALTER TABLE public.rep_comunicaciones ADD CONSTRAINT rep_comunicaciones_asignacion_id_fkey FOREIGN KEY (asignacion_id) REFERENCES public.rep_asignaciones(id);
-ALTER TABLE public.rep_comunicaciones ADD CONSTRAINT rep_comunicaciones_actor_repartidor_id_fkey FOREIGN KEY (actor_repartidor_id) REFERENCES public.rep_repartidores(id);
 ALTER TABLE public.rep_comunicaciones ADD CONSTRAINT rep_comunicaciones_pedido_id_fkey FOREIGN KEY (pedido_id) REFERENCES public.ol_pedidos(id);
+ALTER TABLE public.rep_comunicaciones ADD CONSTRAINT rep_comunicaciones_actor_repartidor_id_fkey FOREIGN KEY (actor_repartidor_id) REFERENCES public.rep_repartidores(id);
+ALTER TABLE public.rep_comunicaciones ADD CONSTRAINT rep_comunicaciones_asignacion_id_fkey FOREIGN KEY (asignacion_id) REFERENCES public.rep_asignaciones(id);
 CREATE INDEX idx_rep_comunicaciones_pedido ON public.rep_comunicaciones USING btree (pedido_id, created_at DESC);
 CREATE UNIQUE INDEX idx_rep_comunicaciones_request_id ON public.rep_comunicaciones USING btree (request_id) WHERE (request_id IS NOT NULL);
 ALTER TABLE public.rep_comunicaciones ENABLE ROW LEVEL SECURITY;
@@ -1076,10 +1101,10 @@ CREATE TABLE public.rep_cuentas_cobrar (
   created_at timestamp with time zone DEFAULT now(),
   PRIMARY KEY (id)
 );
-ALTER TABLE public.rep_cuentas_cobrar ADD CONSTRAINT rep_cuentas_cobrar_verificado_por_fkey FOREIGN KEY (verificado_por) REFERENCES public.null(null);
 ALTER TABLE public.rep_cuentas_cobrar ADD CONSTRAINT rep_cuentas_cobrar_pedido_id_fkey FOREIGN KEY (pedido_id) REFERENCES public.ol_pedidos(id);
-ALTER TABLE public.rep_cuentas_cobrar ADD CONSTRAINT rep_cuentas_cobrar_repartidor_id_fkey FOREIGN KEY (repartidor_id) REFERENCES public.rep_repartidores(id);
+ALTER TABLE public.rep_cuentas_cobrar ADD CONSTRAINT rep_cuentas_cobrar_verificado_por_fkey FOREIGN KEY (verificado_por) REFERENCES public.null(null);
 ALTER TABLE public.rep_cuentas_cobrar ADD CONSTRAINT rep_cuentas_cobrar_asignacion_id_fkey FOREIGN KEY (asignacion_id) REFERENCES public.rep_asignaciones(id);
+ALTER TABLE public.rep_cuentas_cobrar ADD CONSTRAINT rep_cuentas_cobrar_repartidor_id_fkey FOREIGN KEY (repartidor_id) REFERENCES public.rep_repartidores(id);
 ALTER TABLE public.rep_cuentas_cobrar ENABLE ROW LEVEL SECURITY;
 -- POLICY rep_cuentas_cobrar_delete (DELETE, roles={public})
 --   USING: rep_puede_liquidar_caja()
@@ -1121,6 +1146,31 @@ CREATE UNIQUE INDEX idx_rep_depositos_request_id ON public.rep_depositos_reparti
 ALTER TABLE public.rep_depositos_repartidor ENABLE ROW LEVEL SECURITY;
 -- POLICY rep_depositos_select (SELECT, roles={authenticated})
 --   USING: ((repartidor_id = rep_mi_id()) OR rep_puede_liquidar_caja())
+
+-- ---------------------------------------------------------------
+-- Tabla: rep_direcciones_historial
+-- ---------------------------------------------------------------
+CREATE TABLE public.rep_direcciones_historial (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  direccion_id uuid NOT NULL,
+  estado_anterior text,
+  estado_nuevo text NOT NULL,
+  geo_lat_anterior numeric(9,6),
+  geo_lng_anterior numeric(9,6),
+  geo_lat_nuevo numeric(9,6),
+  geo_lng_nuevo numeric(9,6),
+  motivo text,
+  actor_user_id uuid,
+  pedido_id uuid,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  PRIMARY KEY (id)
+);
+ALTER TABLE public.rep_direcciones_historial ADD CONSTRAINT rep_direcciones_historial_direccion_id_fkey FOREIGN KEY (direccion_id) REFERENCES public.rep_clientes_direcciones(id);
+ALTER TABLE public.rep_direcciones_historial ADD CONSTRAINT rep_direcciones_historial_pedido_id_fkey FOREIGN KEY (pedido_id) REFERENCES public.ol_pedidos(id);
+CREATE INDEX idx_rep_direcciones_historial_direccion ON public.rep_direcciones_historial USING btree (direccion_id, created_at DESC);
+ALTER TABLE public.rep_direcciones_historial ENABLE ROW LEVEL SECURITY;
+-- POLICY rep_direcciones_historial_select (SELECT, roles={authenticated})
+--   USING: rep_tiene_rol(VARIADIC ARRAY['admin'::text, 'superadmin'::text, 'supervisor'::text, 'repartidor'::text, 'shopper'::text])
 
 -- ---------------------------------------------------------------
 -- Tabla: rep_entregas
@@ -1231,9 +1281,9 @@ CREATE TABLE public.rep_gastos (
   created_at timestamp with time zone DEFAULT now(),
   PRIMARY KEY (id)
 );
+ALTER TABLE public.rep_gastos ADD CONSTRAINT rep_gastos_asignacion_id_fkey FOREIGN KEY (asignacion_id) REFERENCES public.rep_asignaciones(id);
 ALTER TABLE public.rep_gastos ADD CONSTRAINT rep_gastos_pedido_id_fkey FOREIGN KEY (pedido_id) REFERENCES public.ol_pedidos(id);
 ALTER TABLE public.rep_gastos ADD CONSTRAINT rep_gastos_tienda_id_fkey FOREIGN KEY (tienda_id) REFERENCES public.ol_tiendas(id);
-ALTER TABLE public.rep_gastos ADD CONSTRAINT rep_gastos_asignacion_id_fkey FOREIGN KEY (asignacion_id) REFERENCES public.rep_asignaciones(id);
 ALTER TABLE public.rep_gastos ENABLE ROW LEVEL SECURITY;
 -- POLICY rep_gastos_admin (ALL, roles={public})
 --   USING: rep_puede_liquidar_caja()
@@ -1323,9 +1373,9 @@ CREATE TABLE public.rep_ledger_movimientos (
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   PRIMARY KEY (id)
 );
-ALTER TABLE public.rep_ledger_movimientos ADD CONSTRAINT rep_ledger_movimientos_repartidor_id_fkey FOREIGN KEY (repartidor_id) REFERENCES public.rep_repartidores(id);
 ALTER TABLE public.rep_ledger_movimientos ADD CONSTRAINT rep_ledger_movimientos_pedido_id_fkey FOREIGN KEY (pedido_id) REFERENCES public.ol_pedidos(id);
 ALTER TABLE public.rep_ledger_movimientos ADD CONSTRAINT rep_ledger_movimientos_reversa_de_fkey FOREIGN KEY (reversa_de) REFERENCES public.rep_ledger_movimientos(id);
+ALTER TABLE public.rep_ledger_movimientos ADD CONSTRAINT rep_ledger_movimientos_repartidor_id_fkey FOREIGN KEY (repartidor_id) REFERENCES public.rep_repartidores(id);
 ALTER TABLE public.rep_ledger_movimientos ADD CONSTRAINT rep_ledger_movimientos_request_id_key UNIQUE (request_id);
 CREATE UNIQUE INDEX rep_ledger_movimientos_request_id_key ON public.rep_ledger_movimientos USING btree (request_id);
 CREATE INDEX rep_ledger_pedido_idx ON public.rep_ledger_movimientos USING btree (pedido_id) WHERE (pedido_id IS NOT NULL);
@@ -1385,9 +1435,9 @@ CREATE TABLE public.rep_liquidaciones (
   saldo_despues numeric(12,2),
   PRIMARY KEY (id)
 );
+ALTER TABLE public.rep_liquidaciones ADD CONSTRAINT rep_liquidaciones_recibido_por_fkey FOREIGN KEY (recibido_por) REFERENCES public.null(null);
 ALTER TABLE public.rep_liquidaciones ADD CONSTRAINT rep_liquidaciones_liquidado_por_fkey FOREIGN KEY (liquidado_por) REFERENCES public.null(null);
 ALTER TABLE public.rep_liquidaciones ADD CONSTRAINT rep_liquidaciones_repartidor_id_fkey FOREIGN KEY (repartidor_id) REFERENCES public.rep_repartidores(id);
-ALTER TABLE public.rep_liquidaciones ADD CONSTRAINT rep_liquidaciones_recibido_por_fkey FOREIGN KEY (recibido_por) REFERENCES public.null(null);
 ALTER TABLE public.rep_liquidaciones ADD CONSTRAINT rep_liquidaciones_repartidor_id_fecha_key UNIQUE (repartidor_id, fecha);
 CREATE UNIQUE INDEX rep_liquidaciones_repartidor_fecha_uidx ON public.rep_liquidaciones USING btree (repartidor_id, fecha);
 CREATE UNIQUE INDEX rep_liquidaciones_repartidor_id_fecha_key ON public.rep_liquidaciones USING btree (repartidor_id, fecha);
@@ -1426,8 +1476,8 @@ CREATE TABLE public.rep_movimientos_liquidacion (
   motivo_reverso text,
   PRIMARY KEY (id)
 );
-ALTER TABLE public.rep_movimientos_liquidacion ADD CONSTRAINT rep_movimientos_liquidacion_liquidacion_id_fkey FOREIGN KEY (liquidacion_id) REFERENCES public.rep_liquidaciones(id);
 ALTER TABLE public.rep_movimientos_liquidacion ADD CONSTRAINT rep_movimientos_liquidacion_repartidor_id_fkey FOREIGN KEY (repartidor_id) REFERENCES public.rep_repartidores(id);
+ALTER TABLE public.rep_movimientos_liquidacion ADD CONSTRAINT rep_movimientos_liquidacion_liquidacion_id_fkey FOREIGN KEY (liquidacion_id) REFERENCES public.rep_liquidaciones(id);
 ALTER TABLE public.rep_movimientos_liquidacion ADD CONSTRAINT rep_movimientos_liquidacion_request_id_key UNIQUE (request_id);
 CREATE INDEX rep_mov_liq_repartidor_fecha_idx ON public.rep_movimientos_liquidacion USING btree (repartidor_id, fecha, created_at DESC);
 CREATE UNIQUE INDEX rep_movimientos_liquidacion_request_id_key ON public.rep_movimientos_liquidacion USING btree (request_id);
@@ -1451,9 +1501,9 @@ CREATE TABLE public.rep_notificaciones (
   created_at timestamp with time zone DEFAULT now(),
   PRIMARY KEY (id)
 );
-ALTER TABLE public.rep_notificaciones ADD CONSTRAINT rep_notificaciones_pedido_id_fkey FOREIGN KEY (pedido_id) REFERENCES public.ol_pedidos(id);
-ALTER TABLE public.rep_notificaciones ADD CONSTRAINT rep_notificaciones_destinatario_id_fkey FOREIGN KEY (destinatario_id) REFERENCES public.rep_repartidores(id);
 ALTER TABLE public.rep_notificaciones ADD CONSTRAINT rep_notificaciones_asignacion_id_fkey FOREIGN KEY (asignacion_id) REFERENCES public.rep_asignaciones(id);
+ALTER TABLE public.rep_notificaciones ADD CONSTRAINT rep_notificaciones_destinatario_id_fkey FOREIGN KEY (destinatario_id) REFERENCES public.rep_repartidores(id);
+ALTER TABLE public.rep_notificaciones ADD CONSTRAINT rep_notificaciones_pedido_id_fkey FOREIGN KEY (pedido_id) REFERENCES public.ol_pedidos(id);
 ALTER TABLE public.rep_notificaciones ENABLE ROW LEVEL SECURITY;
 -- POLICY rep_notificaciones_admin (ALL, roles={public})
 --   USING: rep_puede_gestionar_operacion()
@@ -1472,8 +1522,8 @@ CREATE TABLE public.rep_pedido_empaque_fotos (
   asignacion_id uuid,
   PRIMARY KEY (id)
 );
-ALTER TABLE public.rep_pedido_empaque_fotos ADD CONSTRAINT rep_pedido_empaque_fotos_pedido_id_fkey FOREIGN KEY (pedido_id) REFERENCES public.ol_pedidos(id);
 ALTER TABLE public.rep_pedido_empaque_fotos ADD CONSTRAINT rep_pedido_empaque_fotos_asignacion_id_fkey FOREIGN KEY (asignacion_id) REFERENCES public.rep_asignaciones(id);
+ALTER TABLE public.rep_pedido_empaque_fotos ADD CONSTRAINT rep_pedido_empaque_fotos_pedido_id_fkey FOREIGN KEY (pedido_id) REFERENCES public.ol_pedidos(id);
 CREATE INDEX idx_rep_pedido_empaque_fotos_asignacion ON public.rep_pedido_empaque_fotos USING btree (asignacion_id);
 CREATE INDEX idx_rep_pedido_empaque_fotos_pedido ON public.rep_pedido_empaque_fotos USING btree (pedido_id);
 ALTER TABLE public.rep_pedido_empaque_fotos ENABLE ROW LEVEL SECURITY;
@@ -1497,8 +1547,8 @@ CREATE TABLE public.rep_pedido_eventos (
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   PRIMARY KEY (id)
 );
-ALTER TABLE public.rep_pedido_eventos ADD CONSTRAINT rep_pedido_eventos_pedido_id_fkey FOREIGN KEY (pedido_id) REFERENCES public.ol_pedidos(id);
 ALTER TABLE public.rep_pedido_eventos ADD CONSTRAINT rep_pedido_eventos_asignacion_id_fkey FOREIGN KEY (asignacion_id) REFERENCES public.rep_asignaciones(id);
+ALTER TABLE public.rep_pedido_eventos ADD CONSTRAINT rep_pedido_eventos_pedido_id_fkey FOREIGN KEY (pedido_id) REFERENCES public.ol_pedidos(id);
 CREATE INDEX idx_rep_pedido_eventos_pedido ON public.rep_pedido_eventos USING btree (pedido_id, created_at DESC);
 CREATE UNIQUE INDEX idx_rep_pedido_eventos_request_id ON public.rep_pedido_eventos USING btree (request_id) WHERE (request_id IS NOT NULL);
 ALTER TABLE public.rep_pedido_eventos ENABLE ROW LEVEL SECURITY;
@@ -1557,9 +1607,9 @@ CREATE TABLE public.rep_picking (
   created_at timestamp with time zone DEFAULT now(),
   PRIMARY KEY (id)
 );
-ALTER TABLE public.rep_picking ADD CONSTRAINT rep_picking_pedido_id_fkey FOREIGN KEY (pedido_id) REFERENCES public.ol_pedidos(id);
 ALTER TABLE public.rep_picking ADD CONSTRAINT rep_picking_tienda_id_fkey FOREIGN KEY (tienda_id) REFERENCES public.ol_tiendas(id);
 ALTER TABLE public.rep_picking ADD CONSTRAINT rep_picking_asignacion_id_fkey FOREIGN KEY (asignacion_id) REFERENCES public.rep_asignaciones(id);
+ALTER TABLE public.rep_picking ADD CONSTRAINT rep_picking_pedido_id_fkey FOREIGN KEY (pedido_id) REFERENCES public.ol_pedidos(id);
 ALTER TABLE public.rep_picking ENABLE ROW LEVEL SECURITY;
 -- POLICY rep_picking_delete (DELETE, roles={public})
 --   USING: rep_puede_gestionar_operacion()
@@ -1589,9 +1639,9 @@ CREATE TABLE public.rep_reclamos (
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   PRIMARY KEY (id)
 );
-ALTER TABLE public.rep_reclamos ADD CONSTRAINT rep_reclamos_deposito_id_fkey FOREIGN KEY (deposito_id) REFERENCES public.rep_depositos_repartidor(id);
 ALTER TABLE public.rep_reclamos ADD CONSTRAINT rep_reclamos_entrega_id_fkey FOREIGN KEY (entrega_id) REFERENCES public.rep_entregas(id);
 ALTER TABLE public.rep_reclamos ADD CONSTRAINT rep_reclamos_repartidor_id_fkey FOREIGN KEY (repartidor_id) REFERENCES public.rep_repartidores(id);
+ALTER TABLE public.rep_reclamos ADD CONSTRAINT rep_reclamos_deposito_id_fkey FOREIGN KEY (deposito_id) REFERENCES public.rep_depositos_repartidor(id);
 CREATE INDEX idx_rep_reclamos_estado ON public.rep_reclamos USING btree (estado, created_at DESC);
 CREATE UNIQUE INDEX idx_rep_reclamos_request_id ON public.rep_reclamos USING btree (request_id) WHERE (request_id IS NOT NULL);
 ALTER TABLE public.rep_reclamos ENABLE ROW LEVEL SECURITY;
@@ -1638,11 +1688,11 @@ CREATE TABLE public.rep_repartidores (
   invite_expires_at timestamp with time zone,
   PRIMARY KEY (id)
 );
-ALTER TABLE public.rep_repartidores ADD CONSTRAINT rep_repartidores_zona_id_fkey FOREIGN KEY (zona_id) REFERENCES public.zonas(id);
-ALTER TABLE public.rep_repartidores ADD CONSTRAINT rep_repartidores_aprobado_por_fkey FOREIGN KEY (aprobado_por) REFERENCES public.null(null);
 ALTER TABLE public.rep_repartidores ADD CONSTRAINT rep_repartidores_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.null(null);
-ALTER TABLE public.rep_repartidores ADD CONSTRAINT rep_repartidores_cedula_key UNIQUE (cedula);
+ALTER TABLE public.rep_repartidores ADD CONSTRAINT rep_repartidores_aprobado_por_fkey FOREIGN KEY (aprobado_por) REFERENCES public.null(null);
+ALTER TABLE public.rep_repartidores ADD CONSTRAINT rep_repartidores_zona_id_fkey FOREIGN KEY (zona_id) REFERENCES public.zonas(id);
 ALTER TABLE public.rep_repartidores ADD CONSTRAINT rep_repartidores_codigo_key UNIQUE (codigo);
+ALTER TABLE public.rep_repartidores ADD CONSTRAINT rep_repartidores_cedula_key UNIQUE (cedula);
 CREATE UNIQUE INDEX idx_rep_repartidores_invite_token ON public.rep_repartidores USING btree (invite_token) WHERE (invite_token IS NOT NULL);
 CREATE UNIQUE INDEX rep_repartidores_cedula_key ON public.rep_repartidores USING btree (cedula);
 CREATE UNIQUE INDEX rep_repartidores_codigo_key ON public.rep_repartidores USING btree (codigo);
@@ -1759,8 +1809,8 @@ CREATE TABLE public.rep_traspasos_efectivo (
   request_id uuid,
   PRIMARY KEY (id)
 );
-ALTER TABLE public.rep_traspasos_efectivo ADD CONSTRAINT rep_traspasos_efectivo_repartidor_origen_id_fkey FOREIGN KEY (repartidor_origen_id) REFERENCES public.rep_repartidores(id);
 ALTER TABLE public.rep_traspasos_efectivo ADD CONSTRAINT rep_traspasos_efectivo_repartidor_destino_id_fkey FOREIGN KEY (repartidor_destino_id) REFERENCES public.rep_repartidores(id);
+ALTER TABLE public.rep_traspasos_efectivo ADD CONSTRAINT rep_traspasos_efectivo_repartidor_origen_id_fkey FOREIGN KEY (repartidor_origen_id) REFERENCES public.rep_repartidores(id);
 CREATE UNIQUE INDEX rep_traspasos_request_uidx ON public.rep_traspasos_efectivo USING btree (request_id) WHERE (request_id IS NOT NULL);
 ALTER TABLE public.rep_traspasos_efectivo ENABLE ROW LEVEL SECURITY;
 -- POLICY rep_traspasos_efectivo_driver_admin_policy (ALL, roles={authenticated})
@@ -2037,6 +2087,7 @@ ALTER TABLE public.zonas ENABLE ROW LEVEL SECURITY;
 -- [SECURITY DEFINER] desbloquear_repartidor_admin(p_repartidor_id uuid, p_motivo text) RETURNS rep_repartidores  [plpgsql]
 -- [SECURITY DEFINER] finalizar_compra_shopper(p_asignacion_id uuid, p_request_id uuid) RETURNS rep_asignaciones  [plpgsql]
 -- [SECURITY DEFINER] finalizar_entrega_atomica(p_request_id uuid, p_asignacion_id uuid, p_monto numeric, p_metodo text, p_lat numeric, p_lng numeric, p_foto_url text, p_firma_url text, p_referencias text, p_nota_diferencia text) RETURNS rep_entregas  [plpgsql]
+-- [SECURITY DEFINER] finalizar_entrega_atomica(p_request_id uuid, p_asignacion_id uuid, p_monto numeric, p_metodo text, p_lat numeric, p_lng numeric, p_foto_url text, p_firma_url text, p_referencias text, p_nota_diferencia text, p_direccion_corregida boolean, p_direccion_confirmada boolean) RETURNS rep_entregas  [plpgsql]
 -- [SECURITY DEFINER] finalizar_entrega_atomica(p_request_id uuid, p_asignacion_id uuid, p_monto numeric, p_metodo text, p_lat numeric, p_lng numeric, p_foto_url text, p_firma_url text, p_referencias text, p_nota_diferencia text, p_direccion_corregida boolean) RETURNS rep_entregas  [plpgsql]
 -- [SECURITY DEFINER] generar_invitacion_repartidor(p_repartidor_id uuid) RETURNS text  [plpgsql]
 -- [SECURITY DEFINER] guardar_costo_envio_pedido(p_pedido_id uuid, p_costo_envio numeric) RETURNS numeric  [plpgsql]
@@ -2062,6 +2113,7 @@ ALTER TABLE public.zonas ENABLE ROW LEVEL SECURITY;
 -- rep_direcciones_similares(p_dir1 text, p_dir2 text) RETURNS boolean  [plpgsql]
 -- [SECURITY DEFINER] rep_is_admin() RETURNS boolean  [sql]
 -- [SECURITY DEFINER] rep_mi_id() RETURNS uuid  [sql]
+-- rep_normalizar_telefono(p_telefono text) RETURNS text  [sql]
 -- [SECURITY DEFINER] rep_puede_administrar_usuarios() RETURNS boolean  [sql]
 -- [SECURITY DEFINER] rep_puede_confirmar_pago() RETURNS boolean  [sql]
 -- [SECURITY DEFINER] rep_puede_gestionar_operacion() RETURNS boolean  [sql]
@@ -2072,6 +2124,8 @@ ALTER TABLE public.zonas ENABLE ROW LEVEL SECURITY;
 -- [SECURITY DEFINER] rep_puede_ver_pedido(p_pedido_id uuid) RETURNS boolean  [sql]
 -- [SECURITY DEFINER] rep_tiene_efectivo_vencido(p_repartidor_id uuid) RETURNS boolean  [sql]
 -- [SECURITY DEFINER] rep_tiene_rol(VARIADIC roles text[]) RETURNS boolean  [sql]
+-- [SECURITY DEFINER] resolver_cliente_id(p_telefono text, p_nombre text) RETURNS uuid  [plpgsql]
+-- [SECURITY DEFINER] resolver_direccion_id(p_telefono text, p_direccion text, p_ciudad text, p_referencias text) RETURNS uuid  [plpgsql]
 -- [SECURITY DEFINER] resolver_reclamo(p_reclamo_id uuid, p_respuesta text) RETURNS rep_reclamos  [plpgsql]
 -- [SECURITY DEFINER] reversar_movimiento_liquidacion(p_movimiento_id uuid, p_motivo text) RETURNS numeric  [plpgsql]
 -- [SECURITY DEFINER] revertir_pago_admin(p_pedido_id uuid, p_motivo text, p_request_id uuid) RETURNS ol_pedidos  [plpgsql]

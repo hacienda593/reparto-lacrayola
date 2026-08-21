@@ -413,6 +413,11 @@ export default function EntregaPage() {
         p_referencias: referenciasFinal || null,
         p_nota_diferencia: notaDiferencia,
         p_direccion_corregida: corrigiendoGps && !!nuevaGeo,
+        // P1-03: "Sí, es correcta" en el paso de arriba es la confirmación
+        // explícita que exige el servidor cuando la dirección de este
+        // cliente todavía no estaba verificada -- no basta con que el
+        // repartidor simplemente no haya tocado nada.
+        p_direccion_confirmada: gpsConfirmado === true,
       })
       if (cierreError) throw cierreError
       sessionStorage.removeItem(requestKey)
