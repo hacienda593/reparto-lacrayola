@@ -1,0 +1,1 @@
+SELECT tablename AS tabla, policyname AS nombre, cmd AS comando, roles::text AS roles, qual AS using_expr, with_check AS with_check_expr FROM pg_policies WHERE schemaname='public' ORDER BY tablename, policyname;

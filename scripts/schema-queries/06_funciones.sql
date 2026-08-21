@@ -1,0 +1,1 @@
+SELECT p.proname AS nombre, pg_get_function_identity_arguments(p.oid) AS args, pg_get_function_result(p.oid) AS retorna, p.prosecdef AS security_definer, l.lanname AS lenguaje FROM pg_proc p JOIN pg_namespace n ON p.pronamespace=n.oid JOIN pg_language l ON p.prolang=l.oid WHERE n.nspname='public' AND p.prokind='f' ORDER BY p.proname;

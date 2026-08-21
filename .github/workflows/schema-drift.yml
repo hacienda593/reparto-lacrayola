@@ -1,0 +1,52 @@
+name: Esquema de producción — detección de deriva
+
+# P0-01 de docs/auditoria_operativa_aplicacion_entregas_2026-08-21.md.
+#
+# Regenera supabase/schema.sql contra la base de datos real y falla si
+# difiere del que está commiteado -- así una migración aplicada a mano
+# (sin pasar por lib/supabase/migration_*.sql) queda visible en vez de
+# quedar solo en la memoria de quien la corrió.
+#
+# Requiere que el repositorio tenga configurados estos secrets
+# (Settings → Secrets and variables → Actions) antes de que este
+# workflow pueda correr con éxito:
+#   SUPABASE_ACCESS_TOKEN   token personal de supabase (supabase login)
+#   SUPABASE_PROJECT_REF    ref del proyecto (kjshjgatoatsknbvswft)
+#   SUPABASE_DB_PASSWORD    password de la base de datos del proyecto
+
+on:
+  schedule:
+    - cron: '0 9 * * 1' # lunes 09:00 UTC
+  workflow_dispatch: {}
+  pull_request:
+    paths:
+      - 'lib/supabase/migration_*.sql'
+      - 'scripts/schema-queries/**'
+      - 'scripts/generar-schema-produccion.mjs'
+
+jobs:
+  drift-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Link proyecto Supabase
+        run: npx supabase link --project-ref "$SUPABASE_PROJECT_REF"
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      - name: Regenerar esquema y comparar contra el commiteado
+        run: |
+          npm run db:schema:snapshot
+          if ! git diff --quiet -- supabase/schema.sql; then
+            echo "::error::supabase/schema.sql quedó desactualizado respecto a producción. Corré 'npm run db:schema:snapshot' y commiteá el resultado."
+            git diff -- supabase/schema.sql
+            exit 1
+          fi
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}

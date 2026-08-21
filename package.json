@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "db:schema:snapshot": "node scripts/generar-schema-produccion.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.10.3",

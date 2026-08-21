@@ -1,0 +1,1 @@
+SELECT c.relname AS tabla, c.relrowsecurity AS rls_enabled, c.relforcerowsecurity AS rls_forzado FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid WHERE n.nspname='public' AND c.relkind='r' ORDER BY c.relname;
