@@ -5,7 +5,8 @@ const MapaRuta = dynamic(() => import('@/components/MapaRuta'), { ssr: false })
 import Link from 'next/link'
 import { useAuth } from '@/context/AuthContext'
 import { supabase } from '@/lib/supabase'
-import { registrarYAbrirWhatsApp } from '@/lib/comunicaciones'
+import { registrarYAbrirWhatsApp, formatWhatsApp } from '@/lib/comunicaciones'
+import { distanciaKm, minutosEstimados, ordenarPorCercania } from '@/lib/geo'
 import { logout } from '@/actions/auth'
 import { useRouter } from 'next/navigation'
 import { Loader2, MapPin, CheckCircle, Package, Phone, Navigation, DollarSign, UserCircle, ArrowRightLeft, X, AlertCircle, LogOut, Menu, Map as MapIcon, Target } from 'lucide-react'
@@ -244,52 +245,6 @@ export default function RepartidorPage() {
 
   // Ruta combinada: ordena las entregas 'en_ruta' por cercanía (vecino más próximo) desde
   // la ubicación actual del repartidor y abre Google Maps con todas las paradas intermedias.
-  function distanciaAprox(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
-    const dLat = a.lat - b.lat
-    const dLng = a.lng - b.lng
-    return Math.sqrt(dLat * dLat + dLng * dLng)
-  }
-
-  // Distancia real en km (Haversine) -- distanciaAprox de arriba es solo un
-  // proxy en grados, útil para ordenar por cercanía pero no para mostrarle
-  // un ETA creíble al repartidor.
-  function distanciaKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
-    const R = 6371
-    const dLat = (b.lat - a.lat) * Math.PI / 180
-    const dLng = (b.lng - a.lng) * Math.PI / 180
-    const s = Math.sin(dLat/2)**2 + Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*Math.sin(dLng/2)**2
-    return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1-s))
-  }
-
-  // ETA aproximado asumiendo velocidad urbana promedio (San Miguel de los
-  // Bancos y alrededores, calles de montaña/tierra) -- es una estimación
-  // gruesa a partir de línea recta, se etiqueta siempre como "aprox."
-  function minutosEstimados(km: number) {
-    const VELOCIDAD_KMH = 25
-    return Math.max(1, Math.round((km / VELOCIDAD_KMH) * 60))
-  }
-
-  function ordenarPorCercania(origenGeo: { lat: number; lng: number } | null, paradas: PedidoAsignado[]): PedidoAsignado[] {
-    const restantes = [...paradas]
-    const ordenadas: PedidoAsignado[] = []
-    let puntoActual = origenGeo
-
-    while (restantes.length > 0) {
-      if (!puntoActual) {
-        ordenadas.push(...restantes)
-        break
-      }
-      restantes.sort((a, b) =>
-        distanciaAprox(puntoActual!, { lat: a.geo_lat!, lng: a.geo_lng! }) -
-        distanciaAprox(puntoActual!, { lat: b.geo_lat!, lng: b.geo_lng! })
-      )
-      const siguiente = restantes.shift()!
-      ordenadas.push(siguiente)
-      puntoActual = { lat: siguiente.geo_lat!, lng: siguiente.geo_lng! }
-    }
-    return ordenadas
-  }
-
   function abrirRutaCombinada() {
     const paradas = pedidos.filter(p => p.estado === 'en_ruta' && p.geo_lat && p.geo_lng)
     if (paradas.length === 0) return
@@ -416,16 +371,6 @@ export default function RepartidorPage() {
     } finally {
       setProcesandoTraspaso(false)
     }
-  }
-
-  function formatWhatsApp(phone: string | null | undefined): string {
-    if (!phone) return ''
-    const clean = phone.replace(/\D/g, '')
-    return clean.startsWith('0') 
-      ? '593' + clean.slice(1) 
-      : clean.startsWith('9') && clean.length === 9 
-        ? '593' + clean 
-        : clean
   }
 
   async function cargar(userId: string, esReintento = false) {

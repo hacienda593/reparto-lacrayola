@@ -4,6 +4,14 @@
 // duplicada como función local en repartidor/page.tsx y otros archivos --
 // se centraliza acá para P1-02 (heurística de orden de recogida) sin sumar
 // una cuarta copia.
+// ETA aproximado asumiendo velocidad urbana promedio (San Miguel de los
+// Bancos y alrededores, calles de montaña/tierra) -- es una estimación
+// gruesa a partir de línea recta, se etiqueta siempre como "aprox."
+export function minutosEstimados(km: number) {
+  const VELOCIDAD_KMH = 25
+  return Math.max(1, Math.round((km / VELOCIDAD_KMH) * 60))
+}
+
 export function distanciaKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
   const R = 6371
   const dLat = (b.lat - a.lat) * Math.PI / 180
