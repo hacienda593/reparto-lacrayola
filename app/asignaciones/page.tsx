@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
 import { firmarUrlComprobante } from '@/lib/supabase/signedUrl'
+import { registrarYAbrirWhatsApp } from '@/lib/comunicaciones'
 import Sidebar from '@/components/Sidebar'
 import { 
   Truck, Package, Users, Plus, Trash2, Loader2, 
@@ -1424,17 +1425,17 @@ export default function AsignacionesPage() {
                                 cuando no lo dejo en el checkout. Incluye la ubicacion de
                                 entrega seleccionada en el Paso 3 para que el cliente la
                                 reconozca y confirme junto con el pago. */}
-                            <a
-                              href={"https://wa.me/593" + (modalPedido.telefono.startsWith('0') ? modalPedido.telefono.slice(1) : modalPedido.telefono) + "?text=" + encodeURIComponent(
-                                `Hola ${modalPedido.nombre_cliente}, hemos recibido tu pedido #${String(modalPedido.numero).padStart(4, '0')} ($${modalPedido.total.toFixed(2)})` +
-                                (ubicacionSel ? `, a ser entregado en "${ubicacionSel.nombre}" 📍 ${ubicacionUrl}` : '') +
-                                `. Para continuar necesitamos verificar tu transferencia: aún no hemos recibido el comprobante o número de referencia. ¿Nos lo puedes compartir? ¡Gracias!`
-                              )}
-                              target="_blank"
-                              rel="noopener noreferrer"
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const msg = `Hola ${modalPedido.nombre_cliente}, hemos recibido tu pedido #${String(modalPedido.numero).padStart(4, '0')} ($${modalPedido.total.toFixed(2)})` +
+                                  (ubicacionSel ? `, a ser entregado en "${ubicacionSel.nombre}" 📍 ${ubicacionUrl}` : '') +
+                                  `. Para continuar necesitamos verificar tu transferencia: aún no hemos recibido el comprobante o número de referencia. ¿Nos lo puedes compartir? ¡Gracias!`
+                                registrarYAbrirWhatsApp({ pedidoId: modalPedido.id, tipo: 'pago_observado', mensaje: msg, telefono: modalPedido.telefono })
+                              }}
                               className="w-full bg-green-600 hover:bg-green-555 text-white font-extrabold text-[10px] py-2 rounded-lg flex items-center justify-center gap-1.5 transition cursor-pointer">
                               <Phone size={11} /> Solicitar comprobante por WhatsApp
-                            </a>
+                            </button>
                           </div>
                         )}
 
@@ -1773,15 +1774,15 @@ export default function AsignacionesPage() {
                       <div className="bg-[#181f29] border border-gray-800 rounded-2xl p-4 space-y-3">
                         <div className="flex justify-between items-center flex-wrap gap-2">
                           <label className="text-[9px] text-gray-400 font-bold uppercase tracking-wider">Registrar Coordenadas GPS</label>
-                          <a
-                            href={"https://wa.me/593" + (modalPedido.telefono.startsWith('0') ? modalPedido.telefono.slice(1) : modalPedido.telefono) + "?text=" + encodeURIComponent(
-                              "Hola " + modalPedido.nombre_cliente + ", te saluda La Crayola. Para poder entregar tu pedido #" + modalPedido.numero + " sin contratiempos, ¿serías tan amable de compartirnos tu ubicación GPS exacta por este medio? ¡Muchas gracias!"
-                            )}
-                            target="_blank"
-                            rel="noopener noreferrer"
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const msg = "Hola " + modalPedido.nombre_cliente + ", te saluda La Crayola. Para poder entregar tu pedido #" + modalPedido.numero + " sin contratiempos, ¿serías tan amable de compartirnos tu ubicación GPS exacta por este medio? ¡Muchas gracias!"
+                              registrarYAbrirWhatsApp({ pedidoId: modalPedido.id, tipo: 'problema_ubicacion', mensaje: msg, telefono: modalPedido.telefono })
+                            }}
                             className="bg-green-600 hover:bg-green-555 text-white font-extrabold text-[9px] px-2.5 py-1 rounded-lg flex items-center gap-1 transition cursor-pointer">
                             <Phone size={10} /> Pedir Ubicación por WhatsApp
-                          </a>
+                          </button>
                         </div>
 
                         <div className="space-y-1">

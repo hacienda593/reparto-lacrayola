@@ -4,6 +4,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Loader2, CheckCircle2, AlertTriangle, Shield, CreditCard, Camera, ArrowRight, Plus, Minus } from 'lucide-react'
 import { parseDatosFactura } from '@/lib/facturaCliente'
+import { registrarYAbrirWhatsApp } from '@/lib/comunicaciones'
 type SriFactura={estado:string;claveAcceso:string;fechaAutorizacion:string|null;ambiente:string;rucEmisor:string;razonSocialEmisor:string;identificacionComprador:string;razonSocialComprador:string;establecimiento:string;puntoEmision:string;secuencial:string;fechaEmision:string;subtotal:number;iva:number;total:number;xml:string;sha256:string;detalles:Array<{codigo:string;descripcion:string;cantidad:number;precioUnitario:number;precioTotal:number}>}
 
 export default function CajaPage() {
@@ -747,9 +748,9 @@ export default function CajaPage() {
               const msg = esRetiro
                 ? `¡Hola *${pedido?.nombre_cliente}*! 🛍️ Tu pedido #*${paddingNum}* de Tienda La Crayola ya está facturado y *LISTO PARA RETIRAR* en nuestro local principal. Monto total a cancelar: *$${parseFloat(montoFacturado || '0').toFixed(2)}*. ¡Te esperamos!`
                 : `¡Hola *${pedido?.nombre_cliente}*! Tu pedido #*${paddingNum}* de Tienda La Crayola ha sido facturado en caja por un total de *$${parseFloat(montoFacturado || '0').toFixed(2)}* y entregado al repartidor. 📦 ¡Pronto iniciaremos la ruta de entrega!`
-              const cleanPhone = pedido?.telefono?.replace(/\D/g, '') || ''
-              const formattedPhone = cleanPhone.startsWith('0') ? '593' + cleanPhone.slice(1) : cleanPhone
-              window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(msg)}`, '_blank')
+              if (pedido?.id && pedido?.telefono) {
+                registrarYAbrirWhatsApp({ pedidoId: pedido.id, tipo: 'compra_lista', mensaje: msg, telefono: pedido.telefono, asignacionId: id })
+              }
             }}
             className="bg-green-600 hover:bg-green-700 text-white font-bold px-4 py-2.5 rounded-xl text-xs transition-all shrink-0">
             {pedido?.direccion === 'RETIRO EN TIENDA' ? '📲 Notificar Retiro' : '📲 Notificar Real'}

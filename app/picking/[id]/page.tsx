@@ -4,6 +4,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Loader2, CheckCircle2, AlertTriangle, Navigation, Phone, MessageCircle, Truck, RotateCcw, FileText } from 'lucide-react'
 import { parseDatosFactura } from '@/lib/facturaCliente'
+import { registrarYAbrirWhatsApp } from '@/lib/comunicaciones'
 
 const EMOJIS: Record<string, string> = {}
 function fmt(n: number) { return '$' + (n ?? 0).toFixed(2) }
@@ -528,7 +529,9 @@ export default function PickingPage() {
               <button onClick={() => {
                 const prodNombre = productos.find(p => p.id === agotadoOpen)?.nombre || 'Producto'
                 const msg = `⚠️ *La Crayola - Novedad de Stock* \n\nHola *${pedido?.nombre_cliente}*, en tu pedido *#${String(pedido?.numero ?? 0).padStart(4,'0')}*, te comento que no hay stock disponible de *"${prodNombre}"*. ¿Deseas sustituirlo por otra marca/tamaño similar, o prefieres omitirlo de la lista? 🛒`
-                window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(msg)}`, '_blank')
+                if (pedido?.id && pedido?.telefono) {
+                  registrarYAbrirWhatsApp({ pedidoId: pedido.id, tipo: 'faltante_sustitucion', mensaje: msg, telefono: pedido.telefono, asignacionId: id })
+                }
                 confirmarAgotado(agotadoOpen)
               }}
                 className="w-full bg-green-700/25 border border-green-500/40 hover:bg-green-700/40 text-green-400 text-left px-4 py-3.5 rounded-2xl flex items-center justify-between transition-all">
@@ -596,7 +599,9 @@ export default function PickingPage() {
               const trackingUrl = `https://tienda-lacrayola.vercel.app/pedido/${pedido?.id}`
               const paddingNum = String(pedido?.numero ?? 0).padStart(4, '0')
               const msg = `Hola *${pedido?.nombre_cliente}*, soy el encargado de compras de Tienda La Crayola. He *aceptado* tu pedido #*${paddingNum}* de Tuti/Tía y ya me preparo para realizarlo. Puedes seguir el estado en tiempo real en: ${trackingUrl}`
-              window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(msg)}`, '_blank')
+              if (pedido?.id && pedido?.telefono) {
+                registrarYAbrirWhatsApp({ pedidoId: pedido.id, tipo: 'inicio_compra', mensaje: msg, telefono: pedido.telefono, asignacionId: id })
+              }
             }}
             className="flex-1 bg-indigo-600/20 border border-indigo-500/30 hover:bg-indigo-600/35 text-indigo-400 py-2 rounded-xl text-[11px] font-bold transition text-center cursor-pointer"
           >
@@ -606,7 +611,9 @@ export default function PickingPage() {
             onClick={() => {
               const paddingNum = String(pedido?.numero ?? 0).padStart(4, '0')
               const msg = `Hola *${pedido?.nombre_cliente}*, ya me encuentro en el supermercado *realizando tus compras* para el pedido #*${paddingNum}*. Si un artículo no está disponible, te consultaré por esta vía.`
-              window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(msg)}`, '_blank')
+              if (pedido?.id && pedido?.telefono) {
+                registrarYAbrirWhatsApp({ pedidoId: pedido.id, tipo: 'inicio_compra', mensaje: msg, telefono: pedido.telefono, asignacionId: id })
+              }
             }}
             className="flex-1 bg-purple-600/20 border border-purple-500/30 hover:bg-purple-600/35 text-purple-400 py-2 rounded-xl text-[11px] font-bold transition text-center cursor-pointer"
           >

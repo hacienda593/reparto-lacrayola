@@ -5,6 +5,7 @@ const MapaRuta = dynamic(() => import('@/components/MapaRuta'), { ssr: false })
 import Link from 'next/link'
 import { useAuth } from '@/context/AuthContext'
 import { supabase } from '@/lib/supabase'
+import { registrarYAbrirWhatsApp } from '@/lib/comunicaciones'
 import { logout } from '@/actions/auth'
 import { useRouter } from 'next/navigation'
 import { Loader2, MapPin, CheckCircle, Package, Phone, Navigation, DollarSign, UserCircle, ArrowRightLeft, X, AlertCircle, LogOut, Menu, Map as MapIcon, Target } from 'lucide-react'
@@ -828,9 +829,9 @@ export default function RepartidorPage() {
     await cargar(user!.id)
     setProcesando(null)
 
-    // 3. Abrir WhatsApp para notificar al cliente
+    // 3. Abrir WhatsApp para notificar al cliente (y dejar constancia -- P0-04)
     const msg = `🛒 *La Crayola - Compras en curso* \n\n¡Hola *${nombreCliente}*! Soy *${repartidor.nombre}*, tu comprador asignado de La Crayola. He recibido tu pedido *#${String(numero).padStart(4,'0')}* y voy a iniciar tus compras ahora mismo en los supermercados asociados. Te mantendré al tanto de cualquier novedad por este medio. 🧺`
-    window.open(`https://wa.me/${formatWhatsApp(telefonoCliente)}?text=${encodeURIComponent(msg)}`, '_blank')
+    registrarYAbrirWhatsApp({ pedidoId, tipo: 'inicio_compra', mensaje: msg, telefono: telefonoCliente, asignacionId })
 
     // 4. Navegar a la pantalla de picking completa (escaner, avance, canasta) —
     // /picking/[id] usa el id de la ASIGNACION, no el del pedido. (FUN-01
@@ -885,7 +886,7 @@ export default function RepartidorPage() {
     router.push(`/entrega/${asignacionId}`)
 
     const msg = `🛵 *La Crayola - ¡Tu pedido va en camino!* \n\nHola *${nombreCliente}*, tu pedido *#${String(numero).padStart(4,'0')}* ya fue comprado y va en camino a cargo de *${repartidor.nombre}*. 📍 Puedes seguir mi trayecto y contactarme directamente. ¡Llegaré en unos minutos!`
-    window.open(`https://wa.me/${formatWhatsApp(telefonoCliente)}?text=${encodeURIComponent(msg)}`, '_blank')
+    registrarYAbrirWhatsApp({ pedidoId, tipo: 'en_camino', mensaje: msg, telefono: telefonoCliente, asignacionId })
   }
 
   const ultimoUserId = useRef<string | null>(null)
