@@ -20,7 +20,7 @@ export default function TraspasoPage() {
   // bits para el QR + código visual de 6 caracteres para digitar a mano,
   // generados por crear_traspaso_shopper() con expiración de 8 minutos.
   // Ya no es el UUID de la asignación ni un PIN sin expirar.
-  const [handoffId, setHandoffId] = useState<string | null>(null)
+  const [, setHandoffId] = useState<string | null>(null)
   const [token, setToken] = useState('')
   const [codigoVisual, setCodigoVisual] = useState('')
   const [expiresAt, setExpiresAt] = useState<Date | null>(null)

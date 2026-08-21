@@ -2,11 +2,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { Loader2, CheckCircle2, AlertTriangle, Navigation, Phone, MessageCircle, Truck, RotateCcw, FileText } from 'lucide-react'
+import { Loader2, CheckCircle2, AlertTriangle, Phone, MessageCircle, Truck, RotateCcw, FileText } from 'lucide-react'
 import { parseDatosFactura } from '@/lib/facturaCliente'
 import { registrarYAbrirWhatsApp } from '@/lib/comunicaciones'
 
-const EMOJIS: Record<string, string> = {}
 function fmt(n: number) { return '$' + (n ?? 0).toFixed(2) }
 
 function emojiProd(n: string) {
@@ -65,7 +64,6 @@ export default function PickingPage() {
 
   const [pedido,      setPedido]      = useState<any>(null)
   const [productos,   setProductos]   = useState<any[]>([])
-  const [asignacion,  setAsignacion]  = useState<any>(null)
   // Multi-tienda: cada tienda es su PROPIA pestaña (no una sección más
   // dentro de la misma lista) -- se ve solo lo de la tienda activa a la
   // vez, con su propio control de avance y su propio botón de caja.
@@ -74,7 +72,6 @@ export default function PickingPage() {
   const [escaneando,  setEscaneando]  = useState(false)
   const [prodActivo,  setProdActivo]  = useState<string | null>(null)
   const [agotadoOpen, setAgotadoOpen] = useState<string | null>(null)
-  const [guardando,   setGuardando]   = useState(false)
   const [expandido,   setExpandidoProd] = useState<string | null>(null)
   const [tab,         setTab]         = useState<Tab>('lista')
   const [chatMsg,     setChatMsg]     = useState('')
@@ -93,7 +90,6 @@ export default function PickingPage() {
   async function cargar() {
     const { data: asig } = await supabase.from('rep_asignaciones').select('*').eq('id', id).single()
     if (!asig) { router.replace('/pedidos'); return }
-    setAsignacion(asig)
     const { data: ped } = await supabase.from('ol_pedidos').select('*').eq('id', asig.pedido_id).single()
     setPedido(ped)
     // Multi-tienda: si esta asignación ya es de UNA tienda puntual (pool
@@ -108,7 +104,7 @@ export default function PickingPage() {
 
     // Obtener imagen_url, marca, codigo_barras y tienda de ol_productos
     const codigos = (items ?? []).map((it: any) => it.codigo).filter(Boolean)
-    let prodMap: Record<string, { descripcion: string | null; imagen_url: string | null; codigo_barras: string | null; marca: string | null; tienda_id: string | null }> = {}
+    const prodMap: Record<string, { descripcion: string | null; imagen_url: string | null; codigo_barras: string | null; marca: string | null; tienda_id: string | null }> = {}
     if (codigos.length > 0) {
       const { data: prods } = await supabase
         .from('ol_productos')
@@ -123,7 +119,7 @@ export default function PickingPage() {
 
     // Nombre de cada tienda involucrada (un pedido puede combinar Tuti + Tia + La Crayola)
     const tiendaIds = Array.from(new Set(Object.values(prodMap).map(p => p.tienda_id).filter(Boolean))) as string[]
-    let tiendaNombreMap: Record<string, string> = {}
+    const tiendaNombreMap: Record<string, string> = {}
     if (tiendaIds.length > 0) {
       const { data: tiendasData } = await supabase.from('ol_tiendas').select('id, nombre').in('id', tiendaIds)
       ;(tiendasData ?? []).forEach((t: any) => { tiendaNombreMap[t.id] = t.nombre })
@@ -282,29 +278,13 @@ export default function PickingPage() {
     }
   }
 
-  async function iniciarRuta() {
-    setGuardando(true)
-    // RPC atómica: valida en el servidor que seas el shopper responsable,
-    // que la compra ya haya iniciado y que todos los ítems estén resueltos
-    // (antes solo se chequeaba "listo" del lado del cliente), y actualiza
-    // rep_asignaciones y ol_pedidos.estado en una sola transacción, con
-    // idempotencia por request_id (migration_finalizar_compra_atomica.sql).
-    const requestKey = `finalizar-compra-request:${id}`
-    const requestId = sessionStorage.getItem(requestKey) || crypto.randomUUID()
-    sessionStorage.setItem(requestKey, requestId)
-
-    const { error } = await supabase.rpc('finalizar_compra_shopper', {
-      p_asignacion_id: id,
-      p_request_id: requestId,
-    })
-    if (error) {
-      alert('No se pudo finalizar la compra: ' + error.message)
-      setGuardando(false)
-      return
-    }
-    sessionStorage.removeItem(requestKey)
-    router.push(`/entrega/${id}`)
-  }
+  // Nota (P1-05 de la auditoría): existía acá una función iniciarRuta() sin
+  // ningún botón que la llamara -- llamaba a finalizar_compra_shopper(), una
+  // RPC que sigue viva en la base pero que ningún otro punto del frontend
+  // invoca (el flujo real de "terminar de comprar" navega directo a
+  // /caja/[id], más abajo en esta pantalla). Se retira el código muerto; si
+  // esa RPC debía quedar enganchada en algún punto del flujo, es una
+  // decisión de negocio aparte, no algo a resolver silenciosamente acá.
 
   function enviarMensaje() {
     if (!chatMsg.trim()) return

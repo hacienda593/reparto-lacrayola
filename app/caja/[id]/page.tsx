@@ -1,8 +1,8 @@
 'use client'
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { Loader2, CheckCircle2, AlertTriangle, Shield, CreditCard, Camera, ArrowRight, Plus, Minus } from 'lucide-react'
+import { Loader2, CheckCircle2, Shield, Camera, ArrowRight, Plus, Minus } from 'lucide-react'
 import { parseDatosFactura } from '@/lib/facturaCliente'
 import { registrarYAbrirWhatsApp } from '@/lib/comunicaciones'
 type SriFactura={estado:string;claveAcceso:string;fechaAutorizacion:string|null;ambiente:string;rucEmisor:string;razonSocialEmisor:string;identificacionComprador:string;razonSocialComprador:string;establecimiento:string;puntoEmision:string;secuencial:string;fechaEmision:string;subtotal:number;iva:number;total:number;xml:string;sha256:string;detalles:Array<{codigo:string;descripcion:string;cantidad:number;precioUnitario:number;precioTotal:number}>}
@@ -19,11 +19,10 @@ export default function CajaPage() {
   const [guardando,    setGuardando]    = useState(false)
   
   // Formulario SRI
-  const [ruc, setRuc]                                 = useState(process.env.NEXT_PUBLIC_TIENDA_RUC || '1717067647001') // RUC por defecto de La Crayola
+  const [ruc]                                         = useState(process.env.NEXT_PUBLIC_TIENDA_RUC || '1717067647001') // RUC por defecto de La Crayola
   const [provEstablecimiento, setProvEstablecimiento] = useState('001')
   const [provPuntoEmision, setProvPuntoEmision]       = useState('010')
   const [provSecuencial, setProvSecuencial]           = useState('')
-  const [factura, setFactura]                         = useState('')
   const [claveAcceso, setClaveAcceso]                 = useState('')
   const [montoFacturado, setMontoFacturado]           = useState('')
   const [metodoPago, setMetodoPago]                   = useState('tarjeta_corporativa')
@@ -300,7 +299,6 @@ export default function CajaPage() {
     if (digitoVerificador === 10) digitoVerificador = 1
 
     const claveCompleta = `${claveSinDigito}${digitoVerificador}`
-    setFactura(`${cleanEstab}-${cleanPtoEmi}-${cleanSecuencial}`)
     // Si la clave recién calculada es igual a la que ya estaba, no tocar
     // nada más (evita re-renders y, sobre todo, invalidar una validación
     // real que ya se hizo contra el SRI para esta misma clave). Si cambió
@@ -538,7 +536,7 @@ export default function CajaPage() {
 
       // Redireccionar al dashboard para proceder con el traspaso o la entrega
       router.push('/repartidor?modo=comprador')
-    } catch (e) {
+    } catch {
       setError('Ocurrió un error al guardar en la base de datos de Supabase.')
       setGuardando(false)
     }
@@ -560,7 +558,6 @@ export default function CajaPage() {
   // sin salir de caja.
   const tiendasPendientes = tiendasPedido.filter(t => !tiendasFacturadas.has(t.id))
   const esUltimaTienda = tiendasPedido.length === 0 || tiendasPendientes.length <= 1
-  const nombreTiendaActual = tiendasPedido.find(t => t.id === tiendaId)?.nombre
 
   // Reconciliación factura del SRI vs lo que la app esperaba comprar: no hay
   // otra forma de saber, aparte de esto, si lo que trae el ticket coincide

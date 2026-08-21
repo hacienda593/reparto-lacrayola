@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import Sidebar from '@/components/Sidebar'
-import { Plus, X, Check, Loader2, Shield, Eye, EyeOff, AlertCircle, Trash2 } from 'lucide-react'
+import { Plus, X, Check, Loader2, Shield, Eye, EyeOff, AlertCircle } from 'lucide-react'
 
 type Rol = 'superadmin' | 'admin' | 'supervisor' | 'contador' | 'comprador' | 'repartidor' | 'comprador-repartidor'
 

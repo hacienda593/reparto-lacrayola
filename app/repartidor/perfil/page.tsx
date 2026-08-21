@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '@/context/AuthContext'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
-import { Loader2, Check, ArrowLeft, Phone, MapPin, Bike, User, LogOut, PackageCheck, PackageX, Wallet, Upload, X } from 'lucide-react'
+import { Loader2, Check, ArrowLeft, Phone, MapPin, Bike, User, LogOut, PackageCheck, PackageX, Wallet, Upload } from 'lucide-react'
 import { logout } from '@/actions/auth'
 
 const VEHICULOS = [
@@ -39,7 +39,14 @@ export default function PerfilRepartidorPage() {
   const [estadoCuenta, setEstadoCuenta] = useState<any>(null)
   const [depositos,    setDepositos]    = useState<any[]>([])
   const [comisionPendiente, setComisionPendiente] = useState(0)
+  // P1-05 de la auditoría: periodosPago/verTodoHistorial/cargarHistorialCompleto
+  // (abajo) quedaron listos del lado de datos pero sin un botón "ver más" en
+  // el JSX que los conecte -- es una función pensada (ver el comentario en
+  // cargarCaja) e incompleta, no código muerto/obsoleto, así que no se borra
+  // acá; falta el hookup visual cuando se retome esta pantalla.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [periodosPago, setPeriodosPago] = useState<any[]>([])
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [verTodoHistorial, setVerTodoHistorial] = useState(false)
 
   async function cargarCaja() {
@@ -61,6 +68,7 @@ export default function PerfilRepartidorPage() {
     setPeriodosPago(periodos ?? [])
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async function cargarHistorialCompleto() {
     const { data } = await supabase.from('rep_periodos_pago').select('*').eq('estado', 'cerrado').order('hasta', { ascending: false })
     setPeriodosPago(data ?? [])
@@ -277,7 +285,7 @@ export default function PerfilRepartidorPage() {
           {Number(estadoCuenta?.efectivo_en_mano ?? 0) > 0 && (
             <button onClick={() => router.push('/repartidor')}
               className="w-full flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-xl text-xs transition cursor-pointer">
-              <Upload size={13} /> Ir a "Entregar efectivo" para depositar
+              <Upload size={13} /> Ir a &quot;Entregar efectivo&quot; para depositar
             </button>
           )}
 

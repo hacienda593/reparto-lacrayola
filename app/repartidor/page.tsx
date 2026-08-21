@@ -589,7 +589,7 @@ export default function RepartidorPage() {
       // Tiendas de cada pedido pendiente, para que el comprador vea a cuál
       // pertenece y pueda elegir la suya si hay más de una (y para ocultar
       // las que ya reclamó otro comprador).
-      let tiendasPends: Record<string, { id: string; nombre: string; tomada: boolean }[]> = {}
+      const tiendasPends: Record<string, { id: string; nombre: string; tomada: boolean }[]> = {}
       if (filteredPends.length > 0) {
         const { data: itemsPends } = await supabase
           .from('ol_pedido_items')
@@ -633,7 +633,7 @@ export default function RepartidorPage() {
 
       // Tienda(s) donde recoger cada pedido del pool (puede ser mas de una: Tuti + Tia + La Crayola)
       const poolPedidoIds = (pool ?? []).map((a: any) => a.pedido_id)
-      let tiendasPool: Record<string, { nombres: string; direccion: string | null }> = {}
+      const tiendasPool: Record<string, { nombres: string; direccion: string | null }> = {}
       if (poolPedidoIds.length > 0) {
         const { data: pickingPool } = await supabase
           .from('rep_picking')
@@ -878,15 +878,6 @@ export default function RepartidorPage() {
     return () => { supabase.removeChannel(canal) }
   }, [user])
 
-  async function enRuta(asignacionId: string, pedidoId: string) {
-    if (!repartidor) return
-    setProcesando(asignacionId)
-    const error = await iniciarRutaRepartidor(asignacionId)
-    setProcesando(null)
-    if (error) { alert('No se pudo iniciar la ruta: ' + error.message); return }
-    router.push(`/entrega/${asignacionId}`)
-  }
-
   const activarParada = async (p: any) => {
     if (!repartidor) return
     setParadaActivaId(p.asignacion_id)
@@ -912,6 +903,9 @@ export default function RepartidorPage() {
     }
   }
 
+  // pedidoId se mantiene en la firma porque el único llamador ya la pasa
+  // posicionalmente junto al asignacionId; renombrarla no cambia nada real.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async function confirmarRetiroCliente(asignacionId: string, pedidoId: string) {
     setProcesando(asignacionId)
     const requestKey=`retiro-request:${asignacionId}`
@@ -1799,7 +1793,7 @@ export default function RepartidorPage() {
               <div className="text-center py-16 space-y-3 bg-white rounded-3xl border border-slate-100 p-5 shadow-xs">
                 <CheckCircle size={48} className="text-green-300 mx-auto" />
                 <p className="font-semibold text-slate-600">Sin pedidos en esta pestaña</p>
-                <p className="text-sm text-slate-400">Ve a la pestaña "Inicio" para auto-asignarte un pedido.</p>
+                <p className="text-sm text-slate-400">Ve a la pestaña &quot;Inicio&quot; para auto-asignarte un pedido.</p>
               </div>
             ) : (
               listaActivaComprador.map(p => (

@@ -165,6 +165,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       await serverLogout()
     } catch {
+      // Fallback deliberado de recuperación de error: si el server action de
+      // logout falla, se fuerza una recarga completa a /login en vez de
+      // router.push() -- este catch corre cuando el estado del cliente ya
+      // puede estar inconsistente (sesión a medio cerrar), y AuthContext no
+      // tiene acceso a useRouter(). Una navegación dura garantiza que el
+      // usuario quede fuera aunque el estado de React haya quedado raro.
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination
       window.location.href = '/login'
     }
   }

@@ -25,8 +25,9 @@ export default async function Home() {
     return { rolData, rep, huboError: !!errRol || !!errRep }
   }
 
-  let { rolData, rep, huboError } = await obtenerRolYRep()
-  if (huboError) {
+  const primeraVez = await obtenerRolYRep()
+  let { rolData, rep } = primeraVez
+  if (primeraVez.huboError) {
     await new Promise(res => setTimeout(res, 800))
     ;({ rolData, rep } = await obtenerRolYRep())
   }

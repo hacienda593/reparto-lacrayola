@@ -8,9 +8,9 @@ import { firmarUrlComprobante } from '@/lib/supabase/signedUrl'
 import { registrarYAbrirWhatsApp } from '@/lib/comunicaciones'
 import Sidebar from '@/components/Sidebar'
 import { 
-  Truck, Package, Users, Plus, Trash2, Loader2, 
-  MapPin, CheckCircle, RefreshCw, AlertCircle, Info, ArrowRight,
-  Phone, ExternalLink, Lock, Unlock, DollarSign, Check
+  Truck, Package, Users, Trash2, Loader2,
+  MapPin, CheckCircle, RefreshCw, AlertCircle,
+  Phone, Check
 } from 'lucide-react'
 
 function fmt(n: number) { return '$' + (n ?? 0).toFixed(2) }
@@ -1645,7 +1645,7 @@ export default function AsignacionesPage() {
                                   {h.fecha_deposito && <> · depósito {h.fecha_deposito}</>}
                                   {h.referencia && <> · Ref: {h.referencia}</>}
                                 </div>
-                                {h.notas && <div className="mt-0.5 italic text-gray-500">"{h.notas}"</div>}
+                                {h.notas && <div className="mt-0.5 italic text-gray-500">&quot;{h.notas}&quot;</div>}
                               </div>
                             ))}
                           </div>
@@ -1803,7 +1803,7 @@ export default function AsignacionesPage() {
                             <p className="text-[9px] text-red-400 font-semibold">{errorEnlaceUbicacion}</p>
                           )}
                           <p className="text-[9px] text-gray-550 leading-relaxed">
-                            Pega aquí el enlace que el cliente comparte por WhatsApp ("Ubicación en vivo" o "Ubicación actual") y se autocompletará abajo. También acepta el código de coordenadas de mantener presionado un punto en Google Maps.
+                            Pega aquí el enlace que el cliente comparte por WhatsApp (&quot;Ubicación en vivo&quot; o &quot;Ubicación actual&quot;) y se autocompletará abajo. También acepta el código de coordenadas de mantener presionado un punto en Google Maps.
                           </p>
                         </div>
 

@@ -274,7 +274,7 @@ export default function EscanearPage() {
                   })}
                 </div>
                 <p className="text-gray-500 text-[10.5px] pt-1">
-                  Vuelve a esta pantalla (escanear/digitar código) cuando esa tienda esté lista. Al cliente aún no se le avisó "va en camino" -- se avisa recién cuando todo esté recogido.
+                  Vuelve a esta pantalla (escanear/digitar código) cuando esa tienda esté lista. Al cliente aún no se le avisó &quot;va en camino&quot; -- se avisa recién cuando todo esté recogido.
                 </p>
               </div>
             ) : (

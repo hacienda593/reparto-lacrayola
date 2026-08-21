@@ -84,8 +84,6 @@ export default function EntregaPage() {
   // codigo, porque todavia no se definio cual es el numero real.
   const [adminWhatsapp, setAdminWhatsapp] = useState<string | null>(null)
 
-  useEffect(() => { cargar() }, [id])
-
   // Rastreo GPS en tiempo real
   useEffect(() => {
     if (!pedido || (pedido.estado !== 'enviado' && pedido.estado !== 'en_ruta') || !pedido.repartidor_id) return
@@ -221,6 +219,8 @@ export default function EntregaPage() {
     setMapUrl(`https://maps.google.com/maps?q=${q}&z=16&output=embed`)
     setCargando(false)
   }
+
+  useEffect(() => { cargar() }, [id])
 
   function abrirMapa() {
     const q = pedido?.geo_lat && pedido?.geo_lng
@@ -447,6 +447,14 @@ export default function EntregaPage() {
     })
     if(falloError){setGuardando(false);setError(falloError.message);return}
     sessionStorage.removeItem(requestKey)
+
+    // Se cargó adminWhatsapp al entrar a esta pantalla precisamente para
+    // esto -- avisarle a administración que un pedido no se pudo entregar,
+    // en vez de que se enteren recién cuando alguien revise el panel.
+    if (adminWhatsapp && pedido?.id) {
+      const msg = `⚠️ *Entrega fallida* — Pedido #${String(pedido?.numero ?? 0).padStart(4, '0')} (${pedido?.nombre_cliente}).\nMotivo: ${motivoFallo}${notasFallo.trim() ? ` — ${notasFallo.trim()}` : ''}`
+      registrarYAbrirWhatsApp({ pedidoId: pedido.id, tipo: 'entrega_fallida', mensaje: msg, telefono: adminWhatsapp, asignacionId: id, destinatarioRol: 'admin' })
+    }
 
     setGuardando(false); setMostrarFallo(false); setNoEntregado(true)
   }
