@@ -777,6 +777,8 @@ CREATE TABLE public.ol_tiendas (
   ruc character varying(13),
   codigo_numerico character varying(8),
   establecimiento character varying(3),
+  geo_lat double precision,
+  geo_lng double precision,
   PRIMARY KEY (id)
 );
 ALTER TABLE public.ol_tiendas ENABLE ROW LEVEL SECURITY;
@@ -2077,7 +2079,7 @@ ALTER TABLE public.zonas ENABLE ROW LEVEL SECURITY;
 -- [SECURITY DEFINER] seguimiento_pedido_publico(p_id uuid) RETURNS json  [sql]
 -- [SECURITY DEFINER] sincronizar_facturas_pendientes() RETURNS integer  [plpgsql]
 -- [SECURITY DEFINER] sincronizar_ledger_financiero() RETURNS jsonb  [plpgsql]
--- [SECURITY DEFINER] tiendas_hermanas_pedido(p_pedido_id uuid) RETURNS TABLE(asignacion_id uuid, tienda_id uuid, tienda_nombre text, estado text, tienda_direccion text, orden_sugerido integer, shopper_nombre text, shopper_telefono text)  [plpgsql]
+-- [SECURITY DEFINER] tiendas_hermanas_pedido(p_pedido_id uuid) RETURNS TABLE(asignacion_id uuid, tienda_id uuid, tienda_nombre text, estado text, tienda_direccion text, orden_sugerido integer, shopper_nombre text, shopper_telefono text, geo_lat double precision, geo_lng double precision)  [plpgsql]
 -- [SECURITY DEFINER] transferir_efectivo_repartidor(p_origen_id uuid, p_destino_id uuid, p_monto numeric, p_notas text, p_request_id uuid) RETURNS void  [plpgsql]
 -- trg_acumular_efectivo_entrega() RETURNS trigger  [plpgsql]
 -- [SECURITY DEFINER] trg_asignar_zona_pedido() RETURNS trigger  [plpgsql]

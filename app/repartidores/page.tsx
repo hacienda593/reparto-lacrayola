@@ -29,7 +29,7 @@ interface RepConEstado extends RepRepartidor {
 }
 
 interface Zona { id: string; nombre: string; activo: boolean }
-interface Tienda { id: string; nombre: string; activa: boolean }
+interface Tienda { id: string; nombre: string; activa: boolean; geo_lat: number | null; geo_lng: number | null }
 
 export default function RepartidoresPage() {
   const { user } = useAuth()
@@ -50,12 +50,43 @@ export default function RepartidoresPage() {
   const [motivo,      setMotivo]      = useState('')
   const [rechazando,  setRechazando]  = useState<string | null>(null)
   const [procesando,  setProcesando]  = useState<string | null>(null)
+  // P1-02 de la auditoría: orden de recogida por cercanía real en pedidos
+  // multi-tienda. Sin coordenadas de tienda esa heurística no tiene con
+  // qué trabajar -- se cargan una vez acá pegando el enlace de Google
+  // Maps de cada local (mismo patrón que ya se usa para direcciones de
+  // cliente en /asignaciones, vía /api/geo/resolver-enlace).
+  const [mostrarCoords, setMostrarCoords] = useState(false)
+  const [linkTienda, setLinkTienda] = useState<Record<string, string>>({})
+  const [guardandoCoord, setGuardandoCoord] = useState<string | null>(null)
+  const [errorCoord, setErrorCoord] = useState('')
+
+  async function guardarCoordenadaTienda(tiendaId: string) {
+    const link = (linkTienda[tiendaId] || '').trim()
+    if (!link) return
+    setErrorCoord('')
+    setGuardandoCoord(tiendaId)
+    try {
+      const resp = await fetch('/api/geo/resolver-enlace', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: link }),
+      })
+      const data = await resp.json()
+      if (!resp.ok || data.error) throw new Error(data.error || 'No se pudieron extraer coordenadas de ese enlace')
+      const { error: errUp } = await supabase.from('ol_tiendas').update({ geo_lat: data.lat, geo_lng: data.lng }).eq('id', tiendaId)
+      if (errUp) throw errUp
+      setTiendas(prev => prev.map(t => t.id === tiendaId ? { ...t, geo_lat: data.lat, geo_lng: data.lng } : t))
+      setLinkTienda(prev => ({ ...prev, [tiendaId]: '' }))
+    } catch (e: any) {
+      setErrorCoord(e.message || 'Error al guardar la coordenada')
+    } finally {
+      setGuardandoCoord(null)
+    }
+  }
 
   async function cargar() {
     const [{ data }, { data: zonasData }, { data: tiendasData }] = await Promise.all([
       supabase.from('rep_repartidores').select('*').order('created_at', { ascending: false }),
       supabase.from('zonas').select('id, nombre, activo').order('nombre'),
-      supabase.from('ol_tiendas').select('id, nombre, activa').order('nombre'),
+      supabase.from('ol_tiendas').select('id, nombre, activa, geo_lat, geo_lng').order('nombre'),
     ])
 
     const todos = (data ?? []) as RepConEstado[]
@@ -219,11 +250,56 @@ export default function RepartidoresPage() {
               {lista.filter(r => r.activo).length} activos · {lista.length} aprobados
             </p>
           </div>
-          <button onClick={abrirNuevo}
-            className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white font-semibold px-4 py-2.5 rounded-xl text-sm transition">
-            <Plus size={16} /> Nuevo repartidor
-          </button>
+          <div className="flex gap-2">
+            <button onClick={() => setMostrarCoords(v => !v)}
+              className="flex items-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 font-semibold px-4 py-2.5 rounded-xl text-sm transition">
+              <MapPin size={16} /> Coordenadas de tiendas
+            </button>
+            <button onClick={abrirNuevo}
+              className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white font-semibold px-4 py-2.5 rounded-xl text-sm transition">
+              <Plus size={16} /> Nuevo repartidor
+            </button>
+          </div>
         </div>
+
+        {/* P1-02: coordenadas de tienda para el orden sugerido de recogida
+            en pedidos multi-tienda (lib/geo.ts). Sin esto la heurística de
+            cercanía se degrada al orden manual de ol_tiendas.orden. */}
+        {mostrarCoords && (
+          <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-2">
+            <p className="text-xs text-slate-500">
+              Pegá el enlace de Google Maps de cada tienda (compartir ubicación → copiar enlace) para que el repartidor reciba el orden de recogida sugerido por cercanía real en pedidos multi-tienda.
+            </p>
+            {errorCoord && <p className="text-xs text-red-600">{errorCoord}</p>}
+            <div className="divide-y divide-slate-100">
+              {tiendas.map(t => (
+                <div key={t.id} className="py-2 flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-semibold text-slate-700 w-40 shrink-0">{t.nombre}</span>
+                  {t.geo_lat != null && t.geo_lng != null ? (
+                    <span className="text-[11px] text-green-700 font-semibold flex items-center gap-1">
+                      <Check size={12} /> {t.geo_lat.toFixed(5)}, {t.geo_lng.toFixed(5)}
+                    </span>
+                  ) : (
+                    <span className="text-[11px] text-slate-400">Sin coordenadas</span>
+                  )}
+                  <input
+                    type="text" placeholder="Pegar enlace de Google Maps..."
+                    value={linkTienda[t.id] ?? ''}
+                    onChange={e => setLinkTienda(prev => ({ ...prev, [t.id]: e.target.value }))}
+                    className="flex-1 min-w-[180px] border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-green-500"
+                  />
+                  <button
+                    onClick={() => guardarCoordenadaTienda(t.id)}
+                    disabled={guardandoCoord === t.id || !linkTienda[t.id]?.trim()}
+                    className="bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-white text-[11px] font-bold px-3 py-1.5 rounded-lg transition"
+                  >
+                    {guardandoCoord === t.id ? <Loader2 size={12} className="animate-spin" /> : 'Guardar'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Tabs */}
         <div className="flex gap-1 bg-slate-100 rounded-xl p-1 w-fit">

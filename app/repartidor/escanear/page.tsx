@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
 import { registrarYAbrirWhatsApp, formatWhatsApp } from '@/lib/comunicaciones'
+import { ordenarPorCercania } from '@/lib/geo'
 import { ArrowLeft, Loader2, CheckCircle2, ShieldAlert, Scan, Smartphone, Plus, Minus } from 'lucide-react'
 
 export default function EscanearPage() {
@@ -23,7 +24,7 @@ export default function EscanearPage() {
   // Ficha consolidada (P1-01 de la auditoría): todas las tiendas del
   // pedido, en orden sugerido, con su estado y el contacto del comprador
   // de cada una -- no solo el nombre de la que falta.
-  const [manifiesto, setManifiesto] = useState<{ tienda_nombre: string | null; estado: string; shopper_nombre: string | null; shopper_telefono: string | null }[]>([])
+  const [manifiesto, setManifiesto] = useState<{ tienda_nombre: string | null; estado: string; shopper_nombre: string | null; shopper_telefono: string | null; geo_lat: number | null; geo_lng: number | null }[]>([])
   const [vista, setVista] = useState<'pin' | 'camara'>('pin')
   // Cuántos bultos/fundas dice recibir el motorizado -- se compara contra
   // lo que declaró el comprador (rep_handoffs.bultos_declarados) y si no
@@ -190,7 +191,11 @@ export default function EscanearPage() {
     if (!pedidoCompleto && asigInfo?.pedido_id) {
       const { data: hermanas } = await supabase.rpc('tiendas_hermanas_pedido', { p_pedido_id: asigInfo.pedido_id })
       if (hermanas && hermanas.length > 1) {
-        setManifiesto(hermanas)
+        // P1-02: orden sugerido por cercanía real desde donde está el
+        // repartidor ahora mismo, cuando las tiendas tienen coordenadas
+        // cargadas -- si no, se queda en el orden manual que ya trae
+        // la RPC (ol_tiendas.orden). Nunca se inventa una posición.
+        setManifiesto(ordenarPorCercania(geo, hermanas))
         setPedidoIncompleto(true)
       }
     }
