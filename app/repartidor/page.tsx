@@ -2,6 +2,8 @@
 import { useEffect, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 const MapaRuta = dynamic(() => import('@/components/MapaRuta'), { ssr: false })
+import ModalTraspasoEfectivo from '@/components/repartidor/ModalTraspasoEfectivo'
+import CardPedidoRepartidor from '@/components/repartidor/CardPedidoRepartidor'
 import Link from 'next/link'
 import { useAuth } from '@/context/AuthContext'
 import { supabase } from '@/lib/supabase'
@@ -934,320 +936,7 @@ export default function RepartidorPage() {
   // ahora ofrece 3 métodos: a un colega (como antes), depósito bancario, o
   // transferencia -- estas dos últimas exigen marcar qué pedidos cobrados
   // en efectivo cubren, y comprobante con foto.
-  const renderModalTraspaso = () => !showTraspaso ? null : (
-    <div className="fixed inset-0 bg-black/60 z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4 text-left">
-      <div className="bg-white rounded-t-3xl sm:rounded-3xl p-5 w-full sm:max-w-sm space-y-4 max-h-[92vh] overflow-y-auto">
-        <div className="flex items-center justify-between">
-          <h3 className="font-black text-slate-800 text-base flex items-center gap-1.5">
-            <ArrowRightLeft size={16} className="text-green-600" /> Entregar efectivo
-          </h3>
-          <button onClick={() => setShowTraspaso(false)} className="text-slate-400 p-1 cursor-pointer"><X size={18} /></button>
-        </div>
 
-        <div className="grid grid-cols-2 gap-2">
-          <div className="bg-orange-50 border border-orange-100 rounded-xl px-3 py-2.5">
-            <div className="text-sm font-black text-orange-600">{fmt(repartidor?.efectivo_en_mano ?? 0)}</div>
-            <div className="text-[9.5px] text-slate-500">Efectivo en mano</div>
-          </div>
-          <div className="bg-green-50 border border-green-100 rounded-xl px-3 py-2.5">
-            <div className="text-sm font-black text-green-700">{fmt(comisionPendiente)}</div>
-            <div className="text-[9.5px] text-slate-500">Comisión por cobrar</div>
-          </div>
-        </div>
-        <Link href="/repartidor/comisiones" className="block text-center text-[10px] font-bold text-blue-600 hover:underline -mt-2">
-          Ver desglose y reportar diferencias →
-        </Link>
-
-        <div className="grid grid-cols-3 gap-1.5">
-          {[
-            { k: 'colega', label: 'A un colega' },
-            { k: 'deposito_banco', label: 'Depósito' },
-            { k: 'transferencia', label: 'Transferencia' },
-          ].map(m => (
-            <button key={m.k} type="button" onClick={() => setMetodoTraspaso(m.k as any)}
-              className={`py-2 rounded-xl border text-[10.5px] font-bold text-center transition ${
-                metodoTraspaso === m.k ? 'bg-green-50 border-green-500 text-green-700' : 'bg-slate-50 border-slate-200 text-slate-500'
-              }`}>
-              {m.label}
-            </button>
-          ))}
-        </div>
-
-        {metodoTraspaso === 'colega' ? (
-          <>
-            <div>
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">¿A quién se lo entregas?</label>
-              <select
-                value={destinoTraspaso}
-                onChange={e => setDestinoTraspaso(e.target.value)}
-                className="w-full mt-1 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:border-green-500"
-              >
-                <option value="">-- Selecciona --</option>
-                {colegas.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-              </select>
-              <p className="text-[9px] text-slate-400 mt-1">Solo para entrega física a otro colaborador de campo, no a la oficina.</p>
-            </div>
-
-            <div>
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Monto a entregar</label>
-              <div className="relative mt-1">
-                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-green-600 font-bold text-sm">$</span>
-                <input
-                  type="number" step="0.01" min="0"
-                  value={montoTraspaso}
-                  onChange={e => setMontoTraspaso(e.target.value)}
-                  placeholder={(repartidor?.efectivo_en_mano ?? 0).toFixed(2)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-7 pr-3 py-2.5 text-sm font-bold text-slate-800 focus:outline-none focus:border-green-500"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Notas (opcional)</label>
-              <input
-                type="text"
-                value={notasTraspaso}
-                onChange={e => setNotasTraspaso(e.target.value)}
-                placeholder="Ej: entregado en caja de Tuti"
-                className="w-full mt-1 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-green-500"
-              />
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-[11px] text-blue-700">
-              Marca exactamente qué pedidos cobrados en efectivo cubre este {metodoTraspaso === 'deposito_banco' ? 'depósito' : 'transferencia'} — queda ligado a ellos, no se puede reutilizar para otros cobros.
-            </div>
-
-            {entregasSinLiquidar.length === 0 ? (
-              <p className="text-xs text-slate-400 text-center py-3">No tienes cobros en efectivo pendientes de liquidar.</p>
-            ) : (
-              <div className="space-y-1.5 max-h-40 overflow-y-auto border border-slate-100 rounded-xl p-2">
-                {entregasSinLiquidar.map(e => (
-                  <label key={e.id} className="flex items-center gap-2 text-xs px-1.5 py-1 rounded-lg hover:bg-slate-50 cursor-pointer">
-                    <input type="checkbox" checked={entregasSeleccionadas.has(e.id)} onChange={() => toggleEntregaSeleccionada(e.id)} className="accent-green-600" />
-                    <span className="flex-1 truncate">#{String(e.ol_pedidos?.numero ?? 0).padStart(4, '0')} · {e.ol_pedidos?.nombre_cliente ?? 'Cliente'}</span>
-                    <span className="font-bold text-slate-700 shrink-0">${Number(e.monto_cobrado).toFixed(2)}</span>
-                  </label>
-                ))}
-              </div>
-            )}
-
-            <div className="flex justify-between items-center text-xs bg-slate-50 rounded-xl px-3 py-2">
-              <span className="text-slate-500">Total seleccionado</span>
-              <span className="font-black text-slate-800">${totalSeleccionadoTraspaso.toFixed(2)}</span>
-            </div>
-
-            <div>
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Banco</label>
-              <input type="text" value={bancoTraspaso} onChange={e => setBancoTraspaso(e.target.value)}
-                placeholder="Ej: Pichincha"
-                className="w-full mt-1 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:border-green-500" />
-            </div>
-
-            <div>
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Número de referencia *</label>
-              <input type="text" value={referenciaTraspaso} onChange={e => setReferenciaTraspaso(e.target.value)}
-                placeholder="Nro. de comprobante"
-                className="w-full mt-1 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:border-green-500" />
-            </div>
-
-            <div>
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Foto del comprobante *</label>
-              <label className="flex items-center justify-center gap-2 border border-slate-200 rounded-xl py-2.5 mt-1 cursor-pointer hover:bg-slate-50 text-slate-500 text-xs">
-                {comprobanteTraspasoFile ? comprobanteTraspasoFile.name : 'Tomar o elegir foto'}
-                <input type="file" accept="image/*" className="hidden" onChange={e => setComprobanteTraspasoFile(e.target.files?.[0] ?? null)} />
-              </label>
-            </div>
-
-            <p className="text-[9.5px] text-slate-400 leading-snug">
-              ⚠️ Verifica el monto y la foto antes de enviar: si el depósito reportado no coincide con lo recibido en la cuenta de la empresa, la diferencia queda a tu cargo hasta que se aclare.
-            </p>
-          </>
-        )}
-
-        {errorTraspaso && <p className="text-red-500 text-xs text-center">{errorTraspaso}</p>}
-
-        <button
-          onClick={confirmarTraspaso}
-          disabled={procesandoTraspaso}
-          className="w-full bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white font-bold py-3 rounded-xl text-sm flex items-center justify-center gap-2 cursor-pointer"
-        >
-          {procesandoTraspaso ? <Loader2 size={16} className="animate-spin" /> : <ArrowRightLeft size={15} />}
-          {procesandoTraspaso ? 'Registrando...' : metodoTraspaso === 'colega' ? 'Confirmar entrega de efectivo' : 'Enviar para verificación'}
-        </button>
-      </div>
-    </div>
-  )
-
-  const renderCardRepartidor = (p: any, isActive: boolean) => {
-    const numPedido = String(p.numero).padStart(4, '0')
-    return (
-      <div key={p.asignacion_id} className={`bg-white rounded-3xl border transition-all ${
-        isActive 
-          ? 'border-red-500 shadow-md ring-2 ring-red-500/10' 
-          : 'border-slate-200/80 shadow-sm opacity-95'
-      } overflow-hidden`}>
-        {/* Cabecera del pedido */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50/50">
-          <div className="flex items-center gap-2">
-            <span className="w-5 h-5 rounded-full bg-slate-800 text-white text-[10px] font-extrabold flex items-center justify-center shrink-0">
-              {ordenParadas[p.asignacion_id] ?? (pedidos.filter(x => x.estado === 'en_ruta' || x.estado === 'asignado').findIndex(x => x.asignacion_id === p.asignacion_id) + 1)}
-            </span>
-            <Package size={15} className="text-slate-400" />
-            <span className="font-bold text-slate-800 text-xs">Pedido #{numPedido}</span>
-            <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${EST_COLOR[p.estado] ?? 'bg-slate-100 text-slate-600'}`}>
-              {p.estado === 'en_ruta' ? 'En camino' : 'Asignado'}
-            </span>
-          </div>
-          <span className="font-bold text-green-700 text-xs">{fmt(montoACobrar(p))}</span>
-        </div>
-
-        {/* Banner de Pago Destacado */}
-        {p.metodo_pago === 'transferencia' && p.pago_confirmado === true && (
-          <div className="bg-emerald-500 text-white font-extrabold text-[10px] py-2 text-center shadow-inner">
-            💳 PAGADO POR TRANSFERENCIA (Confirmado)
-          </div>
-        )}
-        {p.metodo_pago === 'transferencia' && p.pago_confirmado !== true && (
-          <div className="bg-yellow-500 text-slate-900 font-extrabold text-[10px] py-2 text-center shadow-inner animate-pulse">
-            ⚠️ TRANSFERENCIA POR CONFIRMAR: {fmt(montoACobrar(p))}
-          </div>
-        )}
-        {(!p.metodo_pago || p.metodo_pago === 'efectivo') && (
-          <div className="bg-orange-600 text-white font-extrabold text-[10px] py-2 text-center shadow-inner">
-            💵 COBRAR EN EFECTIVO: {fmt(montoACobrar(p))}
-          </div>
-        )}
-
-        {/* Datos cliente */}
-        <div className="px-4 py-3 space-y-2.5">
-          <div className="flex items-start gap-2">
-            <div className="w-8 h-8 bg-green-50 rounded-lg flex items-center justify-center shrink-0">
-              <span className="text-xs font-bold text-green-700">{p.nombre_cliente?.[0]}</span>
-            </div>
-            <div>
-              <div className="font-bold text-slate-800 text-xs">{p.nombre_cliente}</div>
-              <a href={`tel:${p.telefono}`} className="flex items-center gap-1 text-[11px] text-green-600 font-semibold">
-                <Phone size={10} /> {p.telefono}
-              </a>
-            </div>
-          </div>
-
-          {p.direccion && (
-            <div className="flex items-start gap-2 text-xs text-slate-500">
-              <MapPin size={12} className="shrink-0 mt-0.5 text-slate-400" />
-              <div>
-                <div className="font-medium">{p.direccion}, {p.ciudad}</div>
-                {p.referencias && <div className="text-[10px] text-slate-400 mt-0.5">{p.referencias}</div>}
-              </div>
-            </div>
-          )}
-
-          {p.notas && (
-            <div className="bg-yellow-50 border border-yellow-100 rounded-lg px-2.5 py-1.5 text-[10px] text-yellow-800">
-              📝 {p.notas}
-            </div>
-          )}
-        </div>
-
-        {/* Acciones */}
-        <div className="px-4 pb-4 space-y-2">
-          {isActive ? (
-            /* SI ES LA PARADA ACTIVA: Mostrar todos los controles de cobro, mapa y POD */
-            <div className="space-y-3 pt-2 border-t border-slate-100">
-              {p.geo_lat && p.geo_lng && (
-                <a
-                  href={`https://www.google.com/maps/dir/?api=1&destination=${p.geo_lat},${p.geo_lng}`}
-                  target="_blank" rel="noopener noreferrer"
-                  className="w-full flex items-center justify-center gap-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-extrabold py-2.5 rounded-xl text-xs shadow-sm border border-blue-200"
-                >
-                  <Navigation size={12} /> Navegar con GPS (Google Maps)
-                </a>
-              )}
-
-              {p.estado === 'en_ruta' && (
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <DollarSign size={14} className="text-slate-400 shrink-0" />
-                    <input
-                      type="number" step="0.01" min="0"
-                      // Antes empezaba vacío y el total solo aparecía como
-                      // placeholder de ayuda -- fácil de pasar por alto,
-                      // sobre todo el envío (que no se "ve" físicamente
-                      // como el precio de los productos). Ahora arranca
-                      // con el total real ya puesto; si cobra distinto,
-                      // tiene que editarlo a propósito.
-                      value={cobro[p.asignacion_id] ?? montoACobrar(p).toFixed(2)}
-                      onChange={e => setCobro(c => ({ ...c, [p.asignacion_id]: e.target.value }))}
-                      className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-green-500"
-                    />
-                  </div>
-
-                  {/* Antes había un botón "Confirmar GPS de Entrega" aquí
-                      mismo, que corregía ol_pedidos + rep_clientes_direcciones
-                      con escrituras sueltas, sin transacción y desconectadas
-                      del cierre real de la entrega (P0-03 de la auditoría
-                      operativa) -- /entrega/[id] ya tiene su propio paso de
-                      confirmar/corregir GPS, ahora atómico con el cierre.
-                      Se elimina para no dejar dos caminos que puedan
-                      divergir otra vez. */}
-
-                  {/* Antes abría un modal propio (foto+firma+cobro) que
-                      duplicaba casi entero /entrega/[id] -- con divergencias
-                      reales entre las dos copias (P0-02 de la auditoría
-                      operativa). Ahora navega a la única pantalla de
-                      cierre de entrega, para que cualquier corrección
-                      futura aplique sin importar por dónde se entre. */}
-                  <button
-                    onClick={() => router.push(`/entrega/${p.asignacion_id}`)}
-                    disabled={procesando !== null}
-                    className="w-full flex items-center justify-center gap-1.5 bg-[#00b074] hover:bg-[#008f5d] disabled:opacity-60 text-white font-bold py-3 rounded-xl transition text-xs cursor-pointer shadow-md"
-                  >
-                    <CheckCircle size={14} />
-                    Confirmar entrega (Foto y Firma)
-                  </button>
-                </div>
-              )}
-
-              {/* Plantillas de WhatsApp */}
-              <div className="pt-2.5 border-t border-slate-100 mt-2 space-y-2 text-left">
-                <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">💬 WhatsApp rápido:</div>
-                <div className="grid grid-cols-2 gap-1.5">
-                  <a
-                    href={`https://wa.me/${formatWhatsApp(p.telefono)}?text=${encodeURIComponent(
-                      "Hola " + p.nombre_cliente + ", te saluda " + (repartidor?.nombre || "tu Repartidor") + " de La Crayola. Tu pedido #" + p.numero + " va en camino a tu domicilio."
-                      + (distanciaEntreParadas[p.asignacion_id] ? ` Llego en aproximadamente ${minutosEstimados(distanciaEntreParadas[p.asignacion_id])} minutos.` : ' Por favor estar atento.')
-                    )}`}
-                    target="_blank" rel="noopener noreferrer"
-                    className="bg-green-50 hover:bg-green-100 border border-green-200 text-green-700 text-[10px] font-bold py-2 rounded-xl text-center flex items-center justify-center gap-1"
-                  >
-                    🛵 En Camino
-                  </a>
-                  <a
-                    href={`https://wa.me/${formatWhatsApp(p.telefono)}`}
-                    target="_blank" rel="noopener noreferrer"
-                    className="border border-slate-200 hover:bg-slate-50 text-slate-600 text-[10px] font-bold py-2 rounded-xl text-center flex items-center justify-center gap-1"
-                  >
-                    💬 Chat Directo
-                  </a>
-                </div>
-              </div>
-            </div>
-          ) : (
-            /* SI NO ES LA PARADA ACTIVA: Mostrar solo botón de activación Voy para allá */
-            <button
-              onClick={() => activarParada(p)}
-              disabled={procesando !== null}
-              className="w-full bg-[#00b074] hover:bg-[#008f5d] disabled:opacity-50 text-white font-extrabold py-3 rounded-xl transition text-xs flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
-            >
-              {procesando === p.asignacion_id ? <Loader2 size={13} className="animate-spin" /> : <span>🛵 Voy para allá →</span>}
-            </button>
-          )}
-        </div>
-      </div>
-    )
-  }
 
   if (errorCarga) {
     return (
@@ -1381,7 +1070,35 @@ export default function RepartidorPage() {
         </div>
 
         {/* Modal: Entregar efectivo en mano */}
-        {renderModalTraspaso()}
+        <ModalTraspasoEfectivo
+          visible={showTraspaso}
+          onClose={() => setShowTraspaso(false)}
+          efectivoEnMano={repartidor?.efectivo_en_mano ?? 0}
+          comisionPendiente={comisionPendiente}
+          metodoTraspaso={metodoTraspaso}
+          setMetodoTraspaso={setMetodoTraspaso}
+          colegas={colegas}
+          destinoTraspaso={destinoTraspaso}
+          setDestinoTraspaso={setDestinoTraspaso}
+          montoTraspaso={montoTraspaso}
+          setMontoTraspaso={setMontoTraspaso}
+          notasTraspaso={notasTraspaso}
+          setNotasTraspaso={setNotasTraspaso}
+          entregasSinLiquidar={entregasSinLiquidar}
+          entregasSeleccionadas={entregasSeleccionadas}
+          toggleEntregaSeleccionada={toggleEntregaSeleccionada}
+          totalSeleccionadoTraspaso={totalSeleccionadoTraspaso}
+          bancoTraspaso={bancoTraspaso}
+          setBancoTraspaso={setBancoTraspaso}
+          referenciaTraspaso={referenciaTraspaso}
+          setReferenciaTraspaso={setReferenciaTraspaso}
+          comprobanteTraspasoFile={comprobanteTraspasoFile}
+          setComprobanteTraspasoFile={setComprobanteTraspasoFile}
+          errorTraspaso={errorTraspaso}
+          procesandoTraspaso={procesandoTraspaso}
+          confirmarTraspaso={confirmarTraspaso}
+          fmt={fmt}
+        />
       </div>
     )
   }
@@ -1977,7 +1694,18 @@ export default function RepartidorPage() {
                   </div>
                 )
               }
-              return renderCardRepartidor(activeStop, true)
+              return (
+                <CardPedidoRepartidor
+                  p={activeStop} isActive={true}
+                  ordenParada={ordenParadas[activeStop.asignacion_id] ?? (pedidos.filter(x => x.estado === 'en_ruta' || x.estado === 'asignado').findIndex(x => x.asignacion_id === activeStop.asignacion_id) + 1)}
+                  distanciaEntreParada={distanciaEntreParadas[activeStop.asignacion_id]}
+                  cobroValor={cobro[activeStop.asignacion_id]}
+                  onCambiarCobro={(id, valor) => setCobro(c => ({ ...c, [id]: valor }))}
+                  repartidorNombre={repartidor?.nombre}
+                  procesando={procesando}
+                  onActivarParada={activarParada}
+                />
+              )
             })()
           ) : (
             <div className="space-y-6">
@@ -1990,7 +1718,16 @@ export default function RepartidorPage() {
                     <div className="text-[10px] font-black text-red-500 uppercase tracking-widest px-1 flex items-center gap-1.5 animate-pulse text-left">
                       🚨 Próxima Parada (En Camino)
                     </div>
-                    {renderCardRepartidor(activeStop, true)}
+                    <CardPedidoRepartidor
+                      p={activeStop} isActive={true}
+                      ordenParada={ordenParadas[activeStop.asignacion_id] ?? (pedidos.filter(x => x.estado === 'en_ruta' || x.estado === 'asignado').findIndex(x => x.asignacion_id === activeStop.asignacion_id) + 1)}
+                      distanciaEntreParada={distanciaEntreParadas[activeStop.asignacion_id]}
+                      cobroValor={cobro[activeStop.asignacion_id]}
+                      onCambiarCobro={(id, valor) => setCobro(c => ({ ...c, [id]: valor }))}
+                      repartidorNombre={repartidor?.nombre}
+                      procesando={procesando}
+                      onActivarParada={activarParada}
+                    />
                   </div>
                 )
               })()}
@@ -2016,7 +1753,19 @@ export default function RepartidorPage() {
                     <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1 text-left">
                       📋 Paradas Pendientes ({pendingStops.length})
                     </div>
-                    {pendingStops.map(p => renderCardRepartidor(p, false))}
+                    {pendingStops.map(p => (
+                      <CardPedidoRepartidor
+                        key={p.asignacion_id}
+                        p={p} isActive={false}
+                        ordenParada={ordenParadas[p.asignacion_id] ?? (pedidos.filter(x => x.estado === 'en_ruta' || x.estado === 'asignado').findIndex(x => x.asignacion_id === p.asignacion_id) + 1)}
+                        distanciaEntreParada={distanciaEntreParadas[p.asignacion_id]}
+                        cobroValor={cobro[p.asignacion_id]}
+                        onCambiarCobro={(id, valor) => setCobro(c => ({ ...c, [id]: valor }))}
+                        repartidorNombre={repartidor?.nombre}
+                        procesando={procesando}
+                        onActivarParada={activarParada}
+                      />
+                    ))}
                   </div>
                 )
               })()}
@@ -2151,7 +1900,35 @@ export default function RepartidorPage() {
       )}
 
       {/* Modal: Entregar efectivo en mano a un colega (comprador u otro repartidor) */}
-      {renderModalTraspaso()}
+      <ModalTraspasoEfectivo
+          visible={showTraspaso}
+          onClose={() => setShowTraspaso(false)}
+          efectivoEnMano={repartidor?.efectivo_en_mano ?? 0}
+          comisionPendiente={comisionPendiente}
+          metodoTraspaso={metodoTraspaso}
+          setMetodoTraspaso={setMetodoTraspaso}
+          colegas={colegas}
+          destinoTraspaso={destinoTraspaso}
+          setDestinoTraspaso={setDestinoTraspaso}
+          montoTraspaso={montoTraspaso}
+          setMontoTraspaso={setMontoTraspaso}
+          notasTraspaso={notasTraspaso}
+          setNotasTraspaso={setNotasTraspaso}
+          entregasSinLiquidar={entregasSinLiquidar}
+          entregasSeleccionadas={entregasSeleccionadas}
+          toggleEntregaSeleccionada={toggleEntregaSeleccionada}
+          totalSeleccionadoTraspaso={totalSeleccionadoTraspaso}
+          bancoTraspaso={bancoTraspaso}
+          setBancoTraspaso={setBancoTraspaso}
+          referenciaTraspaso={referenciaTraspaso}
+          setReferenciaTraspaso={setReferenciaTraspaso}
+          comprobanteTraspasoFile={comprobanteTraspasoFile}
+          setComprobanteTraspasoFile={setComprobanteTraspasoFile}
+          errorTraspaso={errorTraspaso}
+          procesandoTraspaso={procesandoTraspaso}
+          confirmarTraspaso={confirmarTraspaso}
+          fmt={fmt}
+        />
     </>
     )
   }
