@@ -92,6 +92,10 @@ export default function CajaPage() {
     }
   }
 
+  // Se busca a propósito que corra solo cuando cambia `id`, no en cada
+  // render -- `cargar` es una función nueva cada vez, agregarla a las
+  // dependencias reales causaría un bucle de refetch continuo.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { cargar() }, [id])
 
   async function cargar() {
@@ -207,7 +211,13 @@ export default function CajaPage() {
     }
   }
 
-  // Autocompletar Código Numérico visualmente basado en la tienda y secuencial
+  // Autocompletar Código Numérico visualmente basado en la tienda y secuencial.
+  // Es estado derivado (podría calcularse en el render con useMemo), pero
+  // provCodigoNumerico también es editable a mano por el usuario en algunos
+  // casos -- convertirlo a valor puramente derivado quitaría esa edición
+  // manual sin poder probar el flujo real de facturación SRI acá. Se deja
+  // como efecto, ya revisado y es el comportamiento intencional.
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (tiendaId === 'b402b85a-b006-42ef-b2f6-763722f68241') {
       // Tuti: Secuencial de la factura completado a 8 dígitos
@@ -220,6 +230,7 @@ export default function CajaPage() {
       setProvCodigoNumerico('00000000')
     }
   }, [tiendaId, provSecuencial])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // Generador reactivo de Clave de Acceso SRI de 49 dígitos (Ecuador Módulo 11).
   // La clave de acceso NO es un dato arbitrario: el SRI la define como la
@@ -231,6 +242,12 @@ export default function CajaPage() {
   // contra el SRI real (fecha, proveedor, comprador, total), no para
   // generarla. Se puede desactivar esta reconstrucción por variable de
   // entorno si algún proveedor nuevo no sigue un patrón conocido.
+  /* eslint-disable react-hooks/set-state-in-effect -- claveAcceso es la
+     clave de acceso SRI de 49 dígitos reconstruida determinísticamente a
+     partir de los otros campos del formulario; es estado derivado por
+     diseño (con memoria de la última validación vía el callback de
+     setClaveAcceso), no algo que convenga mover a useMemo sin poder
+     probar en vivo el flujo real de facturación SRI/caja. */
   useEffect(() => {
     if (process.env.NEXT_PUBLIC_SRI_GENERAR_CLAVE === 'false') return
     if (!fechaEmision || !provRuc || !provEstablecimiento || !provPuntoEmision || !provSecuencial || !provCodigoNumerico) {
@@ -313,6 +330,7 @@ export default function CajaPage() {
       return claveCompleta
     })
   }, [fechaEmision, provRuc, provEstablecimiento, provPuntoEmision, provSecuencial, provCodigoNumerico, tiendaId])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
 
 

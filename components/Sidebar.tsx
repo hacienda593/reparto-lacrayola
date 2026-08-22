@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { useAuth } from '@/context/AuthContext'
 import { LayoutDashboard, Package, Users, Wallet, ClipboardList, Settings, LogOut, Truck, Menu, X, ShieldCheck, FileText, Scale, Radar, Banknote } from 'lucide-react'
@@ -63,7 +64,7 @@ export default function Sidebar() {
   </nav>
 
   const UserFooter = () => <div className="border-t border-slate-200 px-3 py-3">
-    <div className="mb-2 flex items-center gap-3 px-2">{avatar ? <img src={avatar} className="h-8 w-8 rounded-full" alt=""/> : <div className="flex h-8 w-8 items-center justify-center rounded-full bg-green-600 text-xs font-bold text-white">{nombre[0]?.toUpperCase()}</div>}<div className="min-w-0 flex-1"><div className="truncate text-sm font-semibold text-slate-800">{nombre}</div><div className="text-[10px] capitalize text-slate-400">{rol ?? 'Sin rol'}</div></div></div>
+    <div className="mb-2 flex items-center gap-3 px-2">{avatar ? <Image src={avatar} width={32} height={32} unoptimized className="h-8 w-8 rounded-full" alt=""/> : <div className="flex h-8 w-8 items-center justify-center rounded-full bg-green-600 text-xs font-bold text-white">{nombre[0]?.toUpperCase()}</div>}<div className="min-w-0 flex-1"><div className="truncate text-sm font-semibold text-slate-800">{nombre}</div><div className="text-[10px] capitalize text-slate-400">{rol ?? 'Sin rol'}</div></div></div>
     <button onClick={logout} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm text-red-500 transition hover:bg-red-50"><LogOut size={15}/> Cerrar sesión</button>
   </div>
 

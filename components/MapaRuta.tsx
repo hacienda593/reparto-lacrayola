@@ -123,6 +123,11 @@ export default function MapaRuta({
         mapRef.current = null
       }
     }
+    // `onSelectParada` no entra a propósito: el padre suele pasar un
+    // arrow function nuevo en cada render, y agregarla reconstruiría
+    // todo el mapa de Leaflet (caro) en vez de solo cuando cambian las
+    // paradas reales.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paradas, paradaActivaId])
 
   return (

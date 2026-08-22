@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '@/context/AuthContext'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
+import Image from 'next/image'
 import { Loader2, Check, ArrowLeft, Phone, MapPin, Bike, User, LogOut, PackageCheck, PackageX, Wallet, Upload } from 'lucide-react'
 import { logout } from '@/actions/auth'
 
@@ -82,6 +83,8 @@ export default function PerfilRepartidorPage() {
     .filter(d => d.estado === 'pendiente')
     .reduce((s, d) => s + Number(d.monto || 0), 0)
 
+  /* eslint-disable react-hooks/set-state-in-effect -- cargas de datos
+     estándar (fetch async, setState tras el await/.then) */
   useEffect(() => {
     if (authEstado === 'cargando') return
     if (!user) { router.replace('/login'); return }
@@ -116,7 +119,11 @@ export default function PerfilRepartidorPage() {
       .then(({ data }) => setEntregas(data ?? []))
 
     cargarCaja()
+    // `cargarCaja` se redefine cada render, agregarla real dispararía
+    // refetch continuo; `router` sí es estable pero no hace falta listarlo.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, authEstado, repartidorId])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   function set(k: string, v: string) { setForm(f => ({ ...f, [k]: v })) }
 
@@ -173,7 +180,7 @@ export default function PerfilRepartidorPage() {
           <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Datos registrados</p>
           <div className="flex items-center gap-3">
             {user?.user_metadata?.avatar_url
-              ? <img src={user.user_metadata.avatar_url} className="w-12 h-12 rounded-xl" alt="" />
+              ? <Image src={user.user_metadata.avatar_url} width={48} height={48} unoptimized className="w-12 h-12 rounded-xl" alt="" />
               : <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">
                   <User size={20} className="text-green-700" />
                 </div>

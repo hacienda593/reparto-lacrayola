@@ -44,6 +44,7 @@ export default function UsuariosPage() {
     setCargando(false)
   }
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- carga inicial única, fetch async
   useEffect(() => { cargar() }, [])
 
   async function crear() {

@@ -1,6 +1,7 @@
 'use client'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
+import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 import { Loader2, CheckCircle2, AlertTriangle, Phone, MessageCircle, Truck, RotateCcw, FileText } from 'lucide-react'
 import { parseDatosFactura } from '@/lib/facturaCliente'
@@ -85,6 +86,7 @@ export default function PickingPage() {
   const rafRef      = useRef<number>(0)
   const detectorRef = useRef<any>(null)
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- corre solo al cambiar `id`, no en cada render
   useEffect(() => { cargar(); return () => pararCamara() }, [id])
 
   async function cargar() {
@@ -409,7 +411,7 @@ export default function PickingPage() {
                       
                       <div className="flex items-center gap-3 bg-[#0c0f12] p-2.5 rounded-xl border border-gray-800">
                         {prodActivoObj.imagen_url ? (
-                          <img src={prodActivoObj.imagen_url} alt="" className="w-12 h-12 object-contain bg-white rounded-lg p-0.5 shrink-0" />
+                          <Image src={prodActivoObj.imagen_url} alt="" width={48} height={48} unoptimized className="w-12 h-12 object-contain bg-white rounded-lg p-0.5 shrink-0" />
                         ) : (
                           <div className="w-12 h-12 bg-slate-800 rounded-lg flex items-center justify-center text-xl shrink-0">📦</div>
                         )}
@@ -727,7 +729,7 @@ export default function PickingPage() {
                                   <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-xl shrink-0 overflow-hidden
                                     ${prod.completado ? 'bg-[#00b074]/10' : prod.agotado ? 'bg-[#ff9f1c]/10' : 'bg-[#2d3748]'}`}>
                                     {prod.imagen_url ? (
-                                      <img src={prod.imagen_url} alt={prod.nombre} className="w-full h-full object-contain p-0.5" />
+                                      <Image src={prod.imagen_url} alt={prod.nombre} width={40} height={40} unoptimized className="w-full h-full object-contain p-0.5" />
                                     ) : (
                                       emojiProd(prod.nombre)
                                     )}

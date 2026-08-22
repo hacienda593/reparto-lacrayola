@@ -101,6 +101,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // e impida que signInWithPassword funcione
     const path = window.location.pathname
     if (path === '/login' || path === '/registrar') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- resolución de sesión, solo puede leerse en cliente
       setEstado('sin_sesion')
       return
     }

@@ -211,6 +211,7 @@ export default function LiquidacionesPage() {
     window.open(data.signedUrl, '_blank', 'noopener,noreferrer')
   }
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- corre solo al cambiar `fecha`, no en cada render
   useEffect(() => { const timer = window.setTimeout(() => void cargar(), 0); return () => window.clearTimeout(timer) }, [fecha])
 
   async function subirFotoComprobante(e: React.ChangeEvent<HTMLInputElement>) {

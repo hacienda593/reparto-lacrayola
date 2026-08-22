@@ -97,6 +97,7 @@ export default function RepartidoresPage() {
     setCargando(false)
   }
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- carga inicial única, fetch async
   useEffect(() => { cargar() }, [])
 
   function abrirNuevo() { setForm(EMPTY); setTiendasAfinidad(new Set()); setError(''); setModal(true) }

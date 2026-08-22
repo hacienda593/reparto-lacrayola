@@ -33,6 +33,10 @@ export default function ComisionesRepartidorPage() {
     if (!user) { router.replace('/login'); return }
     if (!repartidorId) { router.replace('/'); return }
     cargar()
+    // `router` es estable (useRouter() de next/navigation no cambia de
+    // referencia entre renders) y `cargar` se define de nuevo en cada
+    // render -- agregarla real causaría refetch continuo.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, authEstado, repartidorId])
 
   async function cargar() {

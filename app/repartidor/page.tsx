@@ -8,10 +8,10 @@ import Link from 'next/link'
 import { useAuth } from '@/context/AuthContext'
 import { supabase } from '@/lib/supabase'
 import { registrarYAbrirWhatsApp, formatWhatsApp } from '@/lib/comunicaciones'
-import { distanciaKm, minutosEstimados, ordenarPorCercania } from '@/lib/geo'
+import { distanciaKm, ordenarPorCercania } from '@/lib/geo'
 import { logout } from '@/actions/auth'
 import { useRouter } from 'next/navigation'
-import { Loader2, MapPin, CheckCircle, Package, Phone, Navigation, DollarSign, UserCircle, ArrowRightLeft, X, AlertCircle, LogOut, Menu, Map as MapIcon, Target } from 'lucide-react'
+import { Loader2, MapPin, CheckCircle, Package, Phone, Navigation, UserCircle, ArrowRightLeft, X, AlertCircle, LogOut, Menu, Map as MapIcon, Target } from 'lucide-react'
 
 function fmt(n: number) { return '$' + (n ?? 0).toFixed(2) }
 // La app de tienda manda "total" SIN el envío incluido (confirmado con un
@@ -142,6 +142,7 @@ export default function RepartidorPage() {
     const m = params.get('modo')
     if (m === 'comprador' || m === 'repartidor') {
       modoExplicitoRef.current = m
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- lee la URL, solo existe en cliente
       setModo(m)
     }
   }, [])
@@ -167,6 +168,7 @@ export default function RepartidorPage() {
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('paradaActivaId')
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- lee localStorage, solo existe en cliente
       if (saved) setParadaActivaId(saved)
     }
   }, [])
@@ -289,6 +291,9 @@ export default function RepartidorPage() {
   const [ordenParadas, setOrdenParadas] = useState<Record<string, number>>({})
   const [distanciaEntreParadas, setDistanciaEntreParadas] = useState<Record<string, number>>({})
 
+  /* eslint-disable react-hooks/set-state-in-effect -- orden/distancia
+     dependen de la geolocalización actual del repartidor (async,
+     getCurrentPosition más abajo), no se pueden calcular en el render. */
   useEffect(() => {
     const paradas = pedidos.filter(p => (p.estado === 'asignado' || p.estado === 'en_ruta') && p.geo_lat && p.geo_lng)
     if (paradas.length === 0) { setOrdenParadas({}); setDistanciaEntreParadas({}); return }
@@ -314,6 +319,7 @@ export default function RepartidorPage() {
     )
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pedidos.map(p => p.asignacion_id + p.estado).join(',')])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   async function confirmarTraspaso() {
     if (!repartidor) return
@@ -867,6 +873,9 @@ export default function RepartidorPage() {
     }
 
     cargar(user.id)
+    // `cargar` se redefine cada render -- agregarla real dispararía un
+    // refetch continuo en vez de solo cuando cambian estas 4 cosas.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, authEstado, modo, rol])
 
   // Refresco en tiempo real: pedidos nuevos liberados a la cola, o cambios en mis asignaciones
@@ -878,6 +887,9 @@ export default function RepartidorPage() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'rep_asignaciones' }, () => cargar(user.id))
       .subscribe()
     return () => { supabase.removeChannel(canal) }
+    // Se suscribe una sola vez por usuario -- `cargar` cambia de
+    // referencia cada render, no debe recrear el canal por eso.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user])
 
   const activarParada = async (p: any) => {

@@ -157,6 +157,12 @@ export default function EntregaPage() {
         }).catch((e: any) => console.warn('Error al liberar Wake Lock:', e))
       }
     }
+    // Deps angostas a propósito: solo lo que de verdad decide si el
+    // rastreo GPS debe (re)iniciarse. `pedido` cambia de referencia en
+    // cada recarga/poll aunque nada relevante haya cambiado -- ponerlo
+    // completo reiniciaría el watchPosition constantemente. `sb` es un
+    // cliente estable (createClient() se llama una sola vez arriba).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pedido?.id, pedido?.estado, pedido?.repartidor_id])
 
   async function cargar() {
@@ -220,6 +226,7 @@ export default function EntregaPage() {
     setCargando(false)
   }
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/set-state-in-effect -- corre solo al cambiar `id`, carga de datos estándar
   useEffect(() => { cargar() }, [id])
 
   function abrirMapa() {

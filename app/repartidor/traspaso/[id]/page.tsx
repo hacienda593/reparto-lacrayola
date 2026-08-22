@@ -181,6 +181,7 @@ export default function TraspasoPage() {
     }
   }
 
+  /* eslint-disable react-hooks/set-state-in-effect -- cargar() hace fetch async con setState tras el await */
   useEffect(() => {
     if (!user) return
     cargar()
@@ -216,7 +217,9 @@ export default function TraspasoPage() {
       .subscribe()
 
     return () => { supabase.removeChannel(canal) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `cargar` se redefine cada render
   }, [asignacionId, user])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // Cuando el pedido está repartido entre varias tiendas, se escucha en
   // vivo el estado de las asignaciones hermanas -- así el shopper ve el
@@ -245,7 +248,7 @@ export default function TraspasoPage() {
       .subscribe()
 
     return () => { supabase.removeChannel(canal) }
-  }, [asig?.pedido_id])
+  }, [asig?.pedido_id, asignacionId])
 
   // Cuenta regresiva + regeneración automática al expirar.
   useEffect(() => {
@@ -259,7 +262,12 @@ export default function TraspasoPage() {
       }
     }, 1000)
     return () => { if (tickRef.current) clearInterval(tickRef.current) }
-  }, [expiresAt, traspasado])
+    // `generando` sí se agrega real: sin ella, el intervalo quedaba con
+    // un closure viejo de su valor y podía volver a llamar generarCodigo()
+    // aunque ya hubiera una generación en curso. `generarCodigo` se
+    // redefine cada render -- agregarla reiniciaría el intervalo de más.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expiresAt, traspasado, generando])
 
   if (cargando) return (
     <div className="min-h-screen bg-[#0c0f12] flex items-center justify-center">

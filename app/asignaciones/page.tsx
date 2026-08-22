@@ -1345,6 +1345,14 @@ export default function AsignacionesPage() {
                               rel="noopener noreferrer"
                               className="block rounded-xl overflow-hidden border border-gray-800 hover:border-green-500/50 transition"
                             >
+                              {/* P1-05: se deja como <img> a propósito -- el tamaño es
+                                  dinámico (w-full, max-h-64, sin proporción fija) porque
+                                  el comprobante puede venir en cualquier orientación/aspecto.
+                                  next/image exige width/height o un padre con position:relative
+                                  medido; forzar eso a ciegas puede recortar o deformar la
+                                  imagen que el admin usa para verificar el pago -- no se
+                                  puede probar el layout resultante desde este entorno. */}
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
                               <img src={comprobanteUrl} alt="Comprobante de transferencia" className="w-full max-h-64 object-contain bg-black" />
                             </a>
                           ) : (

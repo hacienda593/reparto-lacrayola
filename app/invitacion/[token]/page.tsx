@@ -28,6 +28,9 @@ export default function InvitacionPage() {
       setResultado({ nombre: row.nombre })
     }
   }
+  // Corre una sola vez al montar (intenta canjear con la sesión ya activa,
+  // si la hay) -- no debe repetirse en cada render.
+  // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/set-state-in-effect
   useEffect(() => { intentarCanjearConSesionActual() }, [])
 
   async function enviar() {

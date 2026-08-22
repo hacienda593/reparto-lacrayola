@@ -59,6 +59,10 @@ export default function EscanearPage() {
       detenerCamara()
     }
     return () => { detenerCamara() }
+    // Deps a propósito solo [vista]: iniciarCamara/detenerCamara se
+    // redefinen en cada render -- agregarlas reiniciaría la cámara sin
+    // que el usuario haya cambiado de vista.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vista])
 
   async function iniciarCamara() {

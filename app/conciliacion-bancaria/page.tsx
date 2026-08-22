@@ -46,6 +46,7 @@ export default function ConciliacionBancariaPage() {
     setAtrasados(atr ?? [])
     setLoading(false)
   }, [])
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- carga de datos estándar (fetch async, setState tras el await)
   useEffect(() => { void cargar() }, [cargar])
 
   async function toggleVerificado(m: Mov) {
