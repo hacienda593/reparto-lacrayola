@@ -3,6 +3,7 @@ import { useEffect, useState, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { registrarYAbrirWhatsApp } from '@/lib/comunicaciones'
+import { errMsg } from '@/lib/errors'
 import { Loader2, CheckCircle2, MapPin, Phone, Navigation, Package, Check, X } from 'lucide-react'
 
 // La app de tienda manda "total" SIN el envío incluido -- ver
@@ -96,10 +97,10 @@ export default function EntregaPage() {
     async function requestWakeLock() {
       if (typeof window !== 'undefined' && 'wakeLock' in navigator) {
         try {
-          wakeLock = await (navigator as any).wakeLock.request('screen')
+          wakeLock = await (navigator as Navigator & { wakeLock: { request: (type: 'screen') => Promise<unknown> } }).wakeLock.request('screen')
           console.log('🔒 Screen Wake Lock activo para evitar suspensión de GPS.')
-        } catch (err: any) {
-          console.warn('⚠️ No se pudo adquirir el Wake Lock:', err.message)
+        } catch (err) {
+          console.warn('⚠️ No se pudo adquirir el Wake Lock:', errMsg(err))
         }
       }
     }
@@ -432,8 +433,8 @@ export default function EntregaPage() {
       setEntregado(true)
       setEntregaModalOpen(false)
 
-    } catch (err: any) {
-      alert('Error al guardar la entrega: ' + err.message)
+    } catch (err) {
+      alert('Error al guardar la entrega: ' + errMsg(err))
     } finally {
       setGuardandoEntrega(false)
       setGuardando(false)

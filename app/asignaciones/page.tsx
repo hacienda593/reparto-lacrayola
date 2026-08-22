@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { errMsg } from '@/lib/errors'
 import { useAuth } from '@/context/AuthContext'
 import { firmarUrlComprobante } from '@/lib/supabase/signedUrl'
 import { registrarYAbrirWhatsApp } from '@/lib/comunicaciones'
@@ -375,12 +376,13 @@ export default function AsignacionesPage() {
       // Si el guardado paso el indice unico de la BD, este numero ya no esta duplicado.
       setRefDuplicadaEn(null)
       registrarAuditoria('ref_corregida', { referencia: limpio })
-    } catch (err: any) {
+    } catch (err) {
       // El indice unico de la BD rechaza el guardado si ese numero de
       // comprobante ya fue usado en otro pedido (posible fraude/duplicado).
-      setError(err.message?.includes('duplicate')
+      const msg = errMsg(err)
+      setError(msg.includes('duplicate')
         ? '⚠️ Este número de comprobante ya fue registrado en otro pedido. Verifica con el cliente.'
-        : `Error al guardar referencia: ${err.message}`)
+        : `Error al guardar referencia: ${msg}`)
     } finally {
       setGuardandoRef(false)
     }
@@ -415,8 +417,8 @@ export default function AsignacionesPage() {
       setModalPedido(prev => prev && prev.id === pedidoId ? { ...prev, pago_confirmado: true } as any : prev)
       setMensaje('✓ Pago validado y registrado en el sistema.')
       cargarHistorial(pedidoId)
-    } catch (err: any) {
-      setError(`Error al confirmar pago: ${err.message}`)
+    } catch (err) {
+      setError(`Error al confirmar pago: ${errMsg(err)}`)
     } finally {
       setProcesando(false)
     }
@@ -449,8 +451,8 @@ export default function AsignacionesPage() {
       setModalPedido(prev => prev && prev.id === pedidoId ? { ...prev, pago_confirmado: false } as any : prev)
       setMensaje('↩️ Verificación de pago anulada.')
       cargarHistorial(pedidoId)
-    } catch (err: any) {
-      setError(`Error al anular verificación: ${err.message}`)
+    } catch (err) {
+      setError(`Error al anular verificación: ${errMsg(err)}`)
     } finally {
       setRevirtiendoPago(false)
     }
@@ -531,8 +533,8 @@ export default function AsignacionesPage() {
       setModalPedido(null)
       await cargarDatos()
       await ofrecerNotificarShoppers(p)
-    } catch (err: any) {
-      setError(`Error al liberar pedido: ${err.message}`)
+    } catch (err) {
+      setError(`Error al liberar pedido: ${errMsg(err)}`)
     } finally {
       setProcesando(false)
     }
@@ -622,8 +624,8 @@ export default function AsignacionesPage() {
         setPickingData([])
       }
 
-    } catch (err: any) {
-      setError(`Error al cargar datos: ${err.message}`)
+    } catch (err) {
+      setError(`Error al cargar datos: ${errMsg(err)}`)
     } finally {
       setCargando(false)
     }
@@ -683,8 +685,8 @@ export default function AsignacionesPage() {
 
       setMensaje('✓ Pedido asignado con éxito (Fuerza Mayor).')
       await cargarDatos()
-    } catch (err: any) {
-      setError(`Error al forzar asignación: ${err.message}`)
+    } catch (err) {
+      setError(`Error al forzar asignación: ${errMsg(err)}`)
     } finally {
       setProcesando(false)
     }
@@ -717,8 +719,8 @@ export default function AsignacionesPage() {
 
       setMensaje('✓ Traspaso forzado con éxito. Pedido en ruta.')
       await cargarDatos()
-    } catch (err: any) {
-      setError(`Error al forzar traspaso: ${err.message}`)
+    } catch (err) {
+      setError(`Error al forzar traspaso: ${errMsg(err)}`)
     } finally {
       setProcesando(false)
     }
@@ -748,8 +750,8 @@ export default function AsignacionesPage() {
 
       setMensaje('✓ Asignación eliminada. El pedido vuelve a estar libre.')
       await cargarDatos()
-    } catch (err: any) {
-      setError(`Error al eliminar asignación: ${err.message}`)
+    } catch (err) {
+      setError(`Error al eliminar asignación: ${errMsg(err)}`)
     } finally {
       setProcesando(false)
     }

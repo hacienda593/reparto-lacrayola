@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { errMsg } from '@/lib/errors'
 import { Loader2, CheckCircle, Lock, Mail, Eye, EyeOff } from 'lucide-react'
 
 // SEC-05 de la auditoría: reemplaza la vinculación automática por email
@@ -48,8 +49,8 @@ export default function InvitacionPage() {
       if (rpcErr) { setError(rpcErr.message); setProcesando(false); return }
       const row = Array.isArray(data) ? data[0] : data
       setResultado({ nombre: row.nombre })
-    } catch (e: any) {
-      setError(e?.message || 'No se pudo procesar la invitación')
+    } catch (e) {
+      setError(errMsg(e) || 'No se pudo procesar la invitación')
     } finally {
       setProcesando(false)
     }

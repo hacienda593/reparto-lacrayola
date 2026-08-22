@@ -9,6 +9,7 @@ import { useAuth } from '@/context/AuthContext'
 import { supabase } from '@/lib/supabase'
 import { registrarYAbrirWhatsApp, formatWhatsApp } from '@/lib/comunicaciones'
 import { distanciaKm, ordenarPorCercania } from '@/lib/geo'
+import { errMsg } from '@/lib/errors'
 import { logout } from '@/actions/auth'
 import { useRouter } from 'next/navigation'
 import { Loader2, MapPin, CheckCircle, Package, Phone, Navigation, UserCircle, ArrowRightLeft, X, AlertCircle, LogOut, Menu, Map as MapIcon, Target } from 'lucide-react'
@@ -378,8 +379,8 @@ export default function RepartidorPage() {
 
       setShowTraspaso(false)
       await cargar(user!.id)
-    } catch (e: any) {
-      setErrorTraspaso(e.message || 'No se pudo registrar el depósito')
+    } catch (e) {
+      setErrorTraspaso(errMsg(e) || 'No se pudo registrar el depósito')
     } finally {
       setProcesandoTraspaso(false)
     }
@@ -698,9 +699,9 @@ export default function RepartidorPage() {
           shopper_telefono: shopperMap.get(a.shopper_id)?.telefono ?? '',
         }
       }))
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error loading driver data:', err)
-      setErrorCarga(err?.message || String(err) || 'Error de carga desconocido')
+      setErrorCarga(errMsg(err) || 'Error de carga desconocido')
     } finally {
       setCargando(false)
     }

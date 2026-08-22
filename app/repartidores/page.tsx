@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
 import { RepRepartidor } from '@/lib/types'
 import { validarCedulaEcuador, validarCelularEcuador } from '@/lib/cedula'
+import { errMsg } from '@/lib/errors'
 import Sidebar from '@/components/Sidebar'
 import {
   Plus, Pencil, Loader2, Phone, MapPin,
@@ -75,8 +76,8 @@ export default function RepartidoresPage() {
       if (errUp) throw errUp
       setTiendas(prev => prev.map(t => t.id === tiendaId ? { ...t, geo_lat: data.lat, geo_lng: data.lng } : t))
       setLinkTienda(prev => ({ ...prev, [tiendaId]: '' }))
-    } catch (e: any) {
-      setErrorCoord(e.message || 'Error al guardar la coordenada')
+    } catch (e) {
+      setErrorCoord(errMsg(e) || 'Error al guardar la coordenada')
     } finally {
       setGuardandoCoord(null)
     }

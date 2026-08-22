@@ -4,6 +4,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Loader2, CheckCircle2, Shield, Camera, ArrowRight, Plus, Minus } from 'lucide-react'
 import { parseDatosFactura } from '@/lib/facturaCliente'
+import { errMsg } from '@/lib/errors'
 import { registrarYAbrirWhatsApp } from '@/lib/comunicaciones'
 type SriFactura={estado:string;claveAcceso:string;fechaAutorizacion:string|null;ambiente:string;rucEmisor:string;razonSocialEmisor:string;identificacionComprador:string;razonSocialComprador:string;establecimiento:string;puntoEmision:string;secuencial:string;fechaEmision:string;subtotal:number;iva:number;total:number;xml:string;sha256:string;detalles:Array<{codigo:string;descripcion:string;cantidad:number;precioUnitario:number;precioTotal:number}>}
 
@@ -386,8 +387,8 @@ export default function CajaPage() {
       })
       if (errRpc) throw errRpc
       setFotosBultos(prev => ({ ...prev, [n]: [...(prev[n] ?? []), path] }))
-    } catch (e: any) {
-      setError(e.message || `No se pudo subir la foto del bulto ${n}`)
+    } catch (e) {
+      setError(errMsg(e) || `No se pudo subir la foto del bulto ${n}`)
     } finally {
       setSubiendoBulto(null)
     }

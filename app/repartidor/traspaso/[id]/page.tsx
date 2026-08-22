@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
 import { ArrowLeft, Loader2, CheckCircle2, ShieldAlert, RefreshCw, Camera, Plus, Minus } from 'lucide-react'
 import QrCode from '@/components/QrCode'
+import { errMsg } from '@/lib/errors'
 
 export default function TraspasoPage() {
   const { id: asignacionId } = useParams<{ id: string }>()
@@ -66,8 +67,8 @@ export default function TraspasoPage() {
       })
       if (errRpc) throw errRpc
       setFotosBultos(prev => ({ ...prev, [n]: [...(prev[n] ?? []), path] }))
-    } catch (e: any) {
-      setErrorEmpaque(e.message || `No se pudo subir la foto del bulto ${n}`)
+    } catch (e) {
+      setErrorEmpaque(errMsg(e) || `No se pudo subir la foto del bulto ${n}`)
     } finally {
       setSubiendoBulto(null)
     }
@@ -89,8 +90,8 @@ export default function TraspasoPage() {
       setToken(row.token)
       setCodigoVisual(row.codigo_visual)
       setExpiresAt(new Date(row.expires_at))
-    } catch (e: any) {
-      setError(e.message || 'No se pudo generar el código de traspaso')
+    } catch (e) {
+      setError(errMsg(e) || 'No se pudo generar el código de traspaso')
     } finally {
       setGenerando(false)
     }

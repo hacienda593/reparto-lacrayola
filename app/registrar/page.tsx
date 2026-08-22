@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { validarCedulaEcuador, validarCelularEcuador } from '@/lib/cedula'
+import { errMsg } from '@/lib/errors'
 import {
   User, Phone, Mail, MapPin, FileText,
   CheckCircle, Loader2, ArrowLeft, ChevronRight,
@@ -101,8 +102,8 @@ export default function RegistrarPage() {
       await supabase.auth.signOut()
 
       setEnviado(true)
-    } catch (e: any) {
-      setError(e?.message ?? 'Error inesperado, intenta de nuevo')
+    } catch (e) {
+      setError(errMsg(e) || 'Error inesperado, intenta de nuevo')
     } finally {
       setGuardando(false)
     }
@@ -172,7 +173,7 @@ export default function RegistrarPage() {
                   <label className="text-xs font-semibold text-slate-600 block mb-1">{label}</label>
                   <div className="relative">
                     <Icon size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <input type={type} value={(form as any)[k]} onChange={e => set(k, e.target.value)}
+                    <input type={type} value={form[k as keyof typeof form]} onChange={e => set(k, e.target.value)}
                       placeholder={placeholder}
                       className="w-full border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-sm focus:outline-none focus:border-green-500" />
                   </div>
