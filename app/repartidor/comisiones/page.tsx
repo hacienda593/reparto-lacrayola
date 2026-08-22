@@ -28,17 +28,6 @@ export default function ComisionesRepartidorPage() {
   const [enviandoReclamo, setEnviandoReclamo] = useState(false)
   const [errorReclamo, setErrorReclamo] = useState('')
 
-  useEffect(() => {
-    if (authEstado === 'cargando') return
-    if (!user) { router.replace('/login'); return }
-    if (!repartidorId) { router.replace('/'); return }
-    cargar()
-    // `router` es estable (useRouter() de next/navigation no cambia de
-    // referencia entre renders) y `cargar` se define de nuevo en cada
-    // render -- agregarla real causaría refetch continuo.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, authEstado, repartidorId])
-
   async function cargar() {
     const [{ data: rep }, { data: ents }, { data: periodos }, { data: comisionPend }, { data: reclamos }] = await Promise.all([
       supabase.from('rep_repartidores').select('comision_tipo,comision_valor').eq('id', repartidorId).single(),
@@ -57,6 +46,17 @@ export default function ComisionesRepartidorPage() {
     setMisReclamos(reclamos ?? [])
     setCargando(false)
   }
+
+  useEffect(() => {
+    if (authEstado === 'cargando') return
+    if (!user) { router.replace('/login'); return }
+    if (!repartidorId) { router.replace('/'); return }
+    cargar()
+    // `router` es estable (useRouter() de next/navigation no cambia de
+    // referencia entre renders) y `cargar` se define de nuevo en cada
+    // render -- agregarla real causaría refetch continuo.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, authEstado, repartidorId])
 
   function gananciaEntrega(e: any) {
     if (comisionConfig.tipo === 'porcentaje') {

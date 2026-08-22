@@ -357,6 +357,10 @@ export default function RepartidorPage() {
     setErrorTraspaso('')
     try {
       const ext = comprobanteTraspasoFile.name.split('.').pop() || 'jpg'
+      // Date.now() acá es seguro pese a la regla de pureza: confirmarTraspaso
+      // solo se invoca desde el onClick del botón de envío, nunca durante el
+      // render -- no hay riesgo de un valor inestable entre renders.
+      // eslint-disable-next-line react-hooks/purity
       const fileName = `depositos/${repartidor.id}_${Date.now()}.${ext}`
       const { error: upErr } = await supabase.storage.from('comprobantes-proveedores').upload(fileName, comprobanteTraspasoFile)
       if (upErr) throw upErr
