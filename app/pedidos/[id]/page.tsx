@@ -4,7 +4,23 @@ import Link from 'next/link'
 import Sidebar from '@/components/Sidebar'
 import { ArrowLeft, Package, MapPin, User, Phone, Truck, Receipt, DollarSign } from 'lucide-react'
 
-function fmt(n: number) { return '$' + (n ?? 0).toFixed(2) }
+function fmt(n: number | null | undefined) { return '$' + (n ?? 0).toFixed(2) }
+
+// El cliente de supabase acá no está tipado contra el esquema (Database
+// generics) -- solo se declaran los campos que esta pantalla de verdad lee.
+interface ComprobanteProveedor {
+  id: string
+  prov_establecimiento: string | null
+  prov_punto_emision: string | null
+  prov_secuencial: string | null
+  prov_ruc: string | null
+  prov_costo_real: number | null
+  prov_factura_url: string | null
+}
+interface AsignacionConRepartidor {
+  id: string
+  rep_repartidores: { nombre: string; telefono: string } | null
+}
 
 const ESTADO_LABEL: Record<string, string> = {
   pendiente: 'Pendiente de validación',
@@ -51,12 +67,13 @@ export default async function PedidoDetallePage({ params }: { params: Promise<{ 
     return data?.signedUrl ?? null
   }
   const comprobantesFirmados = await Promise.all(
-    (comprobantes ?? []).map(async c => ({ ...c, prov_factura_url_firmada: await firmar(c.prov_factura_url) }))
+    ((comprobantes ?? []) as ComprobanteProveedor[]).map(async c => ({ ...c, prov_factura_url_firmada: await firmar(c.prov_factura_url) }))
   )
 
   const totalItems = (items ?? []).reduce((s, it) => s + (it.cantidad ?? 1), 0)
-  const repartidorNombre = (asignacion as any)?.rep_repartidores?.nombre
-  const repartidorTelefono = (asignacion as any)?.rep_repartidores?.telefono
+  const asigConRepartidor = asignacion as AsignacionConRepartidor | null
+  const repartidorNombre = asigConRepartidor?.rep_repartidores?.nombre
+  const repartidorTelefono = asigConRepartidor?.rep_repartidores?.telefono
 
   return (
     <div className="flex min-h-screen bg-[#0c0f12] text-white">
@@ -144,7 +161,7 @@ export default async function PedidoDetallePage({ params }: { params: Promise<{ 
         {comprobantesFirmados.length > 0 && (
           <div className="bg-[#181d24] border border-[#2d3748] rounded-2xl p-4 space-y-3">
             <p className="text-gray-500 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5"><Receipt size={12} /> Comprobantes de proveedor</p>
-            {comprobantesFirmados.map((c: any) => (
+            {comprobantesFirmados.map(c => (
               <div key={c.id} className="bg-[#0c0f12] border border-[#2d3748] rounded-xl p-3 text-xs space-y-1">
                 <div className="flex justify-between"><span className="text-gray-500">Factura</span><span className="text-white font-mono">{c.prov_establecimiento}-{c.prov_punto_emision}-{c.prov_secuencial}</span></div>
                 <div className="flex justify-between"><span className="text-gray-500">RUC Proveedor</span><span className="text-white font-mono">{c.prov_ruc}</span></div>

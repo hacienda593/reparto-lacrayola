@@ -6,6 +6,15 @@ import { AlertTriangle, Banknote, Check, Loader2, RefreshCw } from 'lucide-react
 
 const money = (n: number) => new Intl.NumberFormat('es-EC', { style: 'currency', currency: 'USD' }).format(n || 0)
 
+type DepositoAtrasado = {
+  id: string
+  repartidor_nombre: string
+  monto: number
+  banco: string | null
+  referencia: string | null
+  dias_atraso: number
+}
+
 type Mov = {
   origen: 'deposito_repartidor' | 'transferencia_cliente'
   id: string
@@ -26,7 +35,7 @@ type Mov = {
 // (app del banco, no integrado acá) y marca cada movimiento.
 export default function ConciliacionBancariaPage() {
   const [movs, setMovs] = useState<Mov[]>([])
-  const [atrasados, setAtrasados] = useState<any[]>([])
+  const [atrasados, setAtrasados] = useState<DepositoAtrasado[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [procesando, setProcesando] = useState<string | null>(null)

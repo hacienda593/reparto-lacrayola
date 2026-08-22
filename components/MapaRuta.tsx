@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useRef } from 'react'
+import type * as Leaflet from 'leaflet'
 
 interface Parada {
   asignacion_id: string
@@ -20,14 +21,14 @@ export default function MapaRuta({
   onSelectParada: (p: Parada) => void
   paradaActivaId: string | null 
 }) {
-  const mapRef = useRef<any>(null)
+  const mapRef = useRef<Leaflet.Map | null>(null)
   const mapContainerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (typeof window === 'undefined') return
 
     let isMounted = true
-    let L: any = null
+    let L: typeof Leaflet | null = null
 
     const initMap = async () => {
       const leaflet = await import('leaflet')
@@ -76,11 +77,12 @@ export default function MapaRuta({
         iconAnchor: [12, 12]
       })
 
+      const leafletLib = L
       paradasConGeo.forEach(p => {
         if (!p.geo_lat || !p.geo_lng) return
         const isActive = p.asignacion_id === paradaActivaId
-        
-        const marker = L.marker([p.geo_lat, p.geo_lng], {
+
+        const marker = leafletLib.marker([p.geo_lat, p.geo_lng], {
           icon: isActive ? activeIcon : pendingIcon
         }).addTo(map)
 

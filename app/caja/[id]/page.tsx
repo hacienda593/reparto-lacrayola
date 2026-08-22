@@ -8,14 +8,47 @@ import { errMsg } from '@/lib/errors'
 import { registrarYAbrirWhatsApp } from '@/lib/comunicaciones'
 type SriFactura={estado:string;claveAcceso:string;fechaAutorizacion:string|null;ambiente:string;rucEmisor:string;razonSocialEmisor:string;identificacionComprador:string;razonSocialComprador:string;establecimiento:string;puntoEmision:string;secuencial:string;fechaEmision:string;subtotal:number;iva:number;total:number;xml:string;sha256:string;detalles:Array<{codigo:string;descripcion:string;cantidad:number;precioUnitario:number;precioTotal:number}>}
 
+// Solo los campos que esta pantalla realmente lee/escribe -- no el registro
+// completo de ol_pedidos/rep_asignaciones (ver supabase/schema.sql para el
+// esquema completo si hace falta más adelante).
+interface Pedido {
+  id: string
+  numero: number
+  nombre_cliente: string
+  telefono: string | null
+  direccion: string | null
+  ciudad: string | null
+  notas: string | null
+  total: number
+  costo_envio: number | null
+  total_final: number | null
+  metodo_pago: string | null
+}
+interface PedidoItem {
+  id: string
+  codigo: string | null
+  cantidad: number | null
+  precio_unitario: number | null
+  picking_completado: boolean
+  tienda_id: string | null
+  iva_codigo: string | null
+  iva_porcentaje: number | null
+}
+interface Asignacion {
+  id: string
+  pedido_id: string
+  tienda_id: string | null
+  estado: string
+}
+
 export default function CajaPage() {
   const { id }   = useParams<{ id: string }>()
   const router   = useRouter()
   const supabase = createClient()
 
-  const [pedido,       setPedido]       = useState<any>(null)
-  const [items,        setItems]        = useState<any[]>([])
-  const [asignacion,   setAsignacion]   = useState<any>(null)
+  const [pedido,       setPedido]       = useState<Pedido | null>(null)
+  const [items,        setItems]        = useState<PedidoItem[]>([])
+  const [asignacion,   setAsignacion]   = useState<Asignacion | null>(null)
   const [cargando,     setCargando]     = useState(true)
   const [guardando,    setGuardando]    = useState(false)
   
@@ -397,6 +430,7 @@ export default function CajaPage() {
 
   async function registrarFacturacion() {
     setError('')
+    if (!pedido) return
 
     if (esUltimaTienda && faltanFotosBultos) {
       setError('Toma la foto del interior de cada bulto/funda antes de sellarlo (sección "Evidencia de Empaque" abajo)')

@@ -42,7 +42,7 @@ export async function login(formData: FormData) {
     try {
       const rolAsignado = rep.vehiculo === 'pie' ? 'comprador' : 'repartidor'
       await supabase.from('rep_roles').upsert({ user_id: user.id, rol: rolAsignado, activo: true }, { onConflict: 'user_id' })
-      rolData = { rol: rolAsignado, activo: true } as any
+      rolData = { rol: rolAsignado, activo: true }
     } catch (e) {
       console.error("Error assigning role on login:", e)
     }

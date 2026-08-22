@@ -12,7 +12,7 @@ export default function EscanearPage() {
   const { user } = useAuth()
 
   const [pin, setPin] = useState(['', '', '', '', '', ''])
-  const [repartidor, setRepartidor] = useState<any>(null)
+  const [repartidor, setRepartidor] = useState<{ id: string; nombre: string } | null>(null)
   const [procesando, setProcesando] = useState(false)
   const [error, setError] = useState('')
   const [exito, setExito] = useState(false)
@@ -34,7 +34,9 @@ export default function EscanearPage() {
   // Camera refs
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
-  const detectorRef = useRef<any>(null)
+  // BarcodeDetector todavía no está en los tipos estándar de TS/DOM (API
+  // experimental) -- se declara la forma mínima real que se usa acá.
+  const detectorRef = useRef<{ detect: (source: HTMLVideoElement) => Promise<{ rawValue: string }[]> } | null>(null)
   const scanningRef = useRef(false)
   const [camaraSoportada, setCamaraSoportada] = useState(true)
 
@@ -210,7 +212,7 @@ export default function EscanearPage() {
     const nombreCliente = asigInfo?.ol_pedidos?.nombre_cliente
     const numero = asigInfo?.ol_pedidos?.numero
     const telefono = asigInfo?.ol_pedidos?.telefono
-    if (pedidoCompleto && nombreCliente && numero && telefono && asigInfo?.pedido_id) {
+    if (pedidoCompleto && nombreCliente && numero && telefono && asigInfo?.pedido_id && repartidor) {
       const msg = `🛵 *La Crayola - ¡Tu pedido va en camino!* \n\nHola *${nombreCliente}*, tu pedido *#${String(numero).padStart(4,'0')}* ya fue comprado y va en camino a cargo del motorizado *${repartidor.nombre}*. 📍 ¡Llegaré en unos minutos!`
       registrarYAbrirWhatsApp({ pedidoId: asigInfo.pedido_id, tipo: 'en_camino', mensaje: msg, telefono, asignacionId: handoff.asignacion_id })
     }
