@@ -76,6 +76,7 @@ export default function ComisionesRepartidorPage() {
     if (authEstado === 'cargando') return
     if (!user) { router.replace('/login'); return }
     if (!repartidorId) { router.replace('/'); return }
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- carga de datos estándar
     cargar()
     // `router` es estable (useRouter() de next/navigation no cambia de
     // referencia entre renders) y `cargar` se define de nuevo en cada

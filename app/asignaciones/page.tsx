@@ -44,6 +44,32 @@ interface Pedido {
   user_id?: string | null
 }
 
+interface HistorialVerificacion {
+  id: string
+  accion: string
+  created_at: string
+  admin_nombre: string
+  banco: 'pichincha' | 'deuna' | 'otro' | null
+  fecha_deposito: string | null
+  referencia: string | null
+  notas: string | null
+}
+
+interface DireccionCliente {
+  id: string
+  nombre_direccion: string
+  direccion: string
+  geo_lat: number | null
+  geo_lng: number | null
+  verificada: boolean
+  origen: 'reparto' | 'tienda'
+}
+
+interface PickingItem {
+  pedido_id: string
+  estado: string
+}
+
 interface Repartidor {
   id: string
   nombre: string
@@ -74,7 +100,7 @@ export default function AsignacionesPage() {
   const [pedidos, setPedidos] = useState<Pedido[]>([])
   const [repartidores, setRepartidores] = useState<Repartidor[]>([])
   const [asignaciones, setAsignaciones] = useState<Asignacion[]>([])
-  const [pickingData, setPickingData] = useState<any[]>([])
+  const [pickingData, setPickingData] = useState<PickingItem[]>([])
   
   const [cargando, setCargando] = useState(true)
   const [procesando, setProcesando] = useState(false)
@@ -92,7 +118,7 @@ export default function AsignacionesPage() {
     numero: number
     grupos: { tiendaNombre: string; shoppers: { id: string; nombre: string; telefono: string }[] }[]
   } | null>(null)
-  const [direccionesCliente, setDireccionesCliente] = useState<any[]>([])
+  const [direccionesCliente, setDireccionesCliente] = useState<DireccionCliente[]>([])
   const [direccionSeleccionada, setDireccionSeleccionada] = useState<string>('')
   const [nuevaDireccion, setNuevaDireccion] = useState({ nombre: 'Casa', lat: '', lng: '', referencias: '' })
   const [pegarCoords, setPegarCoords] = useState('')
@@ -116,7 +142,7 @@ export default function AsignacionesPage() {
   const [montoConfirmadoInput, setMontoConfirmadoInput] = useState('')
   const [motivoDiferenciaInput, setMotivoDiferenciaInput] = useState('')
   const [calculandoEnvio, setCalculandoEnvio] = useState(false)
-  const [historialVerif, setHistorialVerif] = useState<any[]>([])
+  const [historialVerif, setHistorialVerif] = useState<HistorialVerificacion[]>([])
   const [mostrarHistorial, setMostrarHistorial] = useState(false)
 
   // A7 de la auditoría financiera: un match genérico de "transferencia" en
@@ -213,7 +239,7 @@ export default function AsignacionesPage() {
         banco:          extra.banco ?? null,
         fecha_deposito: extra.fecha_deposito ?? null,
         admin_user_id:  user.id,
-        admin_nombre:   (user as any).user_metadata?.full_name || user.email || 'Admin',
+        admin_nombre:   (user.user_metadata?.full_name as string | undefined) || user.email || 'Admin',
         notas:          extra.notas ?? null,
       })
       cargarHistorial(modalPedido.id)
@@ -259,8 +285,8 @@ export default function AsignacionesPage() {
         body: JSON.stringify({ pedidoId: p.id }),
       }).then(res => res.json()).then(data => {
         if (typeof data?.envio === 'number') {
-          setModalPedido(prev => prev && prev.id === p.id ? { ...prev, costo_envio: data.envio } as any : prev)
-          setPedidos(prev => prev.map(x => x.id === p.id ? { ...x, costo_envio: data.envio } as any : x))
+          setModalPedido(prev => prev && prev.id === p.id ? { ...prev, costo_envio: data.envio } : prev)
+          setPedidos(prev => prev.map(x => x.id === p.id ? { ...x, costo_envio: data.envio } : x))
         }
       }).catch(() => {}).finally(() => setCalculandoEnvio(false))
     }
@@ -292,7 +318,7 @@ export default function AsignacionesPage() {
       if (errRep) throw errRep
 
       // 2. Cargar desde ol_direcciones_cliente (agenda de la tienda del cliente)
-      let storeDirs: any[] = []
+      let storeDirs: { id: string; direccion_texto: string; geo_lat: number | null; geo_lng: number | null; nombre_etiqueta: string | null }[] = []
       if (p.user_id) {
         const { data: sDirs } = await supabase
           .from('ol_direcciones_cliente')
@@ -310,7 +336,7 @@ export default function AsignacionesPage() {
           geo_lat: d.geo_lat,
           geo_lng: d.geo_lng,
           verificada: d.verificada,
-          origen: 'reparto'
+          origen: 'reparto' as const
         })),
         ...storeDirs.map(d => ({
           id: d.id,
@@ -319,7 +345,7 @@ export default function AsignacionesPage() {
           geo_lat: d.geo_lat,
           geo_lng: d.geo_lng,
           verificada: false,
-          origen: 'tienda'
+          origen: 'tienda' as const
         }))
       ]
 
@@ -413,8 +439,8 @@ export default function AsignacionesPage() {
       })
       if (error) throw error
 
-      setPedidos(prev => prev.map(p => p.id === pedidoId ? { ...p, pago_confirmado: true } as any : p))
-      setModalPedido(prev => prev && prev.id === pedidoId ? { ...prev, pago_confirmado: true } as any : prev)
+      setPedidos(prev => prev.map(p => p.id === pedidoId ? { ...p, pago_confirmado: true } : p))
+      setModalPedido(prev => prev && prev.id === pedidoId ? { ...prev, pago_confirmado: true } : prev)
       setMensaje('✓ Pago validado y registrado en el sistema.')
       cargarHistorial(pedidoId)
     } catch (err) {
@@ -447,8 +473,8 @@ export default function AsignacionesPage() {
       })
       if (error) throw error
 
-      setPedidos(prev => prev.map(p => p.id === pedidoId ? { ...p, pago_confirmado: false } as any : p))
-      setModalPedido(prev => prev && prev.id === pedidoId ? { ...prev, pago_confirmado: false } as any : prev)
+      setPedidos(prev => prev.map(p => p.id === pedidoId ? { ...p, pago_confirmado: false } : p))
+      setModalPedido(prev => prev && prev.id === pedidoId ? { ...prev, pago_confirmado: false } : prev)
       setMensaje('↩️ Verificación de pago anulada.')
       cargarHistorial(pedidoId)
     } catch (err) {
@@ -528,7 +554,7 @@ export default function AsignacionesPage() {
         .eq('id', p.id)
       if (errPed) throw errPed
 
-      setPedidos(prev => prev.map(o => o.id === p.id ? { ...o, estado: 'confirmado', geo_lat: lat, geo_lng: lng } as any : o))
+      setPedidos(prev => prev.map(o => o.id === p.id ? { ...o, estado: 'confirmado', geo_lat: lat, geo_lng: lng } : o))
       setMensaje('✓ Pedido confirmado y liberado para Auto-Asignación.')
       setModalPedido(null)
       await cargarDatos()
@@ -550,7 +576,7 @@ export default function AsignacionesPage() {
         .from('ol_pedido_items')
         .select('tienda_id')
         .eq('pedido_id', p.id)
-      const idsTienda = Array.from(new Set((items ?? []).map((i: any) => i.tienda_id).filter(Boolean))) as string[]
+      const idsTienda = Array.from(new Set((items ?? []).map((i: { tienda_id: string | null }) => i.tienda_id).filter(Boolean))) as string[]
       if (idsTienda.length === 0) return
 
       const [{ data: tiendasInfo }, { data: afinidades }] = await Promise.all([
@@ -559,20 +585,20 @@ export default function AsignacionesPage() {
       ])
       if (!afinidades || afinidades.length === 0) return
 
-      const repIds = Array.from(new Set(afinidades.map((a: any) => a.repartidor_id)))
+      const repIds = Array.from(new Set(afinidades.map((a: { repartidor_id: string }) => a.repartidor_id)))
       const { data: shoppersPub } = await supabase
         .from('rep_repartidores_pub')
         .select('id, nombre, telefono')
         .in('id', repIds)
-      const shopperMap = new Map((shoppersPub ?? []).map((s: any) => [s.id, s]))
-      const nombreTienda = new Map((tiendasInfo ?? []).map((t: any) => [t.id, t.nombre]))
+      const shopperMap = new Map((shoppersPub ?? []).map((s: { id: string; nombre: string; telefono: string }) => [s.id, s]))
+      const nombreTienda = new Map((tiendasInfo ?? []).map((t: { id: string; nombre: string }) => [t.id, t.nombre]))
 
       const grupos = idsTienda.map(tId => ({
         tiendaNombre: nombreTienda.get(tId) ?? 'Tienda',
         shoppers: afinidades
-          .filter((a: any) => a.tienda_id === tId)
-          .map((a: any) => shopperMap.get(a.repartidor_id))
-          .filter((s: any): s is { id: string; nombre: string; telefono: string } => !!s?.telefono),
+          .filter((a: { tienda_id: string }) => a.tienda_id === tId)
+          .map((a: { repartidor_id: string }) => shopperMap.get(a.repartidor_id))
+          .filter((s): s is { id: string; nombre: string; telefono: string } => !!s?.telefono),
       })).filter(g => g.shoppers.length > 0)
 
       if (grupos.length > 0) setNotificarPanel({ numero: p.numero, grupos })
@@ -610,9 +636,9 @@ export default function AsignacionesPage() {
       setRepartidores(dataRep || [])
 
       if (errAsig) throw errAsig
-      setAsignaciones((dataAsig || []) as any)
+      setAsignaciones(dataAsig || [])
 
-      const activePedidoIds = dataAsig?.map((a: any) => a.pedido_id) || []
+      const activePedidoIds = dataAsig?.map((a: { pedido_id: string }) => a.pedido_id) || []
       if (activePedidoIds.length > 0) {
         const { data: pickData, error: errPick } = await supabase
           .from('rep_picking')
@@ -1507,7 +1533,7 @@ export default function AsignacionesPage() {
                               <label className="text-[9px] text-gray-400 uppercase font-black tracking-wide block">Banco / medio</label>
                               <select
                                 value={bancoInput}
-                                onChange={e => setBancoInput(e.target.value as any)}
+                                onChange={e => setBancoInput(e.target.value as 'pichincha' | 'deuna' | 'otro')}
                                 className="w-full bg-[#0c0f12] border border-gray-800 rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-green-500">
                                 <option value="pichincha">🏦 Banco Pichincha</option>
                                 <option value="deuna">🟣 Deuna</option>
