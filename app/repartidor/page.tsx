@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 const MapaRuta = dynamic(() => import('@/components/MapaRuta'), { ssr: false })
-import ModalTraspasoEfectivo from '@/components/repartidor/ModalTraspasoEfectivo'
+import ModalTraspasoEfectivo, { type EntregaSinLiquidar } from '@/components/repartidor/ModalTraspasoEfectivo'
 import CardPedidoRepartidor from '@/components/repartidor/CardPedidoRepartidor'
 import Link from 'next/link'
 import { useAuth } from '@/context/AuthContext'
@@ -63,6 +63,43 @@ interface PedidoAsignado {
   shopper_id?:    string | null
 }
 
+interface TiendaPendiente { id: string; nombre: string; tomada: boolean }
+interface DireccionVerificada { telefono: string; direccion: string; geo_lat: number | null; geo_lng: number | null }
+interface PedidoEspera {
+  id: string
+  numero: number
+  nombre_cliente: string
+  telefono: string
+  direccion: string | null
+  ciudad: string
+  referencias: string | null
+  notas: string | null
+  total: number
+  costo_envio: number | null
+  geo_lat: number | null
+  geo_lng: number | null
+  zona_id: string | null
+  tiendas: TiendaPendiente[]
+}
+interface PoolEntrega {
+  asignacion_id: string
+  pedido_id: string
+  tienda_recogida: string | null
+  tienda_direccion: string | null
+  numero: number
+  nombre_cliente: string
+  direccion: string | null
+  ciudad: string
+  total: number
+  costo_envio: number | null
+  telefono: string
+  geo_lat: number | null
+  geo_lng: number | null
+  metodo_pago: string
+  shopper_nombre: string
+  shopper_telefono: string
+}
+
 const EST_COLOR: Record<string, string> = {
   asignado: 'bg-indigo-100 text-indigo-700',
   en_ruta:  'bg-orange-100 text-orange-700',
@@ -74,10 +111,10 @@ export default function RepartidorPage() {
   const { user, rol, estado: authEstado } = useAuth()
   const router = useRouter()
   const [pedidos,    setPedidos]    = useState<PedidoAsignado[]>([])
-  const [pedidosEspera, setPedidosEspera] = useState<any[]>([])
+  const [pedidosEspera, setPedidosEspera] = useState<PedidoEspera[]>([])
   // Pool de entregas listas para recoger (comprador ya pago en caja, sin motorizado asignado
   // todavia) — modulo independiente del comprador, solo visible en modo repartidor.
-  const [poolEntregas, setPoolEntregas] = useState<any[]>([])
+  const [poolEntregas, setPoolEntregas] = useState<PoolEntrega[]>([])
   // Contador de entregas de HOY (exitosas/fallidas) para el repartidor -- antes
   // no habia forma de ver el avance del dia sin preguntarle al admin.
   const [entregasHoy, setEntregasHoy] = useState({ exitosas: 0, fallidas: 0 })
@@ -111,8 +148,8 @@ export default function RepartidorPage() {
         return null
       }))
       if (!huboCambios) return
-      const mapa = new Map(resultados.filter(Boolean).map((r: any) => [r.pedido_id, r.envio]))
-      setPedidos(prev => prev.map(p => mapa.has(p.pedido_id) ? { ...p, costo_envio: mapa.get(p.pedido_id) } : p))
+      const mapa = new Map(resultados.filter((r): r is { pedido_id: string; envio: number } => r !== null).map(r => [r.pedido_id, r.envio]))
+      setPedidos(prev => prev.map(p => mapa.has(p.pedido_id) ? { ...p, costo_envio: mapa.get(p.pedido_id) ?? null } : p))
     })()
   }, [pedidos])
 
@@ -189,7 +226,7 @@ export default function RepartidorPage() {
   const [bancoTraspaso, setBancoTraspaso] = useState('')
   const [referenciaTraspaso, setReferenciaTraspaso] = useState('')
   const [comprobanteTraspasoFile, setComprobanteTraspasoFile] = useState<File | null>(null)
-  const [entregasSinLiquidar, setEntregasSinLiquidar] = useState<any[]>([])
+  const [entregasSinLiquidar, setEntregasSinLiquidar] = useState<EntregaSinLiquidar[]>([])
   // Comisión ganada y aún no pagada -- se muestra dentro de este mismo modal
   // porque es lo primero que el repartidor quiere ver al tocar "Caja", junto
   // con el efectivo en mano (antes solo estaba en Perfil, escondido).
@@ -209,8 +246,12 @@ export default function RepartidorPage() {
       .from('rep_liquidacion_items')
       .select('entrega_id, deposito_id, rep_depositos_repartidor!inner(repartidor_id)')
       .eq('rep_depositos_repartidor.repartidor_id', repartidor.id)
-    const idsLiquidados = new Set((yaLiquidadas ?? []).map((l: any) => l.entrega_id))
-    setEntregasSinLiquidar((entregas ?? []).filter(e => !idsLiquidados.has(e.id)))
+    const idsLiquidados = new Set((yaLiquidadas ?? []).map((l: { entrega_id: string }) => l.entrega_id))
+    setEntregasSinLiquidar(
+      (entregas ?? [])
+        .filter(e => !idsLiquidados.has(e.id))
+        .map(e => ({ ...e, ol_pedidos: Array.isArray(e.ol_pedidos) ? e.ol_pedidos[0] ?? null : e.ol_pedidos }))
+    )
     setEntregasSeleccionadas(new Set())
   }
 
@@ -417,7 +458,7 @@ export default function RepartidorPage() {
       setRepartidor({
         ...rep,
         conectado: rep.conectado ?? true
-      } as any)
+      })
 
       // Determinar el modo esperado: si el login ya lo indico explicitamente
       // (?modo=comprador|repartidor en la URL), se usa eso directo — solo se
@@ -464,7 +505,7 @@ export default function RepartidorPage() {
       // Ninguna de estas tres consultas depende del resultado de las otras, asi que
       // se lanzan en paralelo en vez de una tras otra -- reduce bastante el tiempo
       // de carga inicial, que era muy lento por hacer todo en secuencia.
-      const [{ data: asigs }, { data: pends }, { data: activeAsigs }, { data: pool }] = await Promise.all([
+      const [{ data: asigsRaw }, { data: pends }, { data: activeAsigs }, { data: poolRaw }] = await Promise.all([
         queryAsigs,
         // Pool de pedidos disponibles: solo de la misma zona del repartidor
         // (si tiene una asignada) -- multi-pueblo, no debe verse la lista de
@@ -492,6 +533,16 @@ export default function RepartidorPage() {
           .is('rider_id', null),
       ])
 
+      // El cliente de supabase sin Database generics tipa el join a-uno
+      // (ol_pedidos(...)) como array -- en tiempo real siempre es un solo
+      // objeto (o ninguno). Se normaliza acá en vez de forzar esa
+      // ambigüedad en el resto de esta función.
+      function unoDeJoin<T>(v: T | T[] | null | undefined): T | null {
+        return Array.isArray(v) ? (v[0] ?? null) : (v ?? null)
+      }
+      const asigs = (asigsRaw ?? []).map(a => ({ ...a, ol_pedidos: unoDeJoin(a.ol_pedidos) }))
+      const pool = (poolRaw ?? []).map(p => ({ ...p, ol_pedidos: unoDeJoin(p.ol_pedidos) }))
+
       // Base para shoppers especializados por tienda (útil ya para separar
       // Tía/Tuti si hace falta, y pensado para restaurantes más adelante):
       // sin filas aquí, ve todas las tiendas como siempre.
@@ -500,13 +551,13 @@ export default function RepartidorPage() {
         .select('tienda_id')
         .eq('repartidor_id', rep.id)
       const tiendasPermitidas = afinidadTiendas && afinidadTiendas.length > 0
-        ? new Set(afinidadTiendas.map((t: any) => t.tienda_id))
+        ? new Set(afinidadTiendas.map((t: { tienda_id: string }) => t.tienda_id))
         : null
 
       // Obtener coordenadas de direcciones verificadas para todos los teléfonos cargados
       const activePhones = Array.from(new Set([
-        ...(asigs ?? []).map((a: any) => a.ol_pedidos?.telefono),
-        ...(pool ?? []).map((p: any) => p.ol_pedidos?.telefono)
+        ...asigs.map(a => a.ol_pedidos?.telefono),
+        ...pool.map(p => p.ol_pedidos?.telefono)
       ].filter(Boolean)))
 
       const { data: verifiedDirs } = activePhones.length
@@ -514,11 +565,11 @@ export default function RepartidorPage() {
             .from('rep_clientes_direcciones')
             .select('telefono, direccion, geo_lat, geo_lng')
             .in('telefono', activePhones)
-        : { data: [] as any[] }
+        : { data: [] as DireccionVerificada[] }
 
       // Agrupar direcciones verificadas por teléfono en un Map de arreglos
-      const dirMap = new Map<string, any[]>()
-      ;(verifiedDirs ?? []).forEach((d: any) => {
+      const dirMap = new Map<string, DireccionVerificada[]>()
+      ;(verifiedDirs ?? []).forEach((d: DireccionVerificada) => {
         const list = dirMap.get(d.telefono) || []
         list.push(d)
         dirMap.set(d.telefono, list)
@@ -543,18 +594,18 @@ export default function RepartidorPage() {
       // activado, un colaborador ya no puede leer la fila entera de OTRO
       // colaborador (email, cedula, efectivo en mano), solo estos datos
       // inofensivos.
-      const shopperIds = Array.from(new Set((pool ?? []).map((p: any) => p.shopper_id).filter(Boolean)))
+      const shopperIds = Array.from(new Set(pool.map(p => p.shopper_id).filter(Boolean)))
       const { data: shoppersPub } = shopperIds.length
         ? await supabase.from('rep_repartidores_pub').select('id,nombre,telefono').in('id', shopperIds)
-        : { data: [] as any[] }
-      const shopperMap = new Map((shoppersPub ?? []).map((s: any) => [s.id, s]))
+        : { data: [] as { id: string; nombre: string; telefono: string }[] }
+      const shopperMap = new Map((shoppersPub ?? []).map((s: { id: string; nombre: string; telefono: string }) => [s.id, s]))
 
-      setPedidos((asigs ?? []).map((a: any) => {
+      setPedidos(asigs.map(a => {
         const tel = a.ol_pedidos?.telefono
         const listDirs = tel ? dirMap.get(tel) : null
-        
+
         // Buscar si entre las direcciones guardadas hay alguna similar a la del pedido actual
-        const matchDir = listDirs?.find((d: any) => sonDireccionesSimilares(d.direccion, a.ol_pedidos?.direccion))
+        const matchDir = listDirs?.find(d => sonDireccionesSimilares(d.direccion, a.ol_pedidos?.direccion))
         
         const notasLower = (a.ol_pedidos?.notas || '').toLowerCase()
         const esTransferencia = a.ol_pedidos?.metodo_pago === 'transferencia' || notasLower.includes('pago: transferencia') || notasLower.includes('transferencia bancaria')
@@ -562,15 +613,15 @@ export default function RepartidorPage() {
         return {
           asignacion_id:  a.id,
           estado:         a.estado,
-          pedido_estado:  a.ol_pedidos?.estado,
+          pedido_estado:  a.ol_pedidos?.estado ?? '',
           pedido_id:      a.pedido_id,
-          numero:         a.ol_pedidos?.numero,
-          nombre_cliente: a.ol_pedidos?.nombre_cliente,
-          telefono:       tel,
-          direccion:      a.ol_pedidos?.direccion,
-          ciudad:         a.ol_pedidos?.ciudad,
-          referencias:    a.ol_pedidos?.referencias,
-          total:          a.ol_pedidos?.total,
+          numero:         a.ol_pedidos?.numero ?? 0,
+          nombre_cliente: a.ol_pedidos?.nombre_cliente ?? '',
+          telefono:       tel ?? '',
+          direccion:      a.ol_pedidos?.direccion ?? null,
+          ciudad:         a.ol_pedidos?.ciudad ?? '',
+          referencias:    a.ol_pedidos?.referencias ?? null,
+          total:          a.ol_pedidos?.total ?? 0,
           costo_envio:    a.ol_pedidos?.costo_envio ?? null,
           geo_lat:        a.ol_pedidos?.geo_lat || matchDir?.geo_lat || null,
           geo_lng:        a.ol_pedidos?.geo_lng || matchDir?.geo_lng || null,
@@ -588,10 +639,10 @@ export default function RepartidorPage() {
       // completo del pool, o asignaciones parciales POR tienda que solo
       // deben ocultar esa tienda puntual, dejando el resto reclamable.
       const assignedSinTienda = new Set(
-        (activeAsigs ?? []).filter((a: any) => a.tienda_id === null).map((a: any) => a.pedido_id)
+        (activeAsigs ?? [] as { pedido_id: string; tienda_id: string | null }[]).filter(a => a.tienda_id === null).map(a => a.pedido_id)
       )
       const tiendasTomadasPorPedido = new Map<string, Set<string>>()
-      ;(activeAsigs ?? []).forEach((a: any) => {
+      ;(activeAsigs ?? [] as { pedido_id: string; tienda_id: string | null }[]).forEach(a => {
         if (!a.tienda_id) return
         if (!tiendasTomadasPorPedido.has(a.pedido_id)) tiendasTomadasPorPedido.set(a.pedido_id, new Set())
         tiendasTomadasPorPedido.get(a.pedido_id)!.add(a.tienda_id)
@@ -608,12 +659,12 @@ export default function RepartidorPage() {
           .from('ol_pedido_items')
           .select('pedido_id, tienda_id')
           .in('pedido_id', filteredPends.map(p => p.id))
-        const idsTienda = Array.from(new Set((itemsPends ?? []).map((i: any) => i.tienda_id).filter(Boolean))) as string[]
+        const idsTienda = Array.from(new Set((itemsPends ?? []).map((i: { tienda_id: string | null }) => i.tienda_id).filter(Boolean))) as string[]
         const { data: tiendasInfo } = idsTienda.length
           ? await supabase.from('ol_tiendas').select('id, nombre').in('id', idsTienda)
-          : { data: [] as any[] }
-        const nombreTienda = new Map((tiendasInfo ?? []).map((t: any) => [t.id, t.nombre]))
-        ;(itemsPends ?? []).forEach((it: any) => {
+          : { data: [] as { id: string; nombre: string }[] }
+        const nombreTienda = new Map((tiendasInfo ?? []).map((t: { id: string; nombre: string }) => [t.id, t.nombre]))
+        ;(itemsPends ?? []).forEach((it: { pedido_id: string; tienda_id: string | null }) => {
           if (!it.tienda_id) return
           // Shopper especializado (rep_repartidores_tiendas): ni siquiera
           // se lista la tienda que no le corresponde, no solo se bloquea.
@@ -642,17 +693,18 @@ export default function RepartidorPage() {
         return !t || t.length === 0 || t.some(x => !x.tomada)
       })
 
-      setPedidosEspera(conTiendasDisponibles.map(p => ({ ...p, tiendas: tiendasPends[p.id] ?? [] })))
+      setPedidosEspera(conTiendasDisponibles.map(p => ({ ...p, costo_envio: null, tiendas: tiendasPends[p.id] ?? [] })))
 
       // Tienda(s) donde recoger cada pedido del pool (puede ser mas de una: Tuti + Tia + La Crayola)
-      const poolPedidoIds = (pool ?? []).map((a: any) => a.pedido_id)
+      const poolPedidoIds = pool.map(a => a.pedido_id)
       const tiendasPool: Record<string, { nombres: string; direccion: string | null }> = {}
       if (poolPedidoIds.length > 0) {
-        const { data: pickingPool } = await supabase
+        const { data: pickingPoolRaw } = await supabase
           .from('rep_picking')
           .select('pedido_id, ol_tiendas(nombre, direccion)')
           .in('pedido_id', poolPedidoIds)
-        ;(pickingPool ?? []).forEach((row: any) => {
+        const pickingPool = (pickingPoolRaw ?? []).map(row => ({ ...row, ol_tiendas: Array.isArray(row.ol_tiendas) ? row.ol_tiendas[0] ?? null : row.ol_tiendas }))
+        pickingPool.forEach(row => {
           const nombre = row.ol_tiendas?.nombre
           if (!nombre) return
           const actual = tiendasPool[row.pedido_id]
@@ -670,13 +722,13 @@ export default function RepartidorPage() {
       // si es el mismo repartidor, así que esto es principalmente para no
       // ni mostrar algo irrelevante).
       const poolMismaZona = rep.zona_id
-        ? (pool ?? []).filter((a: any) => !a.ol_pedidos?.zona_id || a.ol_pedidos.zona_id === rep.zona_id)
-        : (pool ?? [])
+        ? pool.filter(a => !a.ol_pedidos?.zona_id || a.ol_pedidos.zona_id === rep.zona_id)
+        : pool
 
-      setPoolEntregas(poolMismaZona.map((a: any) => {
+      setPoolEntregas(poolMismaZona.map(a => {
         const tel = a.ol_pedidos?.telefono
         const listDirs = tel ? dirMap.get(tel) : null
-        const matchDir = listDirs?.find((d: any) => sonDireccionesSimilares(d.direccion, a.ol_pedidos?.direccion))
+        const matchDir = listDirs?.find(d => sonDireccionesSimilares(d.direccion, a.ol_pedidos?.direccion))
         
         const notasLower = (a.ol_pedidos?.notas || '').toLowerCase()
         const esTransferencia = a.ol_pedidos?.metodo_pago === 'transferencia' || notasLower.includes('pago: transferencia') || notasLower.includes('transferencia bancaria')
@@ -691,6 +743,7 @@ export default function RepartidorPage() {
           direccion:     a.ol_pedidos?.direccion,
           ciudad:        a.ol_pedidos?.ciudad,
           total:         a.ol_pedidos?.total,
+          costo_envio:   null,
           telefono:      tel,
           geo_lat:       a.ol_pedidos?.geo_lat || matchDir?.geo_lat || null,
           geo_lng:       a.ol_pedidos?.geo_lng || matchDir?.geo_lng || null,
@@ -897,7 +950,10 @@ export default function RepartidorPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user])
 
-  const activarParada = async (p: any) => {
+  // Firma estructural mínima a propósito: se llama tanto con PedidoAsignado
+  // completo como con los subconjuntos que exponen MapaRuta (Parada) y
+  // CardPedidoRepartidor (PedidoAsignadoCard) -- solo necesita estos 4 campos.
+  const activarParada = async (p: { asignacion_id: string; estado?: string; geo_lat: number | null; geo_lng: number | null }) => {
     if (!repartidor) return
     setParadaActivaId(p.asignacion_id)
     if (typeof window !== 'undefined') {
@@ -1495,7 +1551,7 @@ export default function RepartidorPage() {
                      ellos. Las ya tomadas por otro comprador quedan grises. */
                   <div className="space-y-1.5">
                     <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wide">Este pedido tiene {p.tiendas.length} tiendas — elige la tuya:</p>
-                    {p.tiendas.map((t: any) => (
+                    {p.tiendas.map((t) => (
                       <button
                         key={t.id}
                         onClick={() => aceptarPedido(p.id, p.numero, p.nombre_cliente, p.telefono, t.id)}
