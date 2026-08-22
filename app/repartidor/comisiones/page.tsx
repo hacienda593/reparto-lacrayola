@@ -7,6 +7,28 @@ import { Loader2, ArrowLeft, TrendingUp, AlertTriangle, X, Check } from 'lucide-
 
 function fmt(n: number) { return '$' + (n ?? 0).toFixed(2) }
 
+interface Entrega {
+  id: string
+  pedido_id: string
+  entregado_at: string | null
+  monto_cobrado: number
+  exitosa: boolean
+  ol_pedidos?: { numero: number; nombre_cliente: string; total: number } | null
+}
+interface PeriodoPago {
+  id: string
+  desde: string
+  hasta: string
+  ganancias: number
+  estado: string
+}
+interface Reclamo {
+  id: string | null
+  entrega_id?: string
+  estado?: string
+  ol_pedidos?: { numero: number } | null
+}
+
 // Pantalla dedicada a comisiones -- antes esto vivía escondido dentro de
 // "Mi Caja" en Perfil, sin desglose ni forma de reclamar una diferencia.
 // Estructura inspirada en cómo lo resuelven PeYa Rider / Tipti Shopper:
@@ -18,12 +40,12 @@ export default function ComisionesRepartidorPage() {
 
   const [cargando, setCargando] = useState(true)
   const [comisionConfig, setComisionConfig] = useState<{ tipo: string; valor: number }>({ tipo: 'fijo', valor: 0 })
-  const [entregas, setEntregas] = useState<any[]>([])
-  const [periodosPago, setPeriodosPago] = useState<any[]>([])
+  const [entregas, setEntregas] = useState<Entrega[]>([])
+  const [periodosPago, setPeriodosPago] = useState<PeriodoPago[]>([])
   const [comisionPendiente, setComisionPendiente] = useState(0)
-  const [misReclamos, setMisReclamos] = useState<any[]>([])
+  const [misReclamos, setMisReclamos] = useState<Reclamo[]>([])
 
-  const [reclamoAbierto, setReclamoAbierto] = useState<any | null>(null) // entrega sobre la que se reclama
+  const [reclamoAbierto, setReclamoAbierto] = useState<Reclamo | null>(null) // entrega sobre la que se reclama
   const [mensajeReclamo, setMensajeReclamo] = useState('')
   const [enviandoReclamo, setEnviandoReclamo] = useState(false)
   const [errorReclamo, setErrorReclamo] = useState('')
@@ -40,7 +62,10 @@ export default function ComisionesRepartidorPage() {
       supabase.rpc('mis_reclamos'),
     ])
     if (rep) setComisionConfig({ tipo: rep.comision_tipo ?? 'fijo', valor: Number(rep.comision_valor ?? 0) })
-    setEntregas(ents ?? [])
+    // El cliente de supabase sin Database generics tipa el join a-uno como
+    // array -- en tiempo real siempre viene un solo objeto (o ninguno), se
+    // normaliza acá en vez de forzar esa ambigüedad en toda la pantalla.
+    setEntregas((ents ?? []).map(e => ({ ...e, ol_pedidos: Array.isArray(e.ol_pedidos) ? e.ol_pedidos[0] ?? null : e.ol_pedidos })))
     setPeriodosPago(periodos ?? [])
     setComisionPendiente(Number(comisionPend ?? 0))
     setMisReclamos(reclamos ?? [])
@@ -58,7 +83,7 @@ export default function ComisionesRepartidorPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, authEstado, repartidorId])
 
-  function gananciaEntrega(e: any) {
+  function gananciaEntrega(e: Entrega) {
     if (comisionConfig.tipo === 'porcentaje') {
       return Math.round(Number(e.ol_pedidos?.total ?? 0) * comisionConfig.valor) / 100
     }
@@ -185,7 +210,7 @@ export default function ComisionesRepartidorPage() {
         )}
 
         <button
-          onClick={() => { setReclamoAbierto({ id: null, ol_pedidos: {} }); setMensajeReclamo('') }}
+          onClick={() => { setReclamoAbierto({ id: null, ol_pedidos: null }); setMensajeReclamo('') }}
           className="w-full flex items-center justify-center gap-1.5 border border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100 font-bold py-2.5 rounded-xl text-xs transition cursor-pointer"
         >
           <AlertTriangle size={13} /> Reportar otra diferencia general

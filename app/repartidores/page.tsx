@@ -108,7 +108,7 @@ export default function RepartidoresPage() {
     setTiendasAfinidad(new Set())
     if (r.id) {
       const { data } = await supabase.from('rep_repartidores_tiendas').select('tienda_id').eq('repartidor_id', r.id)
-      setTiendasAfinidad(new Set((data ?? []).map((d: any) => d.tienda_id)))
+      setTiendasAfinidad(new Set((data ?? []).map((d: { tienda_id: string }) => d.tienda_id)))
     }
   }
 
@@ -134,7 +134,7 @@ export default function RepartidoresPage() {
     }
     setGuardando(true); setError('')
 
-    const payload: any = { ...form }
+    const payload: Partial<RepConEstado> = { ...form }
     if (!payload.id) {
       payload.codigo          = `REP-${String(lista.length + 1).padStart(3,'0')}`
       payload.estado_registro = 'aprobado'
@@ -543,7 +543,7 @@ export default function RepartidoresPage() {
                 ].map(({ k, label, type, placeholder }) => (
                   <div key={k}>
                     <label className="text-xs font-semibold text-slate-600 block mb-1">{label}</label>
-                    <input type={type} value={(form as any)[k] ?? ''}
+                    <input type={type} value={(form[k as keyof RepRepartidor] as string) ?? ''}
                       onChange={e => set(k, e.target.value)} placeholder={placeholder}
                       className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-green-500" />
                   </div>
@@ -557,7 +557,7 @@ export default function RepartidoresPage() {
                 </div>
                 <div>
                   <label className="text-xs font-semibold text-slate-600 block mb-1">Pueblo / zona de cobertura</label>
-                  <select value={(form as any).zona_id ?? ''} onChange={e => set('zona_id', e.target.value)}
+                  <select value={form.zona_id ?? ''} onChange={e => set('zona_id', e.target.value)}
                     className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-green-500">
                     <option value="">Sin asignar</option>
                     {zonas.map(z => <option key={z.id} value={z.id}>{z.nombre}{!z.activo ? ' (inactiva)' : ''}</option>)}

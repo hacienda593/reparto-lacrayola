@@ -7,6 +7,20 @@ import { ArrowLeft, Loader2, CheckCircle2, ShieldAlert, RefreshCw, Camera, Plus,
 import QrCode from '@/components/QrCode'
 import { errMsg } from '@/lib/errors'
 
+// Solo los campos que esta pantalla lee -- fila devuelta por
+// tiendas_hermanas_pedido() (ver lib/supabase/migration_p1_02_coordenadas_tienda.sql).
+interface Asignacion {
+  id: string
+  pedido_id: string
+  estado: string
+  ol_pedidos?: { numero: number; nombre_cliente: string } | null
+}
+interface TiendaHermanaRow {
+  asignacion_id: string
+  tienda_nombre: string | null
+  estado: string
+}
+
 export default function TraspasoPage() {
   const { id: asignacionId } = useParams<{ id: string }>()
   const router = useRouter()
@@ -15,7 +29,7 @@ export default function TraspasoPage() {
   const [error, setError] = useState('')
   const [traspasado, setTraspasado] = useState(false)
   const [nuevoRider, setNuevoRider] = useState('')
-  const [asig, setAsig] = useState<any>(null)
+  const [asig, setAsig] = useState<Asignacion | null>(null)
 
   // Código de traspaso real (migration_traspaso_seguro.sql): token de 128
   // bits para el QR + código visual de 6 caracteres para digitar a mano,
@@ -124,7 +138,7 @@ export default function TraspasoPage() {
         const { data: hermanas } = await supabase
           .rpc('tiendas_hermanas_pedido', { p_pedido_id: data.pedido_id })
         if (hermanas && hermanas.length > 1) {
-          setTiendasHermanas(hermanas.map((h: any) => ({
+          setTiendasHermanas((hermanas as TiendaHermanaRow[]).map((h) => ({
             tienda_nombre: h.tienda_nombre ?? null,
             estado: h.estado,
             esLaMia: h.asignacion_id === asignacionId,
@@ -194,7 +208,7 @@ export default function TraspasoPage() {
         schema: 'public',
         table: 'rep_asignaciones',
         filter: `id=eq.${asignacionId}`
-      }, async (payload: any) => {
+      }, async (payload: { new: { estado: string; repartidor_id: string | null } }) => {
         const d = payload.new
         if (d.estado === 'en_ruta') {
           const { data: rep } = await supabase
@@ -239,7 +253,7 @@ export default function TraspasoPage() {
         const { data: hermanas } = await supabase
           .rpc('tiendas_hermanas_pedido', { p_pedido_id: asig.pedido_id })
         if (hermanas && hermanas.length > 1) {
-          setTiendasHermanas(hermanas.map((h: any) => ({
+          setTiendasHermanas((hermanas as TiendaHermanaRow[]).map((h) => ({
             tienda_nombre: h.tienda_nombre ?? null,
             estado: h.estado,
             esLaMia: h.asignacion_id === asignacionId,
@@ -276,7 +290,7 @@ export default function TraspasoPage() {
     </div>
   )
 
-  if (error && !asig) return (
+  if (!asig) return (
     <div className="min-h-screen bg-[#0c0f12] text-white flex flex-col items-center justify-center p-6 text-center">
       <ShieldAlert size={48} className="text-red-500 mb-4" />
       <h1 className="text-lg font-black text-white">Error de Carga</h1>

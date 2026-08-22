@@ -7,6 +7,30 @@ import Image from 'next/image'
 import { Loader2, Check, ArrowLeft, Phone, MapPin, Bike, User, LogOut, PackageCheck, PackageX, Wallet, Upload } from 'lucide-react'
 import { logout } from '@/actions/auth'
 
+interface EntregaHistorial {
+  id: string
+  entregado_at: string | null
+  exitosa: boolean
+  motivo_fallo: string | null
+  monto_cobrado: number
+  ol_pedidos?: { numero: number; nombre_cliente: string; total: number } | null
+}
+interface Deposito {
+  id: string
+  monto: number
+  estado: string
+  registrado_at: string
+}
+interface EstadoCuenta {
+  efectivo_en_mano: number
+}
+interface PeriodoPago {
+  id: string
+  desde: string
+  hasta: string
+  ganancias: number
+}
+
 const VEHICULOS = [
   { key: 'moto', emoji: '🛵', label: 'Moto' },
   { key: 'bici', emoji: '🚲', label: 'Bici' },
@@ -25,7 +49,7 @@ export default function PerfilRepartidorPage() {
   const [guardando, setGuardando] = useState(false)
   const [guardado,  setGuardado]  = useState(false)
   const [error,     setError]     = useState('')
-  const [entregas,  setEntregas]  = useState<any[]>([])
+  const [entregas,  setEntregas]  = useState<EntregaHistorial[]>([])
   // Config de comisión propia, para poder mostrar cuánto ganó en CADA
   // entrega del historial (inspirado en "Earning per order" de apps como
   // PedidosYa Rider) -- antes solo se veía el efectivo cobrado, no la
@@ -37,8 +61,8 @@ export default function PerfilRepartidorPage() {
   // un depósito/transferencia (con checklist de qué pedidos cubre) vive en
   // la pantalla principal ("Entregar efectivo") -- se centralizó ahí para
   // no duplicar esa lógica en dos lugares distintos.
-  const [estadoCuenta, setEstadoCuenta] = useState<any>(null)
-  const [depositos,    setDepositos]    = useState<any[]>([])
+  const [estadoCuenta, setEstadoCuenta] = useState<EstadoCuenta | null>(null)
+  const [depositos,    setDepositos]    = useState<Deposito[]>([])
   const [comisionPendiente, setComisionPendiente] = useState(0)
   // P1-05 de la auditoría: periodosPago/verTodoHistorial/cargarHistorialCompleto
   // (abajo) quedaron listos del lado de datos pero sin un botón "ver más" en
@@ -46,7 +70,7 @@ export default function PerfilRepartidorPage() {
   // cargarCaja) e incompleta, no código muerto/obsoleto, así que no se borra
   // acá; falta el hookup visual cuando se retome esta pantalla.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [periodosPago, setPeriodosPago] = useState<any[]>([])
+  const [periodosPago, setPeriodosPago] = useState<PeriodoPago[]>([])
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [verTodoHistorial, setVerTodoHistorial] = useState(false)
 
@@ -116,7 +140,7 @@ export default function PerfilRepartidorPage() {
       .eq('repartidor_id', repartidorId)
       .order('entregado_at', { ascending: false })
       .limit(20)
-      .then(({ data }) => setEntregas(data ?? []))
+      .then(({ data }) => setEntregas((data ?? []).map(e => ({ ...e, ol_pedidos: Array.isArray(e.ol_pedidos) ? e.ol_pedidos[0] ?? null : e.ol_pedidos }))))
 
     cargarCaja()
     // `cargarCaja` se redefine cada render, agregarla real dispararía
@@ -129,7 +153,7 @@ export default function PerfilRepartidorPage() {
 
   // Ganancia de ESTA entrega puntual, misma fórmula que usa la base de
   // datos (mi_comision_pendiente / sincronizar_ledger_financiero).
-  function gananciaEntrega(e: any) {
+  function gananciaEntrega(e: EntregaHistorial) {
     if (comisionConfig.tipo === 'porcentaje') {
       return Math.round(Number(e.ol_pedidos?.total ?? 0) * comisionConfig.valor) / 100
     }
