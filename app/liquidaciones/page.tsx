@@ -17,6 +17,29 @@ function limitesDiaEcuador(fecha: string) {
   return { inicio: `${fecha}T00:00:00-05:00`, fin: `${fecha}T23:59:59.999-05:00` }
 }
 
+interface DepositoPendiente {
+  id: string
+  repartidor_id: string
+  monto: number
+  metodo: string
+  registrado_at: string
+  banco: string | null
+  referencia: string | null
+  comprobante_path: string
+  rep_repartidores?: { nombre: string } | null
+  rep_liquidacion_items?: {
+    monto: number
+    rep_entregas?: { ol_pedidos?: { numero: number; nombre_cliente: string } | null } | null
+  }[]
+}
+interface ReclamoAbierto {
+  id: string
+  repartidor_nombre: string
+  tipo: string
+  created_at: string
+  mensaje: string
+}
+
 interface LiquidacionVista {
   id:               string | null
   repartidor_id:    string
@@ -78,13 +101,13 @@ export default function LiquidacionesPage() {
 
   // Depósitos que los repartidores registraron ellos mismos desde su
   // celular (Mi Caja), pendientes de que admin los confirme o rechace.
-  const [depositosPendientes, setDepositosPendientes] = useState<any[]>([])
+  const [depositosPendientes, setDepositosPendientes] = useState<DepositoPendiente[]>([])
   const [procesandoDeposito, setProcesandoDeposito] = useState<string | null>(null)
 
   // Reclamos que los repartidores reportan desde "Mis comisiones" cuando
   // algo no les cuadra -- canal formal que copiamos de PeYa/Tipti ("Solicitar
   // revisión de comisión" / "Reportar discrepancia").
-  const [reclamosAbiertos, setReclamosAbiertos] = useState<any[]>([])
+  const [reclamosAbiertos, setReclamosAbiertos] = useState<ReclamoAbierto[]>([])
   const [procesandoReclamo, setProcesandoReclamo] = useState<string | null>(null)
 
   async function cargar() {
@@ -175,7 +198,7 @@ export default function LiquidacionesPage() {
     setCargando(false)
   }
 
-  async function resolverReclamo(reclamo: any) {
+  async function resolverReclamo(reclamo: ReclamoAbierto) {
     const respuesta = window.prompt('Respuesta para el repartidor (qué se revisó / resolvió):')?.trim()
     if (!respuesta) return
     setProcesandoReclamo(reclamo.id)
@@ -185,7 +208,7 @@ export default function LiquidacionesPage() {
     await cargar()
   }
 
-  async function confirmarDeposito(dep: any) {
+  async function confirmarDeposito(dep: DepositoPendiente) {
     const recibidoPor = window.prompt('¿Quién confirma la recepción del depósito?')?.trim()
     if (!recibidoPor) return
     setProcesandoDeposito(dep.id)
@@ -195,7 +218,7 @@ export default function LiquidacionesPage() {
     await cargar()
   }
 
-  async function rechazarDeposito(dep: any) {
+  async function rechazarDeposito(dep: DepositoPendiente) {
     const motivo = window.prompt('Motivo del rechazo (obligatorio, se le comunicará al repartidor):')?.trim()
     if (!motivo) return
     setProcesandoDeposito(dep.id)
@@ -394,9 +417,9 @@ export default function LiquidacionesPage() {
                       Rechazar
                     </button>
                   </div>
-                  {dep.rep_liquidacion_items?.length > 0 && (
+                  {(dep.rep_liquidacion_items?.length ?? 0) > 0 && (
                     <div className="flex flex-wrap gap-1.5 pl-0.5">
-                      {dep.rep_liquidacion_items.map((it: any, i: number) => (
+                      {dep.rep_liquidacion_items?.map((it, i) => (
                         <span key={i} className="text-[9.5px] font-semibold bg-[#0c0f12] border border-[#2d3748] text-gray-400 rounded-lg px-2 py-1">
                           #{String(it.rep_entregas?.ol_pedidos?.numero ?? 0).padStart(4, '0')} {it.rep_entregas?.ol_pedidos?.nombre_cliente ?? ''} · {fmt(Number(it.monto))}
                         </span>

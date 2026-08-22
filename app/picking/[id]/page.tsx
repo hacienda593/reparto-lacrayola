@@ -57,14 +57,61 @@ function ordenarPorGondola<T extends { seccion: string | null; tienda_nombre?: s
 }
 
 type Tab = 'lista' | 'chat' | 'entrega'
+interface BarcodeDetectorLike {
+  detect: (source: HTMLVideoElement) => Promise<{ rawValue: string }[]>
+}
+
+interface Pedido {
+  id: string
+  numero: number
+  nombre_cliente: string
+  telefono: string | null
+  direccion: string | null
+  ciudad: string | null
+  referencias: string | null
+  notas: string | null
+}
+// Fila cruda de ol_pedido_items -- select('*') sin Database generics, y el
+// nombre real de algunas columnas históricamente varió (de ahí los
+// fallbacks it.descripcion ?? it.nombre_producto ?? it.nombre en cargar()).
+interface PedidoItemRaw {
+  id: string
+  codigo: string | null
+  descripcion?: string | null
+  nombre_producto?: string | null
+  nombre?: string | null
+  precio_unitario: number | null
+  cantidad: number | null
+  categoria?: string | null
+  seccion?: string | null
+  picking_completado: boolean | null
+  picking_agotado: boolean | null
+  picking_reemplazo: string | null
+}
+interface Producto {
+  id: string
+  codigo: string | null
+  nombre: string
+  marca: string | null
+  precio: number | null
+  cantidad: number
+  seccion: string | null
+  tienda_id: string | null
+  tienda_nombre: string
+  completado: boolean
+  agotado: boolean
+  reemplazo: string | null
+  imagen_url: string | null
+  codigo_barras: string | null
+}
 
 export default function PickingPage() {
   const { id }   = useParams<{ id: string }>()
   const router   = useRouter()
   const supabase = createClient()
 
-  const [pedido,      setPedido]      = useState<any>(null)
-  const [productos,   setProductos]   = useState<any[]>([])
+  const [pedido,      setPedido]      = useState<Pedido | null>(null)
+  const [productos,   setProductos]   = useState<Producto[]>([])
   // Multi-tienda: cada tienda es su PROPIA pestaña (no una sección más
   // dentro de la misma lista) -- se ve solo lo de la tienda activa a la
   // vez, con su propio control de avance y su propio botón de caja.
@@ -84,7 +131,9 @@ export default function PickingPage() {
   const videoRef    = useRef<HTMLVideoElement>(null)
   const streamRef   = useRef<MediaStream | null>(null)
   const rafRef      = useRef<number>(0)
-  const detectorRef = useRef<any>(null)
+  // BarcodeDetector todavía no está en los tipos estándar de TS/DOM (API
+  // experimental) -- se declara la forma mínima real que se usa acá.
+  const detectorRef = useRef<BarcodeDetectorLike | null>(null)
 
   // eslint-disable-next-line react-hooks/exhaustive-deps -- corre solo al cambiar `id`, no en cada render
   useEffect(() => { cargar(); return () => pararCamara() }, [id])
@@ -105,7 +154,7 @@ export default function PickingPage() {
     const { data: items } = await itemsQuery
 
     // Obtener imagen_url, marca, codigo_barras y tienda de ol_productos
-    const codigos = (items ?? []).map((it: any) => it.codigo).filter(Boolean)
+    const codigos = (items ?? []).map((it: PedidoItemRaw) => it.codigo).filter(Boolean)
     const prodMap: Record<string, { descripcion: string | null; imagen_url: string | null; codigo_barras: string | null; marca: string | null; tienda_id: string | null }> = {}
     if (codigos.length > 0) {
       const { data: prods } = await supabase
@@ -113,7 +162,7 @@ export default function PickingPage() {
         .select('codigo, descripcion, imagen_url, codigo_barras, marca, tienda_id')
         .in('codigo', codigos)
       if (prods) {
-        prods.forEach((p: any) => {
+        prods.forEach((p: { codigo: string; descripcion: string | null; imagen_url: string | null; codigo_barras: string | null; marca: string | null; tienda_id: string | null }) => {
           prodMap[p.codigo] = { descripcion: p.descripcion, imagen_url: p.imagen_url, codigo_barras: p.codigo_barras, marca: p.marca, tienda_id: p.tienda_id }
         })
       }
@@ -124,16 +173,17 @@ export default function PickingPage() {
     const tiendaNombreMap: Record<string, string> = {}
     if (tiendaIds.length > 0) {
       const { data: tiendasData } = await supabase.from('ol_tiendas').select('id, nombre').in('id', tiendaIds)
-      ;(tiendasData ?? []).forEach((t: any) => { tiendaNombreMap[t.id] = t.nombre })
+      ;(tiendasData ?? []).forEach((t: { id: string; nombre: string }) => { tiendaNombreMap[t.id] = t.nombre })
     }
 
-    const listaProductos = (items ?? []).map((it: any) => {
-      const tid = prodMap[it.codigo]?.tienda_id ?? null
+    const listaProductos: Producto[] = (items ?? []).map((it: PedidoItemRaw) => {
+      const info = it.codigo ? prodMap[it.codigo] : undefined
+      const tid = info?.tienda_id ?? null
       return {
         id: it.id,
         codigo:    it.codigo,
-        nombre:    prodMap[it.codigo]?.descripcion ?? it.descripcion ?? it.nombre_producto ?? it.nombre ?? 'Producto',
-        marca:     prodMap[it.codigo]?.marca ?? null,
+        nombre:    info?.descripcion ?? it.descripcion ?? it.nombre_producto ?? it.nombre ?? 'Producto',
+        marca:     info?.marca ?? null,
         precio:    it.precio_unitario ?? null,
         cantidad:  it.cantidad ?? 1,
         seccion:   it.categoria ?? it.seccion ?? null,
@@ -142,8 +192,8 @@ export default function PickingPage() {
         completado: it.picking_completado ?? false,
         agotado:    it.picking_agotado    ?? false,
         reemplazo:  it.picking_reemplazo  ?? null,
-        imagen_url:    prodMap[it.codigo]?.imagen_url ?? null,
-        codigo_barras: prodMap[it.codigo]?.codigo_barras ?? null,
+        imagen_url:    info?.imagen_url ?? null,
+        codigo_barras: info?.codigo_barras ?? null,
       }
     })
 
@@ -213,7 +263,7 @@ export default function PickingPage() {
 
       // Intentar usar BarcodeDetector nativo (Chrome/Android)
       if ('BarcodeDetector' in window) {
-        const bd = new (window as any).BarcodeDetector({ formats: ['ean_13','ean_8','code_128','qr_code','code_39','upc_a','upc_e'] })
+        const bd: BarcodeDetectorLike = new (window as unknown as { BarcodeDetector: new (opts: { formats: string[] }) => BarcodeDetectorLike }).BarcodeDetector({ formats: ['ean_13','ean_8','code_128','qr_code','code_39','upc_a','upc_e'] })
         detectorRef.current = bd
         escanearFrames(bd, pid)
       } else {
@@ -225,7 +275,7 @@ export default function PickingPage() {
     }
   }
 
-  const escanearFrames = useCallback((bd: any, pid: string) => {
+  const escanearFrames = useCallback((bd: BarcodeDetectorLike, pid: string) => {
     async function loop() {
       if (!videoRef.current || !streamRef.current) return
       try {
@@ -889,10 +939,10 @@ export default function PickingPage() {
       {/* ── Bottom Nav ── */}
       <div className="bg-[#181d24] border-t border-[#2d3748] flex shrink-0">
         {([
-          { key: 'lista',   label: 'Lista',       Icon: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg> },
-          { key: 'chat',    label: 'Chat Cliente', Icon: () => <MessageCircle size={20} /> },
+          { key: 'lista',   label: 'Lista',       Icon: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>, disabled: false },
+          { key: 'chat',    label: 'Chat Cliente', Icon: () => <MessageCircle size={20} />, disabled: false },
           { key: 'entrega', label: 'Entrega',      Icon: () => <Truck size={20} />, disabled: !listo },
-        ] as any[]).map(({ key, label, Icon, disabled }) => (
+        ] as { key: Tab; label: string; Icon: () => React.ReactElement; disabled: boolean }[]).map(({ key, label, Icon, disabled }) => (
           <button key={key} onClick={() => !disabled && setTab(key as Tab)}
             className={`flex-1 flex flex-col items-center gap-1 py-3 transition
               ${tab === key ? 'text-[#00b074]' : disabled ? 'text-gray-700 cursor-not-allowed' : 'text-gray-500'}`}>

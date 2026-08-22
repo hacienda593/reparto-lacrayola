@@ -33,13 +33,40 @@ function sonDireccionesSimilares(dir1: string | null | undefined, dir2: string |
   return ratio >= 0.5
 }
 
+// Solo los campos que esta pantalla lee/escribe -- no el registro
+// completo de ol_pedidos (ver supabase/schema.sql para el esquema completo).
+interface Pedido {
+  id: string
+  numero: number
+  nombre_cliente: string
+  telefono: string | null
+  direccion: string | null
+  ciudad: string | null
+  referencias: string | null
+  notas: string | null
+  estado: string
+  total: number
+  total_items: number
+  costo_envio: number | null
+  geo_lat: number | null
+  geo_lng: number | null
+  repartidor_id: string | null
+  metodo_pago: string | null
+  pago_confirmado: boolean | null
+  user_id: string | null
+}
+interface PedidoItem {
+  id: string
+  picking_completado: boolean
+}
+
 export default function EntregaPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
   const sb     = createClient()
 
-  const [pedido,     setPedido]     = useState<any>(null)
-  const [items,      setItems]      = useState<any[]>([])
+  const [pedido,     setPedido]     = useState<Pedido | null>(null)
+  const [items,      setItems]      = useState<PedidoItem[]>([])
   const [cargando,   setCargando]   = useState(true)
   const [entregado,  setEntregado]  = useState(false)
   const [guardando,  setGuardando]  = useState(false)
@@ -90,14 +117,14 @@ export default function EntregaPage() {
     if (!pedido || (pedido.estado !== 'enviado' && pedido.estado !== 'en_ruta') || !pedido.repartidor_id) return
 
     let watchId: number | null = null
-    let wakeLock: any = null
+    let wakeLock: { release: () => Promise<void> } | null = null
     let lastSentTime = 0
     const SEND_INTERVAL_MS = 10000 // Transmitir cada 10 segundos
 
     async function requestWakeLock() {
       if (typeof window !== 'undefined' && 'wakeLock' in navigator) {
         try {
-          wakeLock = await (navigator as Navigator & { wakeLock: { request: (type: 'screen') => Promise<unknown> } }).wakeLock.request('screen')
+          wakeLock = await (navigator as Navigator & { wakeLock: { request: (type: 'screen') => Promise<{ release: () => Promise<void> }> } }).wakeLock.request('screen')
           console.log('🔒 Screen Wake Lock activo para evitar suspensión de GPS.')
         } catch (err) {
           console.warn('⚠️ No se pudo adquirir el Wake Lock:', errMsg(err))
@@ -155,7 +182,7 @@ export default function EntregaPage() {
         wakeLock.release().then(() => {
           wakeLock = null
           console.log('🔓 Screen Wake Lock liberado.')
-        }).catch((e: any) => console.warn('Error al liberar Wake Lock:', e))
+        }).catch((e: unknown) => console.warn('Error al liberar Wake Lock:', errMsg(e)))
       }
     }
     // Deps angostas a propósito: solo lo que de verdad decide si el
@@ -180,7 +207,7 @@ export default function EntregaPage() {
         .from('rep_clientes_direcciones')
         .select('direccion, geo_lat, geo_lng')
         .eq('telefono', ped.telefono)
-      const matchDir = (verifiedDirs ?? []).find((d: any) => sonDireccionesSimilares(d.direccion, ped.direccion))
+      const matchDir = (verifiedDirs ?? []).find((d: { direccion: string; geo_lat: number; geo_lng: number }) => sonDireccionesSimilares(d.direccion, ped.direccion))
       if (matchDir) {
         geoLatFallback = matchDir.geo_lat
         geoLngFallback = matchDir.geo_lng
@@ -206,7 +233,7 @@ export default function EntregaPage() {
         body: JSON.stringify({ pedidoId: asig.pedido_id }),
       }).then(res => res.json()).then(data => {
         if (typeof data?.envio === 'number') {
-          setPedido((prev: any) => prev ? { ...prev, costo_envio: data.envio } : prev)
+          setPedido(prev => prev ? { ...prev, costo_envio: data.envio } : prev)
           setMonto(prevMonto => {
             // Solo actualiza el campo si el repartidor no lo tocó todavía
             // (sigue igual al total sin envío que se puso al cargar).
@@ -317,6 +344,7 @@ export default function EntregaPage() {
   }
 
   async function finalizarEntregaConPOD() {
+    if (!pedido) return
     if (!fotoFile) {
       alert('Debes tomar una foto del pedido en la puerta como comprobante.')
       return
@@ -442,6 +470,7 @@ export default function EntregaPage() {
   }
 
   async function confirmarFallo() {
+    if (!pedido) return
     if (!motivoFallo) { setError('Selecciona un motivo'); return }
     setGuardando(true); setError('')
 
@@ -488,7 +517,7 @@ export default function EntregaPage() {
         <p className="text-gray-500 text-xs font-semibold uppercase tracking-wider">Resumen del Pedido</p>
         <div className="flex justify-between text-sm">
           <span className="text-gray-400">Items Recolectados</span>
-          <span className="text-white font-semibold">{items.filter((i: any) => i.picking_completado).length} items</span>
+          <span className="text-white font-semibold">{items.filter(i => i.picking_completado).length} items</span>
         </div>
         <div className="flex justify-between text-sm">
           <span className="text-gray-400">{esTransferencia ? 'Método de Pago' : 'Total cobrado en efectivo'}</span>
